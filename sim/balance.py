@@ -8,6 +8,7 @@ usage:
   python3 sim/balance.py meta        採用率（目標は基準値の0.3〜2.5倍）
   python3 sim/balance.py commander   総大将の前衛配置と後衛配置の勝率差
   python3 sim/balance.py cost        コストの加算性（1点の価値がどこでも同じか）
+  python3 sim/balance.py skills      必殺技のひな型ごとの強さ
   python3 sim/balance.py all         すべて
 """
 
@@ -290,10 +291,58 @@ def cmd_commander():
             print(f"    {tag}（{name}）: 前衛 {wf}% / 後衛 {wb}%  差 {gap:+d}pt → {verdict}")
 
 
+
+# --- skills --------------------------------------------------------------
+
+def skill_team(skill_key, cost=5, troop="inf", role="bruiser"):
+    """全員が同じ必殺技を持つ検証用編成。必殺技以外の条件を完全に揃える。"""
+    import roster
+    cards = []
+    for i in range(6):
+        person = f"技{skill_key}{i}"
+        roster.ROMAJI[person] = f"s{skill_key}{i}"
+        card = roster.build_card((person, "検証", cost, troop, role, skill_key, skill_key, []))
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
+def cmd_skills():
+    """必殺技のひな型ごとの強さを総当たりで測る。
+
+    能力値はコスト式で揃うが、必殺技の効果量は手で置いている。ここが揃っていないと、
+    編成の勝敗は必殺技の引きで決まってしまう。
+    """
+    import roster
+    print("=== 必殺技のひな型ごとの強さ ===")
+    print("  コスト5・歩兵・均衡役で揃え、必殺技だけを変えた編成同士を総当たりさせる。\n")
+    keys = sorted(roster.SKILLS)
+    teams = {k: skill_team(k) for k in keys}
+    scores = {k: [] for k in keys}
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            wr = winrate(teams[a], teams[b], seeds=80)
+            scores[a].append(wr)
+            scores[b].append(100 - wr)
+    ranked = sorted(keys, key=lambda k: -sum(scores[k]) / len(scores[k]))
+    print(f"  {'ひな型':<10} {'平均勝率':>8}  {'効果':<44}")
+    for k in ranked:
+        avg = sum(scores[k]) / len(scores[k])
+        eff = roster.SKILLS[k]
+        desc = " / ".join(f"{e['type']}" + (f"({e.get('power') or e.get('value') or e.get('duration')})")
+                          for e in eff["effects"])
+        print(f"  {k:<10} {avg:>7.0f}%  {eff['target']} → {desc}")
+    lo, hi = min(sum(scores[k]) / len(scores[k]) for k in keys), max(sum(scores[k]) / len(scores[k]) for k in keys)
+    print(f"\n  最弱 {lo:.0f}% 〜 最強 {hi:.0f}%（幅 {hi - lo:.0f}pt）"
+          f" → {'OK' if hi - lo <= 30 else 'NG: 必殺技の強さが揃っていない'}")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
-             "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost}
+             "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
+             "skills": cmd_skills}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()
