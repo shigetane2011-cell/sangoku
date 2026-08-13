@@ -6,8 +6,8 @@
 
 | パス | 内容 |
 | --- | --- |
-| `docs/spec/basic-game-spec-v0.2.md` | 仕様書 v0.2。**Markdown 版が正本**。 |
-| `docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.2.docx` | 配布用の docx。Markdown から生成する。 |
+| `docs/spec/basic-game-spec-v0.2.1.md` | 仕様書 v0.2.1。**Markdown 版が正本**。 |
+| `docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.2.1.docx` | 配布用の docx。Markdown から生成する。 |
 | `tools/md2docx.py` | Markdown → docx 変換スクリプト。 |
 
 仕様の変更は Markdown 側で行い、docx は生成し直す。docx を直接編集すると次回の生成で失われる。
@@ -16,9 +16,9 @@
 
 ```
 python3 tools/md2docx.py \
-  docs/spec/basic-game-spec-v0.2.md \
+  docs/spec/basic-game-spec-v0.2.1.md \
   <v0.1 の docx> \
-  docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.2.docx
+  docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.2.1.docx
 ```
 
 v0.1 の docx をテンプレートとして使い、`styles.xml` / `numbering.xml` / ヘッダー /
@@ -39,3 +39,4 @@ v0.1 の docx をテンプレートとして使い、`styles.xml` / `numbering.x
 | --- | --- |
 | v0.1 | 壁打ち内容の初回文書化。 |
 | v0.2 | v0.1 レビューの反映。戦闘の最小単位、ダメージ式、ティック処理順序、総大将、状態効果、戦場条件、参加制御などを追加。差分は仕様書 §0.1、レビュー指摘との対応は付録B を参照。 |
+| v0.2.1 | v0.2 で両案を併記していた2点を確定。総大将撤退は即敗北、消耗係数の下限は0.6。差分は仕様書 §0.2 を参照。 |

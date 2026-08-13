@@ -124,8 +124,9 @@ def column_widths(rows):
 def build_table(rows):
     widths = column_widths(rows)
     head, body = rows[0], rows[1:]
-    # v0.1 に倣い、1列目が「状態」列の表では確定行の1列目を強調する。
-    status_col = head[0].strip() in ('状態',)
+    # v0.1 に倣い、「状態」列を持つ表では確定行のその列を強調する。
+    # v0.1 では常に1列目だったが、2列目以降にある表でも同じ体裁にそろえる。
+    status_col = next((i for i, h in enumerate(head) if h.strip() == '状態'), None)
 
     out = [tbl_props(BORDER)]
     out.append('<w:tblGrid>' + ''.join(f'<w:gridCol w:w="{w}"/>' for w in widths) + '</w:tblGrid>')
@@ -133,7 +134,7 @@ def build_table(rows):
     cells = ''.join(
         cell(widths[i],
              para(runs(head[i], color='1F4D78', size=18, bold_all=True),
-                  spacing=CELL_SPACING, jc='center' if i == 0 and status_col else 'left'),
+                  spacing=CELL_SPACING, jc='center' if i == status_col else 'left'),
              fill=HEAD_FILL)
         for i in range(len(head))
     )
@@ -145,7 +146,7 @@ def build_table(rows):
         for i, text in enumerate(r[:len(widths)]):
             fill = None
             jc = 'left'
-            if i == 0 and status_col:
+            if i == status_col:
                 jc = 'center'
                 if re.sub(r'\*\*', '', text).strip() in ('確定', '必須'):
                     fill = ACCENT_FILL
