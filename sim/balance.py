@@ -350,9 +350,12 @@ def cmd_cost():
             mark = "OK" if 45 <= wr <= 55 else "NG"
             print(f"    {a:<20} 対 {b:<20} {wr:>3}%  {mark}")
 
-    # (2) 2人ぶんと1人ぶん: 6人固定では起きないが、アイテムにコストを持たせると
-    #     「1枠にコスト n ぶん」の比較になるため、人数を変えて素の加算性を測る。
-    print("\n  [2] コスト1+2 の2人 対 コスト3 の1人（人数を変えた参考測定）")
+    # (2) 2人ぶんと1人ぶん。§4.6 のコスト式は「枠の基礎価値 + コスト比例分」であり、
+    #     2人なら枠の基礎価値が2回計上される。したがって合計コストが同じでも
+    #     2人が勝つのが正しい。ここは加算性の検証ではなく、その差の大きさを見る。
+    #     アイテムにコストを持たせる場合、アイテムはコスト比例分だけを買うため、
+    #     「武将1体ぶんのコストのアイテム」は「武将1体」より弱くなる。
+    print("\n  [2] コスト1+2 の2人 対 コスト3 の1人（枠の基礎価値ぶん2人が勝つのが正しい）")
     for pair, single in [((1, 2), 3), ((2, 3), 5), ((3, 4), 7)]:
         many = [vanilla(pair[0], "inf", cid=f"m{pair[0]}a"), vanilla(pair[1], "inf", cid=f"m{pair[1]}b")]
         one = [vanilla(single, "inf", cid=f"s{single}")]
@@ -364,8 +367,8 @@ def cmd_cost():
                         {"card": many[1], "lane": 0, "row": "back"}], "commander": 0}
         tb = {"units": [{"card": one[0], "lane": 0, "row": "front"}], "commander": 0}
         wr = winrate(ta, tb, seeds=200)
-        mark = "OK" if 45 <= wr <= 55 else "NG"
-        print(f"    コスト{pair[0]}+{pair[1]} の2人 対 コスト{single} の1人: {wr:>3}%  {mark}")
+        print(f"    コスト{pair[0]}+{pair[1]} の2人 対 コスト{single} の1人: {wr:>3}%"
+              f"  （枠1つぶんの価値の差）")
 
 
 if __name__ == "__main__":

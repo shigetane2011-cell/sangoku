@@ -44,8 +44,16 @@ INF_RANGED_GUARD = 2
 CRIT_MULT = 150               # クリティカル倍率 1.5倍（§6.4）
 DAMAGE_VARIANCE = 5           # 通常ダメージ乱数 ±5%（§6.4）
 DAMAGE_FLOOR_PCT = 10         # 最低保証ダメージ = 基本ダメージの10%（§6.2）
-WEAR_FLOOR = 600              # 消耗係数の下限 0.6（§6.1・確定）
-WEAR_RANGE = 400              # 消耗係数の可変幅 0.4
+WEAR_FLOOR = 500              # 消耗係数の下限 0.5（§6.1・v0.5 で改訂）
+WEAR_RANGE = 1000 - WEAR_FLOOR
+
+# 撤退した味方の必殺技ゲージを、生存している味方へ引き継ぐ割合（%）。
+# 必殺技ゲージを個人の持ち物ではなく「部隊全体の資産」として扱う。
+# 部隊が1体減ると必殺技と固有特性がまるごと失われるため、低コスト武将を多く並べた
+# 編成が構造的に不利になる。引き継ぎはその罰を緩める。
+# 同時に「ゲージ上昇率の高い安い武将を先に落とさせ、強い必殺技を持つ武将へ回す」
+# という組み立てを可能にする。
+GAUGE_INHERIT_PCT = 100
 
 # 決着促進（v0.3 で追加を提案）。上限時間まで粘る展開が多すぎると、
 # 部隊戦の1/3がタイマー決着になり実況の締まりが悪くなるため、
@@ -517,6 +525,14 @@ class Battle:
                 # 敵の撤退によるゲージ加算（§7.2）。固定値ではなく秒数換算。
                 for k in self.alive(1 - u.side, u.lane):
                     k.gauge += self.gauge_seconds(k, KILL_GAUGE_SECONDS)
+                # 撤退した味方のゲージを生存味方へ引き継ぐ（部隊全体資産）。
+                if GAUGE_INHERIT_PCT and u.gauge > 0:
+                    allies = self.alive(u.side)
+                    if allies:
+                        share = u.gauge * GAUGE_INHERIT_PCT // 100 // len(allies)
+                        for a in allies:
+                            a.gauge = min(GAUGE_MAX, a.gauge + share)
+                    u.gauge = 0
 
         # 12. 勝敗判定
         return self.judge()
