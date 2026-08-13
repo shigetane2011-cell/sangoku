@@ -6,9 +6,10 @@
 
 | パス | 内容 |
 | --- | --- |
-| `docs/spec/basic-game-spec-v0.3.md` | 仕様書 v0.3（最新）。**Markdown 版が正本**。 |
-| `docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.3.docx` | 配布用の docx。Markdown から生成する。 |
-| `docs/spec/basic-game-spec-v0.2.1.md` | 仕様書 v0.2.1（前版）。 |
+| `docs/spec/basic-game-spec-v0.4.md` | 仕様書 v0.4（最新）。**Markdown 版が正本**。 |
+| `docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.4.docx` | 配布用の docx。Markdown から生成する。 |
+| `docs/spec/basic-game-spec-v0.3.md` | 仕様書 v0.3（前版）。 |
+| `docs/spec/basic-game-spec-v0.2.1.md` | 仕様書 v0.2.1。 |
 | `tools/md2docx.py` | Markdown → docx 変換スクリプト。 |
 | `sim/` | 戦闘シミュレータとバランス検証ハーネス。詳細は `sim/README.md`。 |
 
@@ -18,9 +19,9 @@
 
 ```
 python3 tools/md2docx.py \
-  docs/spec/basic-game-spec-v0.2.1.md \
+  docs/spec/basic-game-spec-v0.4.md \
   <v0.1 の docx> \
-  docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.2.1.docx
+  docs/spec/三国志部隊対戦シミュレーション_コンセプト仕様v0.4.docx
 ```
 
 v0.1 の docx をテンプレートとして使い、`styles.xml` / `numbering.xml` / ヘッダー /
@@ -43,3 +44,4 @@ v0.1 の docx をテンプレートとして使い、`styles.xml` / `numbering.x
 | v0.2 | v0.1 レビューの反映。戦闘の最小単位、ダメージ式、ティック処理順序、総大将、状態効果、戦場条件、参加制御などを追加。差分は仕様書 §0.1、レビュー指摘との対応は付録B を参照。 |
 | v0.2.1 | v0.2 で両案を併記していた2点を確定。総大将撤退は即敗北、消耗係数の下限は0.6。差分は仕様書 §0.2 を参照。 |
 | v0.3 | 数値シミュレーションによる検証を反映。必殺技ゲージ、攻撃間隔、兵種予算、コスト効率、決着促進などを改訂。差分は仕様書 §0.3 を参照。 |
+| v0.4 | 総大将は後衛有利を仕様として受け入れ、固有特性「陣頭」で前衛型の例外を作る方針を確定。兵種有利補正を +15% から +4% へ引き下げ。差分は仕様書 §0.4 を参照。 |

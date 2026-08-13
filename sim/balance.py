@@ -247,19 +247,48 @@ def cmd_meta():
 
 # --- commander -----------------------------------------------------------
 
+def has_vanguard(cid):
+    return "vanguard" in CARDS[cid].get("traits", [])
+
+
 def cmd_commander():
-    print("=== 総大将の配置（§4.6 目標 後衛配置85%以下）===")
-    print("  同一編成で総大将だけを前衛/後衛に変えて勝率を比較する。")
+    print("=== 総大将の配置 ===")
+    print("  同一編成で総大将だけを前衛・中/後衛・中に変えて勝率を比較する。")
+    print("  後衛有利は仕様として受け入れる。固有特性「陣頭」を持つ武将だけ、")
+    print("  前衛配置が後衛配置を上回ることを確認する（§4.2）。")
     for key, (label, cap) in REGULATIONS.items():
         base = baseline(cap)
         opponents = [t[0] for t in sample_teams(cap, 6, seed=777)]
-        front = make_team(base, commander=1)   # 前衛・中
-        back = make_team(base, commander=4)    # 後衛・中
-        wf = sum(winrate(front, o, seeds=80) for o in opponents) // len(opponents)
-        wb = sum(winrate(back, o, seeds=80) for o in opponents) // len(opponents)
-        gap = wb - wf
-        verdict = "後衛が有利" if gap > 3 else ("前衛が有利" if gap < -3 else "拮抗")
-        print(f"  [{label}] 前衛配置 {wf}% / 後衛配置 {wb}%  差 {gap:+d}pt  → {verdict}")
+        print(f"\n  [{label}]")
+        # 総大将にする札を、陣頭を持つもの/持たないものからそれぞれ選ぶ
+        picks = []
+        plain = next((i for i, c in enumerate(base) if not has_vanguard(c)), None)
+        van = next((i for i, c in enumerate(base) if has_vanguard(c)), None)
+        if plain is not None:
+            picks.append(("陣頭なし", plain))
+        if van is not None:
+            picks.append(("陣頭あり", van))
+        else:
+            print("    ※ 基準編成に陣頭持ちがいないため、1枠を差し替えて測定する")
+            cand = next((c for c in ALL_IDS if has_vanguard(c) and c not in base
+                         and sum(CARDS[x]["cost"] for x in base) - CARDS[base[0]]["cost"]
+                         + CARDS[c]["cost"] <= cap), None)
+            if cand:
+                base = [cand] + base[1:]
+                picks.append(("陣頭あり", 0))
+        for tag, slot in picks:
+            order = list(base)
+            order[0], order[slot] = order[slot], order[0]   # 対象を先頭へ
+            front = make_team(order, commander=0)           # 前衛・左
+            back_order = list(order)
+            back_order[0], back_order[3] = back_order[3], back_order[0]
+            back = make_team(back_order, commander=3)       # 後衛・左
+            wf = sum(winrate(front, o, seeds=60) for o in opponents) // len(opponents)
+            wb = sum(winrate(back, o, seeds=60) for o in opponents) // len(opponents)
+            gap = wf - wb
+            name = CARDS[order[0]]["name"]
+            verdict = "前衛が有利" if gap > 3 else ("後衛が有利" if gap < -3 else "拮抗")
+            print(f"    {tag}（{name}）: 前衛 {wf}% / 後衛 {wb}%  差 {gap:+d}pt → {verdict}")
 
 
 def main():

@@ -26,7 +26,10 @@ GAUGE_MAX = 10000             # 必殺技ゲージ最大 100
 GAUGE_PER_SEC = 200           # 時間経過によるゲージ上昇 2.0/秒（§7.2・v0.3 実測で改訂）
 
 DEFENSE_K = 100               # ダメージ軽減の定数 K（§6.2）
-TROOP_ADVANTAGE = 115         # 兵種有利のダメージ補正 +15%（§5.3）
+TROOP_ADVANTAGE = 104         # 兵種有利のダメージ補正 +4%（§5.3・v0.4 で改訂）
+# 部隊戦は60秒以上続くため、毎回の攻撃に乗る補正は複利で効く。+15% では
+# コスト揃えの単一兵種編成で有利側が100%勝利していた。実測は
+# +3%→47/100/64、+5%→72/100/76、+10%→95/100/95（歩→騎/騎→弓/弓→歩）。
 CRIT_MULT = 150               # クリティカル倍率 1.5倍（§6.4）
 DAMAGE_VARIANCE = 5           # 通常ダメージ乱数 ±5%（§6.4）
 DAMAGE_FLOOR_PCT = 10         # 最低保証ダメージ = 基本ダメージの10%（§6.2）
@@ -45,6 +48,13 @@ MOD_CAP = 50                  # 1つの能力への補正合計は ±50% に丸�
 
 COMMANDER_HP_BONUS = 110      # 総大将の最大兵力 +10%（§4.2）
 COMMANDER_GAUGE_BONUS = 110   # 総大将の必殺技ゲージ上昇率 +10%（§4.2）
+
+# 固有特性「陣頭」（§4.2）。総大将として前衛に配置したときだけ働く。
+# 総大将は後衛に置くのが基本的に有利であり、それ自体は自然な判断として受け入れる。
+# 前衛配置を全体調整で成立させるのではなく、この特性を持つ一部の武将にだけ
+# 「前に出て戦う」選択肢を与える。
+VANGUARD_HP_BONUS = 125       # 自身の最大兵力 +25%
+VANGUARD_ALLY_ATK = 8         # 味方全体の攻撃力 +8%
 
 # 三すくみ（§5.3）。attacker が victim に対して有利なら True。
 BEATS = {"cav": "arc", "arc": "inf", "inf": "cav"}
@@ -157,16 +167,33 @@ class Battle:
         for side, team in enumerate(teams):
             for idx, entry in enumerate(team["units"]):
                 self.units.append(self._make_unit(entry, side, idx == team["commander"]))
+        self.apply_vanguard()
         self.result = None
 
+    def apply_vanguard(self):
+        """「陣頭」を持つ総大将が前衛にいる側へ、開戦時に味方全体の攻撃力補正を与える。"""
+        for side in (0, 1):
+            cmdr = next(u for u in self.units if u.side == side and u.is_commander)
+            if cmdr.row != "front" or not self.has_trait(cmdr.card, "vanguard"):
+                continue
+            for u in self.units:
+                if u.side == side:
+                    u.effects.append(Effect(kind="mod", stat="atk", value=VANGUARD_ALLY_ATK,
+                                            remaining=MAX_TICKS + 1, name="陣頭"))
+
     # ---- 構築 -------------------------------------------------------------
+
+    def has_trait(self, card, trait) -> bool:
+        return trait in card.get("traits", [])
 
     def _make_unit(self, entry, side, is_commander) -> Unit:
         card = entry["card"]
         hp = card["hp"]
+        lane, row = entry["lane"], entry["row"]
         if is_commander:
             hp = hp * COMMANDER_HP_BONUS // 100
-        lane, row = entry["lane"], entry["row"]
+            if row == "front" and self.has_trait(card, "vanguard"):
+                hp = hp * VANGUARD_HP_BONUS // 100
         if side == 0:
             pos = 0 if row == "front" else -BACK_OFFSET
         else:

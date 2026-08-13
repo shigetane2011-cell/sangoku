@@ -11,6 +11,7 @@
       "id": "ryofu_hisho", "person": "呂布", "name": "呂布〔飛将〕", "tier": "high",
       "cost": 10, "troop": "cav", "hp": 4700, "atk": 74, "dfn": 60, "speed": 13,
       "gauge_rate": 95, "acc": 92, "crit": 20,
+      "traits": ["vanguard"],
       "skill": {"name": "無双乱舞", "target": "front_enemy",
                 "effects": [{"type": "damage", "power": 220}]}
     },
@@ -25,6 +26,7 @@
       "id": "chohi_toyo", "person": "張飛", "name": "張飛〔当陽橋〕", "tier": "high",
       "cost": 8, "troop": "inf", "hp": 4650, "atk": 62, "dfn": 70, "speed": 8,
       "gauge_rate": 100, "acc": 88, "crit": 12,
+      "traits": ["vanguard"],
       "skill": {"name": "一喝", "target": "lane_enemies",
                 "effects": [{"type": "stun", "duration": 25},
                             {"type": "mod", "stat": "atk", "value": -20, "duration": 100}]}
@@ -54,6 +56,7 @@
       "id": "kakoton_dokugan", "person": "夏侯惇", "name": "夏侯惇〔独眼〕", "tier": "high",
       "cost": 7, "troop": "inf", "hp": 4400, "atk": 59, "dfn": 66, "speed": 8,
       "gauge_rate": 100, "acc": 88, "crit": 10,
+      "traits": ["vanguard"],
       "skill": {"name": "抜矢啖睛", "target": "all_allies",
                 "effects": [{"type": "mod", "stat": "dfn", "value": 25, "duration": 250}]}
     },
@@ -76,6 +79,7 @@
       "id": "kannei_kinpan", "person": "甘寧", "name": "甘寧〔錦帆賊〕", "tier": "mid",
       "cost": 5, "troop": "cav", "hp": 3500, "atk": 57, "dfn": 42, "speed": 13,
       "gauge_rate": 110, "acc": 92, "crit": 16,
+      "traits": ["vanguard"],
       "skill": {"name": "百騎劫営", "target": "enemy_back_lane",
                 "effects": [{"type": "damage", "power": 160}]}
     },
@@ -156,6 +160,7 @@
       "id": "chinto_hakuji", "person": "陳到", "name": "陳到〔白毦〕", "tier": "low",
       "cost": 3, "troop": "inf", "hp": 2900, "atk": 44, "dfn": 44, "speed": 8,
       "gauge_rate": 100, "acc": 87, "crit": 8,
+      "traits": ["vanguard"],
       "skill": {"name": "白毦兵", "target": "self",
                 "effects": [{"type": "mod", "stat": "dfn", "value": 45, "duration": 300}]}
     },
