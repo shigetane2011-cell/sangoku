@@ -49,8 +49,17 @@ def run(text, *, bold=False, color='1F2937', size=22, mono=False):
     return f'<w:r><w:rPr>{rpr}</w:rPr><w:t{space}>{esc(text)}</w:t></w:r>'
 
 
+WARNINGS = []
+
+
 def runs(text, *, color='1F2937', size=22, bold_all=False):
-    """**bold** を解釈して w:r の並びを返す。"""
+    """**bold** を解釈して w:r の並びを返す。
+
+    太字は1行内で閉じる必要がある。行をまたぐと ** が本文にそのまま残るため、
+    検出して警告する（黙って壊れると気づけない）。
+    """
+    if text.count('**') % 2:
+        WARNINGS.append(f'閉じていない太字マーカー: {text[:60]}')
     out = []
     for i, part in enumerate(re.split(r'\*\*(.+?)\*\*', text)):
         if part:
@@ -380,6 +389,10 @@ def main():
             z.writestr(n, blobs[n])
 
     print(f'wrote {out_path} ({len(document):,} bytes of document.xml)')
+    for w in WARNINGS:
+        print(f'  警告: {w}')
+    if WARNINGS:
+        sys.exit(f'{len(WARNINGS)} 件の警告があります。太字を1行内で閉じてください。')
 
 
 if __name__ == '__main__':
