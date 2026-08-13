@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""武将ロスターから cards.json を生成する。
+
+能力値を手で置くのをやめ、**コストから機械的に導出する**。理由は2つある。
+
+1. 60人ぶんの能力値を手で置くと、兵種ごと・コスト帯ごとの予算がすぐ崩れる。
+   v0.3 の24枚では総合値/コストが 歩兵556 / 騎兵701 / 弓兵304 まで割れており、
+   弓兵は他の2兵種に勝率0%だった。
+2. コストを通貨として扱いたい（アイテムにもコストを持たせたい）なら、
+   コストと強さの関係が式で表現されていなければならない。
+
+コストと強さの関係（§4.6）:
+
+    強さ(コスト) = 枠の基礎価値 + コスト比例分
+
+1部隊は6枠固定なので、枠の基礎価値は全編成に等しく乗る。したがって
+**合計コストが同じ編成は、配分によらず総価値が等しくなる**。これがないと、
+コスト2の武将は相手の火力に耐えられず貢献前に消えるため、極端な配分編成が
+一方的に弱くなる（実測: 極端配分は均等配分に勝率0%）。
+
+usage: python3 sim/roster.py [--write]
+"""
+
+import json
+import math
+import os
+import sys
+
+# 枠の基礎価値の割合。コスト5の武将の強さを1.0としたときの、
+# コストを1点も払わずに得られる分。sim/balance.py cost で決めた実測値。
+SLOT_VALUE = 0.55
+NORM_COST = 5           # 正規化の基準コスト
+TARGET_SCORE = 2550     # コスト5の武将の総合値（実効耐久 × 火力 / 1000）
+
+TROOP = {
+    "inf": {"interval": 12, "range": 100, "evade_base": 0, "label": "歩兵",
+            "speed": 8, "dfn": 52, "acc": 88, "crit": 9},
+    "cav": {"interval": 11, "range": 100, "evade_base": 5, "label": "騎兵",
+            "speed": 12, "dfn": 44, "acc": 90, "crit": 14},
+    "arc": {"interval": 13, "range": 450, "evade_base": 0, "label": "弓兵",
+            "speed": 7, "dfn": 36, "acc": 91, "crit": 12},
+}
+
+# 役割ごとの内訳。耐久と火力の積が1になるようにして、総合値を変えずに個性だけ変える。
+ROLE = {
+    "tank":    {"hp": 1.35, "atk": 1 / 1.35, "dfn": 1.15, "gauge": 95,  "label": "耐久"},
+    "bruiser": {"hp": 1.15, "atk": 1 / 1.15, "dfn": 1.05, "gauge": 100, "label": "均衡"},
+    "dps":     {"hp": 1 / 1.25, "atk": 1.25, "dfn": 0.92, "gauge": 100, "label": "火力"},
+    "burst":   {"hp": 1 / 1.4, "atk": 1.4, "dfn": 0.85, "gauge": 105, "label": "瞬発"},
+    "support": {"hp": 1.1, "atk": 1 / 1.1, "dfn": 0.95, "gauge": 130, "label": "支援"},
+}
+
+# 必殺技のひな型。役割と兵種から選ぶ。名前はカードごとに差し替える。
+SKILLS = {
+    "strike":  {"target": "front_enemy", "effects": [{"type": "damage", "power": 190}]},
+    "sweep":   {"target": "lane_enemies", "effects": [{"type": "damage", "power": 120}]},
+    "snipe":   {"target": "enemy_lowest", "effects": [{"type": "damage", "power": 215}]},
+    "raid":    {"target": "enemy_back_lane", "effects": [{"type": "damage", "power": 175}]},
+    "hold":    {"target": "front_enemy", "effects": [{"type": "stun", "duration": 30}]},
+    "roar":    {"target": "lane_enemies",
+                "effects": [{"type": "stun", "duration": 20},
+                            {"type": "mod", "stat": "atk", "value": -18, "duration": 100}]},
+    "guard":   {"target": "lane_allies",
+                "effects": [{"type": "mod", "stat": "dfn", "value": 28, "duration": 250}]},
+    "rally":   {"target": "all_allies",
+                "effects": [{"type": "mod", "stat": "atk", "value": 16, "duration": 220}]},
+    "urge":    {"target": "all_allies", "effects": [{"type": "gauge", "seconds": 8}]},
+    "curse":   {"target": "all_enemies",
+                "effects": [{"type": "mod", "stat": "acc", "value": -16, "duration": 200}]},
+    "burn":    {"target": "lane_enemies",
+                "effects": [{"type": "dot", "power": 38, "duration": 200, "interval": 20}]},
+    "snare":   {"target": "lane_enemies",
+                "effects": [{"type": "mod", "stat": "speed", "value": -35, "duration": 200},
+                            {"type": "dot", "power": 24, "duration": 150, "interval": 20}]},
+}
+
+# (人物, 字号, コスト, 兵種, 役割, 必殺技ひな型, 必殺技名, 特性)
+ROSTER = [
+    # --- コスト10 ---
+    ("呂布", "飛将", 10, "cav", "burst", "strike", "無双乱舞", ["vanguard"]),
+    ("諸葛亮", "臥龍", 10, "arc", "support", "curse", "東南の風", []),
+    # --- コスト9 ---
+    ("関羽", "漢寿亭侯", 9, "cav", "bruiser", "sweep", "青龍偃月", []),
+    ("曹操", "魏王", 9, "cav", "support", "rally", "唯才是挙", ["vanguard"]),
+    ("周瑜", "赤壁", 9, "arc", "dps", "burn", "火計", []),
+    ("趙雲", "長坂坡", 9, "cav", "dps", "raid", "単騎突入", []),
+    # --- コスト8 ---
+    ("張飛", "当陽橋", 8, "inf", "tank", "roar", "一喝", ["vanguard"]),
+    ("司馬懿", "冢虎", 8, "arc", "support", "snare", "堅忍", []),
+    ("黄忠", "定軍山", 8, "arc", "burst", "snipe", "百歩穿楊", []),
+    ("孫策", "小覇王", 8, "cav", "dps", "strike", "江東の疾風", ["vanguard"]),
+    ("陸遜", "夷陵", 8, "arc", "support", "burn", "連環の計", []),
+    ("馬超", "錦馬超", 8, "cav", "dps", "raid", "西涼の驍将", []),
+    # --- コスト7 ---
+    ("夏侯惇", "独眼", 7, "inf", "tank", "guard", "抜矢啖睛", ["vanguard"]),
+    ("太史慈", "神射", 7, "arc", "dps", "snipe", "神射", []),
+    ("甘寧", "錦帆賊", 7, "cav", "burst", "raid", "百騎劫営", ["vanguard"]),
+    ("張遼", "逍遥津", 7, "cav", "bruiser", "strike", "突撃", []),
+    ("龐統", "鳳雛", 7, "arc", "support", "urge", "鳳雛の献策", []),
+    ("徐晃", "長駆", 7, "inf", "bruiser", "strike", "長駆直入", []),
+    # --- コスト6 ---
+    ("魏延", "子午", 6, "cav", "dps", "snipe", "子午の奇襲", []),
+    ("姜維", "幼麟", 6, "cav", "bruiser", "sweep", "九伐中原", []),
+    ("張郃", "巧変", 6, "inf", "bruiser", "strike", "巧変", []),
+    ("呂蒙", "白衣", 6, "arc", "dps", "raid", "白衣渡江", []),
+    ("郭嘉", "鬼才", 6, "arc", "support", "curse", "十勝十敗", []),
+    ("于禁", "毅重", 6, "inf", "tank", "guard", "毅重", []),
+    ("荀彧", "王佐", 6, "arc", "support", "rally", "王佐の才", []),
+    # --- コスト5 ---
+    ("楽進", "先登", 5, "inf", "bruiser", "hold", "先登", []),
+    ("李典", "慎重", 5, "arc", "dps", "sweep", "斉射", []),
+    ("凌統", "断金", 5, "inf", "dps", "strike", "断金の交", []),
+    ("程普", "老練", 5, "inf", "tank", "guard", "老練", []),
+    ("黄蓋", "苦肉", 5, "inf", "tank", "roar", "苦肉の計", ["vanguard"]),
+    ("賈詡", "毒士", 5, "arc", "support", "curse", "離間の計", []),
+    ("法正", "翼侯", 5, "arc", "support", "urge", "献策", []),
+    ("夏侯淵", "神速", 5, "cav", "dps", "raid", "神速", []),
+    # --- コスト4 ---
+    ("曹仁", "堅守", 4, "inf", "tank", "guard", "鉄壁", []),
+    ("韓当", "老弓", 4, "arc", "dps", "sweep", "連射", []),
+    ("朱然", "江陵", 4, "inf", "tank", "hold", "江陵の守", []),
+    ("王平", "無当", 4, "inf", "bruiser", "hold", "無当飛軍", []),
+    ("郭淮", "雍涼", 4, "cav", "bruiser", "strike", "雍涼の備", []),
+    ("荀攸", "謀主", 4, "arc", "support", "snare", "謀主", []),
+    ("陳宮", "公台", 4, "arc", "support", "curse", "公台の策", []),
+    ("高順", "陥陣", 4, "inf", "dps", "strike", "陥陣営", ["vanguard"]),
+    # --- コスト3 ---
+    ("陳到", "白毦", 3, "inf", "tank", "guard", "白毦兵", ["vanguard"]),
+    ("傅僉", "守将", 3, "inf", "tank", "guard", "堅守", []),
+    ("廖化", "老将", 3, "inf", "bruiser", "hold", "殿軍", []),
+    ("馬岱", "追撃", 3, "cav", "dps", "snipe", "追撃", []),
+    ("周泰", "身代", 3, "inf", "tank", "guard", "身代わり", []),
+    ("徐盛", "疑城", 3, "arc", "bruiser", "sweep", "疑城の計", []),
+    ("曹洪", "救主", 3, "cav", "bruiser", "strike", "救主", []),
+    ("満寵", "剛毅", 3, "arc", "dps", "snipe", "剛毅", []),
+    # --- コスト2 ---
+    ("潘璋", "急襲", 2, "cav", "dps", "raid", "急襲", []),
+    ("丁奉", "雪中", 2, "arc", "burst", "snipe", "雪中奮短兵", []),
+    ("呉懿", "外戚", 2, "inf", "bruiser", "hold", "堅陣", []),
+    ("張嶷", "越巂", 2, "inf", "tank", "guard", "越巂の鎮", []),
+    ("李厳", "正方", 2, "arc", "support", "urge", "督運", []),
+    ("楽綝", "揚州", 2, "cav", "dps", "strike", "揚州の驍", []),
+    ("董襲", "断纜", 2, "inf", "dps", "strike", "断纜", []),
+    # --- コスト1 ---
+    ("樊建", "伝令", 1, "arc", "support", "urge", "伝令", []),
+    ("宗預", "使者", 1, "arc", "support", "rally", "結盟", []),
+    ("全琮", "護軍", 1, "cav", "bruiser", "strike", "護軍", []),
+    ("孫乾", "従事", 1, "inf", "support", "guard", "従事", []),
+]
+
+ROMAJI = {
+    "呂布": "ryofu", "諸葛亮": "shokatsuryo", "関羽": "kanu", "曹操": "sosou",
+    "周瑜": "shuyu", "趙雲": "chouun", "張飛": "chohi", "司馬懿": "shibai",
+    "黄忠": "kochu", "孫策": "sonsaku", "陸遜": "rikuson", "馬超": "bachou",
+    "夏侯惇": "kakoton", "太史慈": "taishiji", "甘寧": "kannei", "張遼": "choryo",
+    "龐統": "hoto", "徐晃": "jokou", "魏延": "gien", "姜維": "kyoi",
+    "張郃": "chokaku", "呂蒙": "ryomo", "郭嘉": "kakuka", "于禁": "ukin",
+    "荀彧": "juniku", "楽進": "gakushin", "李典": "riten", "凌統": "ryoto",
+    "程普": "teiho2", "黄蓋": "kogai", "賈詡": "kaku", "法正": "hosei",
+    "夏侯淵": "kakoen", "曹仁": "sojin", "韓当": "kanto", "朱然": "shuzen",
+    "王平": "ohei", "郭淮": "kakuwai", "荀攸": "junyu", "陳宮": "chinkyu",
+    "高順": "kojun", "陳到": "chinto", "傅僉": "fusen", "廖化": "ryoka",
+    "馬岱": "batai", "周泰": "shutai", "徐盛": "josei", "曹洪": "sokou",
+    "満寵": "manchou", "潘璋": "hansho", "丁奉": "teiho", "呉懿": "goi",
+    "張嶷": "chogyoku", "李厳": "rigen", "楽綝": "gakushin2", "董襲": "toshu",
+    "樊建": "hanken", "宗預": "soyo", "全琮": "zensou", "孫乾": "sonken",
+}
+
+
+def value(cost):
+    """コストから総合値を出す。枠の基礎価値 + コスト比例分。"""
+    ratio = SLOT_VALUE + (1 - SLOT_VALUE) * cost / NORM_COST
+    return TARGET_SCORE * ratio
+
+
+def tier_of(cost):
+    return "low" if cost <= 3 else ("mid" if cost <= 6 else "high")
+
+
+def build_card(entry):
+    person, epithet, cost, troop, role, skill_key, skill_name, traits = entry
+    t, r = TROOP[troop], ROLE[role]
+    dfn = max(10, round(t["dfn"] * r["dfn"]))
+    # 総合値 = 実効耐久 × 火力 / 1000 が value(cost) になるよう倍率を解く
+    hp1, atk1 = 1000 * r["hp"], 20 * r["atk"]
+    score1 = (hp1 * (100 + dfn) / 100) * (atk1 * 100 / t["interval"]) / 1000
+    f = math.sqrt(value(cost) / score1)
+    card = {
+        "id": f"{ROMAJI[person]}_{cost}",
+        "person": person,
+        "name": f"{person}〔{epithet}〕",
+        "tier": tier_of(cost),
+        "cost": cost,
+        "troop": troop,
+        "role": role,
+        "hp": max(200, round(hp1 * f / 50) * 50),
+        "atk": max(5, round(atk1 * f)),
+        "dfn": dfn,
+        "speed": t["speed"],
+        "gauge_rate": r["gauge"],
+        "acc": t["acc"],
+        "crit": t["crit"],
+    }
+    if traits:
+        card["traits"] = traits
+    card["skill"] = {"name": skill_name, **SKILLS[skill_key]}
+    return card
+
+
+def generate():
+    cards = [build_card(e) for e in ROSTER]
+    ids = [c["id"] for c in cards]
+    assert len(set(ids)) == len(ids), "武将カードIDが重複している"
+    persons = [c["person"] for c in cards]
+    assert len(set(persons)) == len(persons), "人物IDが重複している"
+    return {
+        "data_version": "v0.5-roster-60",
+        "note": ("sim/roster.py が生成する。手で編集しないこと。"
+                 "能力値はコストから機械的に導出している（§4.6）。"),
+        "troop_defaults": {k: {kk: vv for kk, vv in v.items()
+                               if kk in ("interval", "range", "evade_base", "label")}
+                           for k, v in TROOP.items()},
+        "cards": cards,
+    }
+
+
+def report(data):
+    intervals = {t: v["interval"] for t, v in data["troop_defaults"].items()}
+    print(f"武将 {len(data['cards'])}人")
+    from collections import Counter
+    print("  コスト分布:", dict(sorted(Counter(c["cost"] for c in data["cards"]).items())))
+    print("  兵種分布:", dict(Counter(c["troop"] for c in data["cards"])))
+    print("  役割分布:", dict(Counter(c["role"] for c in data["cards"])))
+    print("  特性持ち:", sum(1 for c in data["cards"] if c.get("traits")))
+    print("\n  コスト別の総合値/コスト（枠の基礎価値があるため低コストほど高くなるのが正しい）")
+    by_cost = {}
+    for c in data["cards"]:
+        s = (c["hp"] * (100 + c["dfn"]) // 100) * (c["atk"] * 100 // intervals[c["troop"]]) // 1000
+        by_cost.setdefault(c["cost"], []).append(s)
+    for cost in sorted(by_cost):
+        v = by_cost[cost]
+        print(f"    コスト{cost:>2}: 総合値 {sum(v)//len(v):>5} "
+              f"(幅 {min(v)}-{max(v)}) / コスト比 {sum(v)//len(v)//cost:>4}")
+
+
+if __name__ == "__main__":
+    data = generate()
+    report(data)
+    if "--write" in sys.argv:
+        path = os.path.join(os.path.dirname(__file__), "cards.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"\nwrote {path}")

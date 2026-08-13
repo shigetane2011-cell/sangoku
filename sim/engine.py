@@ -24,6 +24,9 @@ LANE_DEPTH = 100 * 10         # レーン奥行き 100単位（§5.2）
 BACK_OFFSET = 15 * 10         # 後衛は自軍前衛の後方15単位
 GAUGE_MAX = 10000             # 必殺技ゲージ最大 100
 GAUGE_PER_SEC = 200           # 時間経過によるゲージ上昇 2.0/秒（§7.2・v0.3 実測で改訂）
+KILL_GAUGE_SECONDS = 3        # 敵撤退時のゲージ加算。固定値ではなく「自然増加の何秒ぶん」
+SURPLUS_GAUGE_PER_COST = 2    # 余剰コスト1につき初期ゲージ +2%（§4.5）
+SURPLUS_GAUGE_CAP = 10        # 余剰コストによる初期ゲージの上限 +10%
 
 DEFENSE_K = 100               # ダメージ軽減の定数 K（§6.2）
 TROOP_ADVANTAGE = 104         # 兵種有利のダメージ補正 +4%（§5.3・v0.4 で改訂）
@@ -168,7 +171,28 @@ class Battle:
             for idx, entry in enumerate(team["units"]):
                 self.units.append(self._make_unit(entry, side, idx == team["commander"]))
         self.apply_vanguard()
+        self.apply_surplus(teams)
         self.result = None
+
+    def apply_surplus(self, teams):
+        """余剰コストを初期必殺技ゲージへ変換する（§4.5）。
+
+        6人固定かつコスト上限制のため、コストを余らせても得がないと
+        「上限ぴったりに使い切る」以外の選択肢が消える。率で与えるため、
+        ゲージ上昇率の高低にかかわらず同じ割合だけ前倒しになる。
+        """
+        for side, team in enumerate(teams):
+            cap = team.get("cap")
+            if cap is None:
+                continue
+            spent = sum(e["card"]["cost"] for e in team["units"])
+            surplus = max(0, cap - spent)
+            pct = min(SURPLUS_GAUGE_CAP, surplus * SURPLUS_GAUGE_PER_COST)
+            if not pct:
+                continue
+            for u in self.units:
+                if u.side == side:
+                    u.gauge += GAUGE_MAX * pct // 100
 
     def apply_vanguard(self):
         """「陣頭」を持つ総大将が前衛にいる側へ、開戦時に味方全体の攻撃力補正を与える。"""
@@ -238,6 +262,14 @@ class Battle:
         if u.is_commander:
             rate = rate * COMMANDER_GAUGE_BONUS // 100
         return rate
+
+    def gauge_seconds(self, u: Unit, seconds: int) -> int:
+        """「自然増加の n 秒ぶん」をゲージ量へ換算する。
+
+        固定値でゲージを与えると、ゲージ上昇率の低い武将ほど相対的に得をする。
+        秒数で定義すれば、その武将自身の上昇率に比例するため歪みが出ない。
+        """
+        return GAUGE_PER_SEC * self.gauge_rate(u) // 100 * seconds
 
     def alive(self, side: int, lane: int | None = None):
         return [u for u in self.units
@@ -374,7 +406,10 @@ class Battle:
                                               countdown=eff["interval"],
                                               source_atk=u.card["atk"], name=skill["name"]))
                 elif kind == "gauge":
-                    t.gauge = min(GAUGE_MAX, t.gauge + eff["value"])
+                    # seconds 指定を基本とする。value は旧形式の固定値。
+                    gain = (self.gauge_seconds(t, eff["seconds"]) if "seconds" in eff
+                            else eff.get("value", 0))
+                    t.gauge = min(GAUGE_MAX, t.gauge + gain)
         self.emit(f"{u.card['name']}の必殺技「{skill['name']}」が発動")
 
     def add_effect(self, target: Unit, eff: Effect):
@@ -469,9 +504,9 @@ class Battle:
                 u.retreated = True
                 u.hp = 0
                 self.emit(f"{u.card['name']}が撤退")
-                # 敵の撤退でゲージ +10（§7.2）
+                # 敵の撤退によるゲージ加算（§7.2）。固定値ではなく秒数換算。
                 for k in self.alive(1 - u.side, u.lane):
-                    k.gauge += 1000
+                    k.gauge += self.gauge_seconds(k, KILL_GAUGE_SECONDS)
 
         # 12. 勝敗判定
         return self.judge()

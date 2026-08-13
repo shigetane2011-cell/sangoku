@@ -5,8 +5,9 @@ usage:
   python3 sim/balance.py check       健全性（決定論・戦闘時間・決着理由・必殺技回数）
   python3 sim/balance.py troops      兵種三すくみが機能しているか
   python3 sim/balance.py swap        差し替え勝率（目標 47-53%）
-  python3 sim/balance.py meta        採用率（目標 上限30% / 下限3%）
+  python3 sim/balance.py meta        採用率（目標は基準値の0.3〜2.5倍）
   python3 sim/balance.py commander   総大将の前衛配置と後衛配置の勝率差
+  python3 sim/balance.py cost        コストの加算性（1点の価値がどこでも同じか）
   python3 sim/balance.py all         すべて
 """
 
@@ -124,38 +125,36 @@ def cmd_check():
 
 # --- troops --------------------------------------------------------------
 
-def mono_team(troop, target_cost):
-    """指定兵種のみで6人編成を作る。合計コストが target に最も近い組み合わせを選ぶ。
+def mono_team(troop, costs=(5, 5, 5, 5, 5, 5), role="bruiser"):
+    """指定兵種だけの検証用編成を作る。
 
-    コストを揃えないと「騎兵43 対 歩兵30」のような不公平な比較になり、
-    三すくみではなく単なるコスト差を測ってしまう。
+    実カードから選ぶと、コストを揃えても役割構成（耐久型か火力型か）が兵種ごとに
+    偏り、三すくみではなく役割の差を測ってしまう。コスト・役割を固定した合成カードを
+    使い、兵種以外の条件を完全に揃える。
     """
-    from itertools import combinations
-    pool = sorted(c for c in ALL_IDS if CARDS[c]["troop"] == troop)
-    best = min(combinations(pool, 6),
-               key=lambda combo: (abs(sum(CARDS[c]["cost"] for c in combo) - target_cost),
-                                  tuple(combo)))
-    return list(best)
+    import roster
+    cards = []
+    for i, c in enumerate(costs):
+        entry = (f"検証{troop}{i}", "検証", c, troop, role, "strike", "検証", [])
+        roster.ROMAJI[entry[0]] = f"t{troop}{i}"
+        card = roster.build_card(entry)
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
 
 
 def cmd_troops():
-    print("=== 兵種三すくみ（合計コストを揃えて比較）===")
-    mono = {}
-    for troop in ("inf", "cav", "arc"):
-        ids = mono_team(troop, 30)
-        mono[troop] = make_team(ids, commander=4)
-        print(f"  {troop}: 合計コスト {sum(CARDS[c]['cost'] for c in ids)} "
-              f"({'/'.join(CARDS[c]['name'] for c in ids)})")
+    print("=== 兵種三すくみ ===")
+    print("  コスト・役割を固定した合成カードで、兵種以外の条件を揃えて比較する。")
     label = {"inf": "歩兵", "cav": "騎兵", "arc": "弓兵"}
-    print("  攻→守   勝率   （§5.3 の想定: 騎兵→弓兵、弓兵→歩兵、歩兵→騎兵 が有利）")
-    for a in ("inf", "cav", "arc"):
-        for b in ("inf", "cav", "arc"):
-            if a == b:
-                continue
+    for role in ("bruiser", "tank", "dps"):
+        mono = {t: mono_team(t, role=role) for t in ("inf", "cav", "arc")}
+        print(f"\n  [役割: {role}]")
+        for a, b in (("inf", "cav"), ("cav", "arc"), ("arc", "inf")):
             wr = winrate(mono[a], mono[b], seeds=200)
-            expect = "有利" if {"cav": "arc", "arc": "inf", "inf": "cav"}[a] == b else "不利"
-            mark = "OK" if (wr > 50) == (expect == "有利") else "NG"
-            print(f"  {label[a]}→{label[b]}  {wr:>3}%   想定{expect}  {mark}")
+            mark = "OK" if 55 <= wr <= 80 else ("NG(弱すぎ)" if wr < 55 else "NG(強すぎ)")
+            print(f"    {label[a]}→{label[b]}  {wr:>3}%  {mark}")
 
 
 # --- swap ----------------------------------------------------------------
@@ -221,7 +220,7 @@ def cmd_swap():
 # --- meta ----------------------------------------------------------------
 
 def cmd_meta():
-    print("=== 採用率（§4.6 目標 上限30% / 下限3%）===")
+    print("=== 採用率（§4.6 目標 基準値の0.3〜2.5倍）===")
     for key, (label, cap) in REGULATIONS.items():
         teams = sample_teams(cap, 32, seed=2026)
         scores = [0] * len(teams)
@@ -294,7 +293,7 @@ def cmd_commander():
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
-             "meta": cmd_meta, "commander": cmd_commander}
+             "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()
@@ -303,6 +302,70 @@ def main():
         table[cmd]()
     else:
         sys.exit(__doc__)
+
+
+# --- cost ----------------------------------------------------------------
+
+def vanilla(cost, troop="inf", cid=None):
+    """コストだけから能力値を決めた検証用の無個性カード。
+
+    実カードは兵種・必殺技・特性・役割が混ざるため、コストと強さの関係だけを
+    見たいときはこれを使う。能力値は roster.py と同じコスト式から導出する。
+    """
+    import roster
+    person = cid or f"検証{troop}{cost}"
+    roster.ROMAJI[person] = (cid or f"v{troop}{cost}")
+    card = roster.build_card((person, "検証", cost, troop, "bruiser", "strike", "検証", []))
+    card["skill"] = {"name": "なし", "target": "self", "effects": []}
+    return card
+
+
+def cmd_cost():
+    print("=== コストの加算性 ===")
+    print("  コスト1点の価値が、どこに配分しても同じかを見る。")
+    print("  無個性カード（兵種・必殺技・特性なし）を使い、コスト以外の差を排除する。\n")
+
+    # (1) 1枠内の線形性: コスト a+b の1枚 と、コスト a の1枚＋コスト b ぶんの
+    #     強化（アイテム相当）が釣り合うか。ここでは 6枠すべてで比較する。
+    print("  [1] 同じ合計コストを6枠へ均等に配る場合と、偏らせる場合")
+    CAP = 30
+    dists = {
+        "均等 5-5-5-5-5-5": [5, 5, 5, 5, 5, 5],
+        "やや偏り 8-6-5-4-4-3": [8, 6, 5, 4, 4, 3],
+        "強い偏り 10-8-4-3-3-2": [10, 8, 4, 3, 3, 2],
+        "極端 10-10-4-2-2-2": [10, 10, 4, 2, 2, 2],
+    }
+    teams = {}
+    for label, costs in dists.items():
+        assert sum(costs) == CAP, (label, sum(costs))
+        cards = [vanilla(c, "inf", cid=f"{label}-{i}") for i, c in enumerate(costs)]
+        for c in cards:
+            CARDS[c["id"]] = c
+        teams[label] = {"units": [{"card": c, "lane": l, "row": r}
+                                  for c, (r, l) in zip(cards, SLOTS)], "commander": 3}
+    labels = list(teams)
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            wr = winrate(teams[a], teams[b], seeds=200)
+            mark = "OK" if 45 <= wr <= 55 else "NG"
+            print(f"    {a:<20} 対 {b:<20} {wr:>3}%  {mark}")
+
+    # (2) 2人ぶんと1人ぶん: 6人固定では起きないが、アイテムにコストを持たせると
+    #     「1枠にコスト n ぶん」の比較になるため、人数を変えて素の加算性を測る。
+    print("\n  [2] コスト1+2 の2人 対 コスト3 の1人（人数を変えた参考測定）")
+    for pair, single in [((1, 2), 3), ((2, 3), 5), ((3, 4), 7)]:
+        many = [vanilla(pair[0], "inf", cid=f"m{pair[0]}a"), vanilla(pair[1], "inf", cid=f"m{pair[1]}b")]
+        one = [vanilla(single, "inf", cid=f"s{single}")]
+        for c in many + one:
+            CARDS[c["id"]] = c
+        # 2人は同じレーンの前衛・後衛へ置く。別レーンに置くと相手のいないレーンで
+        # 支援移動の時間を空費し、コストではなく配置の差を測ってしまう。
+        ta = {"units": [{"card": many[0], "lane": 0, "row": "front"},
+                        {"card": many[1], "lane": 0, "row": "back"}], "commander": 0}
+        tb = {"units": [{"card": one[0], "lane": 0, "row": "front"}], "commander": 0}
+        wr = winrate(ta, tb, seeds=200)
+        mark = "OK" if 45 <= wr <= 55 else "NG"
+        print(f"    コスト{pair[0]}+{pair[1]} の2人 対 コスト{single} の1人: {wr:>3}%  {mark}")
 
 
 if __name__ == "__main__":

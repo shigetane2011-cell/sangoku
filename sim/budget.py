@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
-"""兵種ごとのステータス予算を検算する。
+"""カードの能力値がコスト式どおりかを検算する（§4.6）。
 
-同じコストなら、兵種が違っても「実効耐久 × 火力」の総合値は揃っている必要がある。
-揃っていないと、三すくみの補正や射程の差を調整しても兵種の優劣が動かない。
+コストと強さの関係は
 
-v0.3 の初期データでは総合値/コストが 歩兵556 / 騎兵701 / 弓兵304 と大きく割れており、
-弓兵が歩兵・騎兵の両方に勝率0%という結果になっていた。カード追加のたびに本ツールで
-確認する。
+    強さ(コスト) = 枠の基礎価値 + コスト比例分
+
+である。枠の基礎価値があるため、**総合値/コストは低コストほど高くなるのが正しい**。
+したがって「総合値/コストが全カードで一定か」を見てはいけない。見るのは
+**各カードが自分のコストに対応する目標値からどれだけ外れているか**である。
+
+v0.3 では総合値/コストを一定に揃えようとしていたが、これは枠の価値を勘定に
+入れていなかったための誤りで、v0.5 で撤回した。
 
 usage: python3 sim/budget.py
 """
 
 import json
 import os
+import sys
 
-TOLERANCE = 8      # 総合値/コストの許容ぶれ幅（%）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from roster import TROOP, value  # noqa: E402
+
+TOLERANCE = 8      # 目標値からのずれの許容幅（%）
 
 
 def load():
@@ -23,14 +31,11 @@ def load():
         return json.load(f)
 
 
-def effective_hp(card):
-    """防御力によるダメージ軽減を織り込んだ実質的な耐久。"""
-    return card["hp"] * (100 + card["dfn"]) // 100
-
-
-def dps(card, interval):
-    """1秒あたりの理論火力（×100）。"""
-    return card["atk"] * 100 // interval
+def score(card, interval):
+    """総合値 = 実効耐久（防御による軽減込み） × 火力（攻撃力 ÷ 攻撃間隔）。"""
+    effective_hp = card["hp"] * (100 + card["dfn"]) // 100
+    dps = card["atk"] * 100 // interval
+    return effective_hp * dps // 1000
 
 
 def main():
@@ -38,37 +43,38 @@ def main():
     intervals = {t: v["interval"] for t, v in data["troop_defaults"].items()}
     labels = {t: v["label"] for t, v in data["troop_defaults"].items()}
 
-    print(f"{'兵種':>4} {'枚数':>4} {'間隔':>4} {'実効耐久/コスト':>14} "
-          f"{'火力/コスト':>11} {'総合/コスト':>11}")
-    totals = {}
-    for troop in ("inf", "cav", "arc"):
-        cards = [c for c in data["cards"] if c["troop"] == troop]
-        cost = sum(c["cost"] for c in cards)
-        eh = sum(effective_hp(c) for c in cards)
-        dp = sum(dps(c, intervals[troop]) for c in cards)
-        product = sum(effective_hp(c) * dps(c, intervals[troop]) // 1000 for c in cards)
-        totals[troop] = product // cost
-        print(f"{labels[troop]:>4} {len(cards):>4} {intervals[troop]:>4} "
-              f"{eh // cost:>14} {dp // cost:>11} {product // cost:>11}")
-
-    lo, hi = min(totals.values()), max(totals.values())
-    spread = (hi - lo) * 100 // max(1, lo)
-    print(f"\n総合値/コストのぶれ: {spread}%（許容 {TOLERANCE}%以内）"
-          f" → {'OK' if spread <= TOLERANCE else 'NG: 兵種間の予算が揃っていない'}")
-
-    print("\n個別カードの総合値/コスト（同コスト帯で大きく外れる札は要確認）")
     rows = []
     for c in data["cards"]:
-        score = effective_hp(c) * dps(c, intervals[c["troop"]]) // 1000 // c["cost"]
-        rows.append((c["tier"], -score, c["name"], c["cost"], labels[c["troop"]], score))
-    order = {"high": 0, "mid": 1, "low": 2}
-    rows.sort(key=lambda r: (order[r[0]], r[1]))
-    tier = None
-    for t, _, name, cost, troop, score in rows:
-        if t != tier:
-            tier = t
-            print(f"  [{ {'high': '高', 'mid': '中', 'low': '低'}[t] }コスト帯]")
-        print(f"    {score:>5}  {name}（コスト{cost} / {troop}）")
+        s = score(c, intervals[c["troop"]])
+        target = value(c["cost"])
+        rows.append((c, s, round((s / target - 1) * 100)))
+
+    worst = max(rows, key=lambda r: abs(r[2]))
+    print(f"カード {len(rows)}枚 / 目標値からのずれ 最大 {abs(worst[2])}%"
+          f"（{worst[0]['name']}）  → {'OK' if abs(worst[2]) <= TOLERANCE else 'NG'}")
+
+    print(f"\n{'兵種':>4} {'枚数':>4} {'間隔':>4} {'平均ずれ':>8} {'最大ずれ':>8}")
+    for troop in ("inf", "cav", "arc"):
+        rs = [r for r in rows if r[0]["troop"] == troop]
+        if not rs:
+            continue
+        avg = sum(r[2] for r in rs) // len(rs)
+        mx = max(abs(r[2]) for r in rs)
+        print(f"{labels[troop]:>4} {len(rs):>4} {intervals[troop]:>4} {avg:>7}% {mx:>7}%")
+
+    print(f"\n{'コスト':>6} {'枚数':>4} {'目標値':>7} {'実測平均':>8} {'総合値/コスト':>12}")
+    for cost in sorted({c["cost"] for c in data["cards"]}):
+        rs = [r for r in rows if r[0]["cost"] == cost]
+        avg = sum(r[1] for r in rs) // len(rs)
+        print(f"{cost:>6} {len(rs):>4} {round(value(cost)):>7} {avg:>8} {avg // cost:>12}")
+
+    off = [r for r in rows if abs(r[2]) > TOLERANCE]
+    if off:
+        print(f"\n許容外のカード {len(off)}枚")
+        for c, s, d in sorted(off, key=lambda r: -abs(r[2]))[:10]:
+            print(f"    {d:>+4}%  {c['name']}（コスト{c['cost']} / {labels[c['troop']]}）")
+    else:
+        print("\n全カードが許容内。")
 
 
 if __name__ == "__main__":
