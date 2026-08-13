@@ -33,6 +33,14 @@ TROOP_ADVANTAGE = 104         # 兵種有利のダメージ補正 +4%（§5.3・
 # 部隊戦は60秒以上続くため、毎回の攻撃に乗る補正は複利で効く。+15% では
 # コスト揃えの単一兵種編成で有利側が100%勝利していた。実測は
 # +3%→47/100/64、+5%→72/100/76、+10%→95/100/95（歩→騎/騎→弓/弓→歩）。
+
+# 歩兵が弓兵から受けるダメージの軽減（%）。
+# 弓兵→歩兵の優位は、射程による接敵前攻撃だけでなく「弓兵は残兵力率が最も低い敵を
+# 狙えるが、歩兵は前衛しか殴れない」という標的選択の差からも来ている。この非対称は
+# 兵種ごとの一律係数（roster.BEHAVIOR_PREMIUM）では吸収できないため、
+# 相性そのものに対策を置く。盾を並べて矢を受け止める表現でもある（§5.3）。
+INF_RANGED_GUARD = 2
+
 CRIT_MULT = 150               # クリティカル倍率 1.5倍（§6.4）
 DAMAGE_VARIANCE = 5           # 通常ダメージ乱数 ±5%（§6.4）
 DAMAGE_FLOOR_PCT = 10         # 最低保証ダメージ = 基本ダメージの10%（§6.2）
@@ -287,6 +295,8 @@ class Battle:
             base = base * TROOP_ADVANTAGE // 100
         dfn = target.card["dfn"] * (100 + target.mod("dfn")) // 100
         dfn = max(0, dfn)
+        if target.troop == "inf" and attacker.troop == "arc":
+            base = base * (100 - INF_RANGED_GUARD) // 100
         if "front_taken" in self.field and target.row == "front":
             base = base * self.field["front_taken"] // 100
         dmg = base * DEFENSE_K // (DEFENSE_K + dfn)
