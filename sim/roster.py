@@ -30,7 +30,18 @@ import sys
 # コストを1点も払わずに得られる分。sim/balance.py cost で決めた実測値。
 SLOT_VALUE = 0.55
 NORM_COST = 5           # 正規化の基準コスト
-TARGET_SCORE = 2550     # コスト5の武将の総合値（実効耐久 × 火力 / 1000）
+TARGET_SCORE = 2550     # コスト5の武将の総合値（実効耐久 × 実効火力 / 1000）
+CRIT_MULT = 1.5         # クリティカル倍率（engine.CRIT_MULT と揃える）
+REF_ACC = 90            # 回避の価値を測る基準命中率
+
+# 行動面の価値の係数。射程と移動速度は「戦闘中にどれだけ得をするか」が
+# 相手の兵種や戦場条件で変わるため、数式で価格付けできない。兵種ごとの係数を
+# 実測（sim/balance.py troops）で決め、能力値から差し引く。
+#   1.00 より大きい = 行動面で得をしているので素の能力値を下げる
+#   1.00 より小さい = 行動面の見返りが薄いので素の能力値を上げる
+# 弓兵は射程45により接敵前に数発を無償で撃てる。騎兵は移動速度が速いが、
+# 6対6の膠着戦では接敵と隣レーン支援の時間短縮にしかならず見返りが薄い。
+BEHAVIOR_PREMIUM = {"inf": 1.00, "cav": 0.98, "arc": 1.05}
 
 TROOP = {
     "inf": {"interval": 12, "range": 100, "evade_base": 0, "label": "歩兵",
@@ -173,6 +184,32 @@ def value(cost):
     return TARGET_SCORE * ratio
 
 
+def effective_score(hp, atk, dfn, interval, acc, crit, evade=0):
+    """総合値 = 実効耐久 × 実効火力。
+
+        実効耐久 = 兵力 × (100 + 防御力) / 100 × 回避による被弾減
+        実効火力 = 攻撃力 × 命中率 × クリティカル期待値 / 攻撃間隔
+
+    **強さに効く数値をひとつでも落とすと、その値が高い兵種が予算外の優位を持つ。**
+    実際に2回とも歩兵→騎兵の勝率が1桁になった。
+
+    - 命中率・クリティカル率を落としていたとき: 騎兵（命中90・クリ14）と
+      歩兵（命中88・クリ9）で実効火力に約8%の差。
+    - 回避を落としていたとき: 騎兵は回避8、歩兵は回避2で、被弾率に約7%の差。
+
+    回避は兵種標準値と移動速度から算出する（§6.3）。engine.accuracy() と同じ式。
+    """
+    effective_hp = hp * (100 + dfn) / 100 * REF_ACC / max(1, REF_ACC - evade)
+    dps = atk * (acc / 100) * (1 + crit / 100 * (CRIT_MULT - 1)) * 100 / interval
+    return effective_hp * dps / 1000
+
+
+def evade_of(troop):
+    """回避補正。engine.accuracy() の evade と同じ計算。"""
+    t = TROOP[troop]
+    return t["evade_base"] + t["speed"] // 4
+
+
 def tier_of(cost):
     return "low" if cost <= 3 else ("mid" if cost <= 6 else "high")
 
@@ -181,10 +218,12 @@ def build_card(entry):
     person, epithet, cost, troop, role, skill_key, skill_name, traits = entry
     t, r = TROOP[troop], ROLE[role]
     dfn = max(10, round(t["dfn"] * r["dfn"]))
-    # 総合値 = 実効耐久 × 火力 / 1000 が value(cost) になるよう倍率を解く
+    # 総合値が value(cost) になるよう倍率を解く
     hp1, atk1 = 1000 * r["hp"], 20 * r["atk"]
-    score1 = (hp1 * (100 + dfn) / 100) * (atk1 * 100 / t["interval"]) / 1000
-    f = math.sqrt(value(cost) / score1)
+    score1 = effective_score(hp1, atk1, dfn, t["interval"], t["acc"], t["crit"],
+                             evade_of(troop))
+    target = value(cost) / BEHAVIOR_PREMIUM[troop]
+    f = math.sqrt(target / score1)
     card = {
         "id": f"{ROMAJI[person]}_{cost}",
         "person": person,
@@ -235,7 +274,9 @@ def report(data):
     print("\n  コスト別の総合値/コスト（枠の基礎価値があるため低コストほど高くなるのが正しい）")
     by_cost = {}
     for c in data["cards"]:
-        s = (c["hp"] * (100 + c["dfn"]) // 100) * (c["atk"] * 100 // intervals[c["troop"]]) // 1000
+        s = round(effective_score(c["hp"], c["atk"], c["dfn"],
+                                  intervals[c["troop"]], c["acc"], c["crit"],
+                                  evade_of(c["troop"])))
         by_cost.setdefault(c["cost"], []).append(s)
     for cost in sorted(by_cost):
         v = by_cost[cost]

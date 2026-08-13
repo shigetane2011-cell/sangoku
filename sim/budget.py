@@ -20,7 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from roster import TROOP, value  # noqa: E402
+from roster import BEHAVIOR_PREMIUM, TROOP, effective_score, evade_of, value  # noqa: E402
 
 TOLERANCE = 8      # 目標値からのずれの許容幅（%）
 
@@ -32,10 +32,10 @@ def load():
 
 
 def score(card, interval):
-    """総合値 = 実効耐久（防御による軽減込み） × 火力（攻撃力 ÷ 攻撃間隔）。"""
-    effective_hp = card["hp"] * (100 + card["dfn"]) // 100
-    dps = card["atk"] * 100 // interval
-    return effective_hp * dps // 1000
+    """総合値 = 実効耐久 × 実効火力（命中率・クリティカル率込み）。"""
+    return effective_score(card["hp"], card["atk"], card["dfn"],
+                           interval, card["acc"], card["crit"],
+                           evade_of(card["troop"]))
 
 
 def main():
@@ -46,7 +46,7 @@ def main():
     rows = []
     for c in data["cards"]:
         s = score(c, intervals[c["troop"]])
-        target = value(c["cost"])
+        target = value(c["cost"]) / BEHAVIOR_PREMIUM[c["troop"]]
         rows.append((c, s, round((s / target - 1) * 100)))
 
     worst = max(rows, key=lambda r: abs(r[2]))
