@@ -287,20 +287,26 @@ def cmd_swap():
 
 def cmd_meta():
     print("=== 採用率（§4.6 目標 基準値の0.3〜2.5倍）===")
+    # 母数を増やすことが要点。**上位8編成では下限割れが測れない。**
+    # 8編成×6枠=48枚の抽選しかないので、完全に均衡していても 60×(1-6/60)^8 ≒ 26枚が
+    # 1度も出ない。実測の下限割れ34枚のうち26枚はノイズだった。
+    # 上位30編成なら 60×0.9^30 ≒ 2.5枚まで下がり、信号が読める。
+    # 総当たりは編成数の二乗で効くので、固定の対戦相手への成績で順位付けする。
     for key, (label, cap) in REGULATIONS.items():
-        teams = sample_teams(cap, 32, seed=2026)
-        scores = [0] * len(teams)
-        for i in range(len(teams)):
-            for j in range(i + 1, len(teams)):
-                a, b, d = play(teams[i][0], teams[j][0], seeds=8)
-                scores[i] += a * 2 + d
-                scores[j] += b * 2 + d
+        teams = sample_teams(cap, 120, seed=2026)
+        panel = [t[0] for t in sample_teams(cap, 12, seed=99991)]
+        scores = []
+        for t in teams:
+            a = sum(play(t[0], o, seeds=8)[0] for o in panel)
+            scores.append(a)
         ranked = sorted(range(len(teams)), key=lambda i: -scores[i])
-        top = ranked[:len(teams) // 4]
+        top = ranked[:30]
         freq = Counter()
         for i in top:
             freq.update(teams[i][1])
-        print(f"\n[{label}] 上位{len(top)}編成の採用率")
+        chance = round(len(ALL_IDS) * (1 - 6 / len(ALL_IDS)) ** len(top))
+        print(f"\n[{label}] {len(teams)}編成から上位{len(top)}編成の採用率"
+              f"（均衡していても偶然 約{chance}枚は0%になる）")
         over = [c for c in ALL_IDS if freq[c] * 100 // len(top) > 30]
         under = [c for c in ALL_IDS if freq[c] * 100 // len(top) < 3]
         for cid, n in freq.most_common(5):
