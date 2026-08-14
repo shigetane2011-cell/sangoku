@@ -428,19 +428,28 @@ def cmd_skills():
 
 # --- traits --------------------------------------------------------------
 
-def trait_team(trait_key=None, cost=5, troop="inf", role="bruiser", skill="strike"):
+def trait_team(trait_key=None, cost=5, troop="inf", role="bruiser", skill="strike",
+               rot=0):
     """全員が同じ固有特性を持つ検証用編成。特性以外の条件を完全に揃える。
 
     勢力は魏・蜀・呉を2枚ずつ割り当てる。対抗能力（vs_wei など）は相手の勢力が
-    一致したときだけ働くので、**相手に勢力が無いと測れない**。実際の編成も
-    勢力が混ざるため、この2枚ずつが期待値どおりの発動率（1/3）を与える。
+    一致したときだけ働くので、**相手に勢力が無いと測れない**。
+
+    **勢力をレーンと揃えてはいけない。** `[i % 3]` で配ると lane0=魏・lane1=蜀・
+    lane2=呉 となり、戦闘はレーン内で完結するため特効は1レーンでしか働かない。
+    そのうえ総大将は slot 4（lane1）なので、蜀特効だけが総大将のレーンに当たり、
+    機構的に同一なはずの3つが 97% / 35% / 24% に割れた。
+    前後で勢力をずらして各レーンに2勢力を入れ、さらに rot で全体を回す。
+    rot=0,1,2 の平均を採れば総大将の勢力による偏りも消える。
     """
     import roster
     cards = []
+    order = ("wei", "shu", "go")
     for i in range(6):
-        person = f"特{trait_key or 'none'}{i}"
-        roster.ROMAJI[person] = f"x{trait_key or 'none'}{i}"
-        roster.FACTION_OF[person] = ("wei", "shu", "go")[i % 3]
+        person = f"特{trait_key or 'none'}{i}r{rot}"
+        roster.ROMAJI[person] = f"x{trait_key or 'none'}{i}r{rot}"
+        # 前衛は 0,1,2 / 後衛は 1,2,0 の順に配り、レーンごとに2勢力を混ぜる
+        roster.FACTION_OF[person] = order[(i % 3 + i // 3 + rot) % 3]
         traits = [trait_key] if trait_key else []
         card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", traits))
         CARDS[card["id"]] = card
@@ -459,11 +468,12 @@ def cmd_traits():
     print("=== 誘発型の固有特性ごとの強さ ===")
     print("  コスト5・歩兵・均衡役・必殺技 strike で揃え、特性だけを変えて")
     print("  「特性なし」の編成と戦わせる。50%なら価値ゼロ。\n")
-    plain = trait_team(None)
     keys = sorted(roster.TRIGGERS) + sorted(roster.COUNTERS)
     rows = []
     for k in keys:
-        wr = winrate(trait_team(k), plain, seeds=300)
+        # 勢力の配り方を3通り回して平均する。総大将の勢力による偏りを消すため。
+        wr = sum(winrate(trait_team(k, rot=r), trait_team(None, rot=r), seeds=120)
+                 for r in range(3)) // 3
         rows.append((wr, k))
     rows.sort(reverse=True)
     print(f"  {'特性':<10} {'対 特性なし':>10} {'現補正':>7} {'次補正':>7}  {'条件':<16} {'上限':>4}")
