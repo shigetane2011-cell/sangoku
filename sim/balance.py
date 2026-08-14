@@ -11,6 +11,7 @@ usage:
   python3 sim/balance.py skills      必殺技のひな型ごとの強さ
   python3 sim/balance.py traits      誘発型の固有特性ごとの強さ
   python3 sim/balance.py formations  陣形×構成の総当たり
+  python3 sim/balance.py exploit     攻略探索（最強編成を探し、収束するか循環するか）
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -509,6 +510,103 @@ def cmd_formations():
           f" → {'NG' if unbeaten else 'OK'}")
 
 
+# --- exploit -------------------------------------------------------------
+#
+# ここまでの指標には構造的な穴がある。swap と meta は**ランダム編成の平均**を見て
+# おり、troops と formations は**こちらが手で組んだ型**しか見ていない。
+# 実際のプレイヤーがするのは「最強を探しに来る」ことで、それを再現していない。
+#
+# 探索で強い編成が見つかること自体は問題ではない。攻略は面白さの本体である。
+# 問題は**攻略が1つに収束すること**。だからこの指標が見るのは強さの上限ではなく、
+# 「見つかった最強に対して、また別の最強が見つかるか」である。
+#   収束（同じ編成に戻る・世代を跨いで勝ち続ける） → 詰み
+#   循環（前の世代の最強が次の世代に食われる）     → 健全
+
+def team_of(ids, formation, cmd):
+    return make_team(ids, commander=cmd, formation=formation)
+
+
+def evaluate(team, opponents, seeds):
+    """相手集団に対する平均勝率。"""
+    return sum(winrate(team, o, seeds=seeds) for o in opponents) // len(opponents)
+
+
+def neighbors(ids, formation, cmd, cap, rng, per_slot=4):
+    """1手で到達できる編成を挙げる。1枚差し替え・陣形変更・総大将変更。"""
+    from engine import FORMATIONS
+    out = []
+    pool = [c for c in ALL_IDS if c not in ids]
+    for slot in range(6):
+        rest = sum(CARDS[c]["cost"] for i, c in enumerate(ids) if i != slot)
+        legal = [c for c in pool if rest + CARDS[c]["cost"] <= cap]
+        for _ in range(min(per_slot, len(legal))):
+            pick = legal[rng.below(len(legal))]
+            trial = list(ids)
+            trial[slot] = pick
+            out.append((trial, formation, cmd))
+    for f in FORMATIONS:
+        if f != formation:
+            out.append((list(ids), f, cmd))
+    for c in range(6):
+        if c != cmd:
+            out.append((list(ids), formation, c))
+    return out
+
+
+def climb(opponents, cap, rng, start, steps=6, seeds=20):
+    """山登りで opponents にもっとも強い編成を探す。"""
+    ids, formation, cmd = start
+    best = evaluate(team_of(ids, formation, cmd), opponents, seeds)
+    for _ in range(steps):
+        gain = None
+        for trial in neighbors(ids, formation, cmd, cap, rng):
+            wr = evaluate(team_of(*trial), opponents, seeds)
+            if wr > best:
+                best, gain = wr, trial
+        if gain is None:
+            break
+        ids, formation, cmd = gain
+    return (ids, formation, cmd), best
+
+
+def cmd_exploit():
+    """攻略探索。最強編成を探す行為を機械的に再現し、収束するか循環するかを見る。"""
+    from engine import FORMATIONS
+    cap = REGULATIONS["high"][1]
+    rng = Rng(20260814)
+    field = [t[0] for t in sample_teams(cap, 3, seed=777)]
+    print("=== 攻略探索（高コスト戦・上限40）===")
+    print("  山登りで最強編成を探し、それを次の世代の標的にする。")
+    print("  **見つかることは問題ではない。1つに収束することが問題。**\n")
+
+    history = []
+    opponents = field
+    for gen in range(4):
+        start = (baseline(cap), "kakuyoku", 4)
+        (ids, form, cmd), wr = climb(opponents, cap, rng, start)
+        team = team_of(ids, form, cmd)
+        names = "/".join(CARDS[c]["name"].split("〔")[0] for c in ids)
+        print(f"  第{gen + 1}世代  対 前世代 {wr}%  陣形 {FORMATIONS[form]['label']}"
+              f"  総大将 {CARDS[ids[cmd]]['name'].split('〔')[0]}")
+        print(f"    {names}  (合計{sum(CARDS[c]['cost'] for c in ids)}/{cap})")
+        # 過去の世代すべてに対する勝率。収束していれば全部に勝ち続ける。
+        if history:
+            past = "  ".join(f"第{i+1}世代 {winrate(team, h, seeds=60)}%"
+                             for i, (h, _) in enumerate(history))
+            print(f"    過去世代との相性: {past}")
+        history.append((team, ids))
+        opponents = [team]
+        print()
+
+    print("  判定")
+    last = history[-1][0]
+    beats_all = [winrate(last, h, seeds=60) for h, _ in history[:-1]]
+    if beats_all and min(beats_all) >= 55:
+        print("    最終世代が過去のすべてに勝つ → NG: 攻略が収束している（詰み）")
+    else:
+        print("    過去世代に食われる関係がある → OK: 攻略が循環している")
+
+
 # --- sensitivity ---------------------------------------------------------
 
 def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike", tag=""):
@@ -565,7 +663,8 @@ def main():
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
              "skills": cmd_skills, "traits": cmd_traits,
-             "formations": cmd_formations, "sensitivity": cmd_sensitivity}
+             "formations": cmd_formations, "exploit": cmd_exploit,
+             "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()
