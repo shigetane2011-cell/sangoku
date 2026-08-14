@@ -66,24 +66,41 @@ def print_next(name, values):
 
 
 def random_team(rng, cap, commander_slot=None):
-    """コスト上限を満たす6人編成をランダムに作る。超過分は安い札へ置換して修復する。"""
+    """コスト上限を満たす6人編成をランダムに作る。
+
+    **超過分を最安札へ置換してはいけない。** 以前はそうしていたが、低コスト戦では
+    ランダムな6枚の合計が32前後になり上限18をほぼ必ず超えるため、置換が毎回走って
+    最安の札が機械的に詰め込まれていた。実測で樊建〔伝令〕が40編成中40に入っていた。
+    採用率でコスト1の支援武将が87〜100%だったのは強さではなくこの偏りで、
+    **指標が測っていたのはサンプラの癖だった**。
+
+    代わりに1枚ずつ引く。残り枠を最安で埋めても上限に収まる札だけを候補にすれば、
+    修復が要らず、特定の札が優先されることもない。
+    """
     ids = []
-    pool = list(ALL_IDS)
-    while len(ids) < 6:
-        pick = pool.pop(rng.below(len(pool)))
-        ids.append(pick)
-    ids.sort(key=lambda c: -CARDS[c]["cost"])
-    remaining = [c for c in ALL_IDS if c not in ids]
-    remaining.sort(key=lambda c: CARDS[c]["cost"])
-    while sum(CARDS[c]["cost"] for c in ids) > cap and remaining:
-        cheapest = remaining.pop(0)
-        if CARDS[cheapest]["cost"] < CARDS[ids[0]]["cost"]:
-            ids[0] = cheapest
-            ids.sort(key=lambda c: -CARDS[c]["cost"])
-        else:
-            break
-    if sum(CARDS[c]["cost"] for c in ids) > cap:
-        return None
+    for _ in range(6):
+        left = 6 - len(ids) - 1
+        spent = sum(CARDS[c]["cost"] for c in ids)
+        pool = sorted((c for c in ALL_IDS if c not in ids),
+                      key=lambda c: (CARDS[c]["cost"], c))
+        costs = [CARDS[c]["cost"] for c in pool]
+        cands = [c for i, c in enumerate(pool)
+                 if spent + costs[i] + sum((costs[:i] + costs[i + 1:])[:left]) <= cap]
+        if not cands:
+            return None
+        ids.append(cands[rng.below(len(cands))])
+    # 余ったコストを使い切る方向へ持ち上げる。1枚ずつ引くだけだと「残り枠を最安で
+    # 埋めても収まる」制約が毎回かかるため中位の札に寄り、高コスト戦でも合計が
+    # 上限40に対して31までしか伸びなかった。実プレイでは上限まで使うのが普通で、
+    # そのままだと高コストの札の採用率を過小に見積もる。
+    for _ in range(12):
+        slot = rng.below(6)
+        spent = sum(CARDS[c]["cost"] for c in ids) - CARDS[ids[slot]]["cost"]
+        up = [c for c in ALL_IDS if c not in ids
+              and CARDS[c]["cost"] > CARDS[ids[slot]]["cost"]
+              and spent + CARDS[c]["cost"] <= cap]
+        if up:
+            ids[slot] = up[rng.below(len(up))]
     order = list(ids)
     for i in range(len(order) - 1, 0, -1):
         j = rng.below(i + 1)
