@@ -485,7 +485,7 @@ def cmd_traits():
     print("=== 誘発型の固有特性ごとの強さ ===")
     print("  コスト5・歩兵・均衡役・必殺技 strike で揃え、特性だけを変えて")
     print("  「特性なし」の編成と戦わせる。50%なら価値ゼロ。\n")
-    keys = sorted(roster.TRIGGERS) + sorted(roster.COUNTERS)
+    keys = sorted(roster.TRIGGERS) + sorted(roster.COUNTERS) + sorted(roster.PASSIVES)
     rows = []
     for k in keys:
         # 勢力の配り方を3通り回して平均する。総大将の勢力による偏りを消すため。
@@ -498,7 +498,9 @@ def cmd_traits():
     for wr, k in rows:
         cur = roster.TRAIT_ADJUST.get(k, 0.0)
         nxt[k] = roster.next_adjust(cur, wr)
-        if k in roster.COUNTERS:
+        if k in roster.PASSIVES:
+            name, cond, lim = roster.PASSIVES[k], "前衛に置く", "常在"
+        elif k in roster.COUNTERS:
             name = roster.FACTION_LABEL[roster.COUNTERS[k]] + "特効"
             cond, lim = f"敵が{roster.FACTION_LABEL[roster.COUNTERS[k]]}", "常在"
         else:

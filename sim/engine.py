@@ -89,12 +89,17 @@ MOD_CAP = 50                  # 1つの能力への補正合計は ±50% に丸�
 COMMANDER_HP_BONUS = 110      # 総大将の最大兵力 +10%（§4.2）
 COMMANDER_GAUGE_BONUS = 110   # 総大将の必殺技ゲージ上昇率 +10%（§4.2）
 
-# 固有特性「陣頭」（§4.2）。総大将として前衛に配置したときだけ働く。
-# 総大将は後衛に置くのが基本的に有利であり、それ自体は自然な判断として受け入れる。
-# 前衛配置を全体調整で成立させるのではなく、この特性を持つ一部の武将にだけ
-# 「前に出て戦う」選択肢を与える。
-VANGUARD_HP_BONUS = 125       # 自身の最大兵力 +25%
-VANGUARD_ALLY_ATK = 8         # 味方全体の攻撃力 +8%
+# 固有特性「陣頭」（§4.2・§6.6）。**前衛に配置すれば働く。総大将である必要はない。**
+# v0.5 末に条件を緩めた。総大将かつ前衛では発動しない。総大将は落ちたら即敗北
+# なので最も安全な枠に置くのが最適で、補正も兵力+10%・ゲージ+10%しかないため、
+# **最安の札を後衛中央に置くのが常に正解**になる（攻略探索の4世代とも
+# 総大将はコスト1の糜竺だった）。陣頭を持つ11人は価格だけ払って何も得ていなかった。
+# 配置は編成段階で決まるので、この条件なら §6.6 の常在型の定義にも素直に収まる。
+VANGUARD_HP_BONUS = 115       # 自身の最大兵力 +15%
+VANGUARD_ALLY_ATK = 3         # 味方全体の攻撃力 +3%
+# 味方全体への補正は6人に乗るので、1枚ぶんの能力値では釣り合わない。効果量を
+# 下げてから価格を付ける。+8% のままだと補正を40%（能力値の4割を放棄）まで
+# 上げても勝率が69%あった。curse と rally で全体効果を1/3に落としたのと同じ判断。
 
 # 迂回（§5.2）。**騎兵は前衛を回り込んで後衛を狙う。回り込むあいだは攻撃できない。**
 #
@@ -338,14 +343,33 @@ class Battle:
                     u.gauge += GAUGE_MAX * pct // 100
 
     def apply_vanguard(self):
-        """「陣頭」を持つ総大将が前衛にいる側へ、開戦時に味方全体の攻撃力補正を与える。"""
+        """「陣頭」を前衛に置いた側へ、開戦時に味方全体の攻撃力補正を与える。
+
+        **条件は「前衛に置いた」だけ。総大将であることは要求しない。**
+        以前は総大将かつ前衛を条件にしていたが、それでは発動しない。総大将は
+        落ちたら即敗北なので最も安全な枠に置くのが最適で、しかも総大将の補正は
+        兵力+10%・ゲージ+10%しかないため、**最安の札を後衛中央に置くのが常に正解**
+        になる。攻略探索の4世代とも総大将はコスト1の糜竺だった。
+        結果、陣頭を持つ11人は2.5%ぶんの能力値を払って何も得ていなかった。
+
+        配置は編成段階で決まるので、この条件なら §6.6 の常在型の定義
+        （条件は編成段階で満たせるものに限る）にも素直に収まる。
+        重ねがけは1回だけ。複数を前衛に並べても効果は増えない。
+        """
         for side in (0, 1):
-            cmdr = next(u for u in self.units if u.side == side and u.is_commander)
-            if cmdr.row != "front" or not self.has_trait(cmdr.card, "vanguard"):
+            heads = [u for u in self.units if u.side == side and u.row == "front"
+                     and self.has_trait(u.card, "vanguard")]
+            if not heads:
                 continue
+            # **効果量は発動者の総合値に連動させる（§7.5）。** ここを固定値にすると
+            # 価格付けが効かない。実測では補正を 2.5% から 20% へ上げても
+            # 勝率が 94% から 88% にしか動かなかった。味方全体への補正は
+            # 発動者の能力値と無関係なので、能力値を削っても効果が減らないため。
+            gain = self.scaled(max(heads, key=lambda u: u.card.get("power", 100)),
+                               VANGUARD_ALLY_ATK)
             for u in self.units:
                 if u.side == side:
-                    u.effects.append(Effect(kind="mod", stat="atk", value=VANGUARD_ALLY_ATK,
+                    u.effects.append(Effect(kind="mod", stat="atk", value=gain,
                                             remaining=MAX_TICKS + 1, name="陣頭"))
 
     # ---- 構築 -------------------------------------------------------------
@@ -359,8 +383,9 @@ class Battle:
         lane, row = entry["lane"], entry["row"]
         if is_commander:
             hp = hp * COMMANDER_HP_BONUS // 100
-            if row == "front" and self.has_trait(card, "vanguard"):
-                hp = hp * VANGUARD_HP_BONUS // 100
+        # 陣頭は前衛に置いただけで働く。総大将であることは要求しない（apply_vanguard）
+        if row == "front" and self.has_trait(card, "vanguard"):
+            hp = hp * VANGUARD_HP_BONUS // 100
         if side == 0:
             pos = 0 if row == "front" else -BACK_OFFSET
         else:
