@@ -25,6 +25,7 @@
     {
       "id": "ryofu_10",
       "person": "呂布",
+      "faction": "gun",
       "name": "呂布〔飛将〕",
       "tier": "high",
       "cost": 10,
@@ -55,6 +56,7 @@
     {
       "id": "shokatsuryo_10",
       "person": "諸葛亮",
+      "faction": "shu",
       "name": "諸葛亮〔臥龍〕",
       "tier": "high",
       "cost": 10,
@@ -84,6 +86,7 @@
     {
       "id": "kanu_9",
       "person": "関羽",
+      "faction": "shu",
       "name": "関羽〔漢寿亭侯〕",
       "tier": "high",
       "cost": 9,
@@ -111,6 +114,7 @@
     {
       "id": "sosou_9",
       "person": "曹操",
+      "faction": "wei",
       "name": "曹操〔魏王〕",
       "tier": "high",
       "cost": 9,
@@ -143,6 +147,7 @@
     {
       "id": "shuyu_9",
       "person": "周瑜",
+      "faction": "go",
       "name": "周瑜〔赤壁〕",
       "tier": "high",
       "cost": 9,
@@ -172,6 +177,7 @@
     {
       "id": "chouun_9",
       "person": "趙雲",
+      "faction": "shu",
       "name": "趙雲〔長坂坡〕",
       "tier": "high",
       "cost": 9,
@@ -199,6 +205,7 @@
     {
       "id": "chohi_8",
       "person": "張飛",
+      "faction": "shu",
       "name": "張飛〔当陽橋〕",
       "tier": "high",
       "cost": 8,
@@ -235,19 +242,23 @@
     {
       "id": "shibai_8",
       "person": "司馬懿",
+      "faction": "wei",
       "name": "司馬懿〔冢虎〕",
       "tier": "high",
       "cost": 8,
       "troop": "arc",
       "role": "support",
-      "hp": 4330,
-      "atk": 71,
+      "hp": 4160,
+      "atk": 68,
       "dfn": 34,
       "speed": 7,
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
-      "power": 121,
+      "power": 112,
+      "traits": [
+        "vs_shu"
+      ],
       "skill": {
         "name": "堅忍",
         "target": "lane_enemies",
@@ -270,6 +281,7 @@
     {
       "id": "kochu_8",
       "person": "黄忠",
+      "faction": "shu",
       "name": "黄忠〔定軍山〕",
       "tier": "high",
       "cost": 8,
@@ -297,6 +309,7 @@
     {
       "id": "sonsaku_8",
       "person": "孫策",
+      "faction": "go",
       "name": "孫策〔小覇王〕",
       "tier": "high",
       "cost": 8,
@@ -327,19 +340,23 @@
     {
       "id": "rikuson_8",
       "person": "陸遜",
+      "faction": "go",
       "name": "陸遜〔夷陵〕",
       "tier": "high",
       "cost": 8,
       "troop": "arc",
       "role": "support",
-      "hp": 4080,
-      "atk": 68,
+      "hp": 3960,
+      "atk": 65,
       "dfn": 34,
       "speed": 7,
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
-      "power": 109,
+      "power": 101,
+      "traits": [
+        "vs_shu"
+      ],
       "skill": {
         "name": "連環の計",
         "target": "lane_enemies",
@@ -356,6 +373,7 @@
     {
       "id": "bachou_8",
       "person": "馬超",
+      "faction": "shu",
       "name": "馬超〔錦馬超〕",
       "tier": "high",
       "cost": 8,
@@ -399,6 +417,7 @@
     {
       "id": "kakoton_7",
       "person": "夏侯惇",
+      "faction": "wei",
       "name": "夏侯惇〔独眼〕",
       "tier": "high",
       "cost": 7,
@@ -431,19 +450,20 @@
     {
       "id": "taishiji_7",
       "person": "太史慈",
+      "faction": "go",
       "name": "太史慈〔神射〕",
       "tier": "high",
       "cost": 7,
       "troop": "arc",
       "role": "dps",
-      "hp": 2960,
+      "hp": 2950,
       "atk": 93,
       "dfn": 33,
       "speed": 7,
       "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
-      "power": 108,
+      "power": 107,
       "traits": [
         {
           "name": "背水",
@@ -475,21 +495,23 @@
     {
       "id": "kannei_7",
       "person": "甘寧",
+      "faction": "go",
       "name": "甘寧〔錦帆賊〕",
       "tier": "high",
       "cost": 7,
       "troop": "cav",
       "role": "burst",
-      "hp": 2400,
-      "atk": 95,
+      "hp": 2330,
+      "atk": 91,
       "dfn": 37,
       "speed": 12,
       "gauge_rate": 105,
       "acc": 90,
       "crit": 14,
-      "power": 118,
+      "power": 109,
       "traits": [
-        "vanguard"
+        "vanguard",
+        "vs_wei"
       ],
       "skill": {
         "name": "百騎劫営",
@@ -505,19 +527,20 @@
     {
       "id": "choryo_7",
       "person": "張遼",
+      "faction": "wei",
       "name": "張遼〔逍遥津〕",
       "tier": "high",
       "cost": 7,
       "troop": "cav",
       "role": "bruiser",
-      "hp": 3750,
-      "atk": 57,
+      "hp": 3600,
+      "atk": 55,
       "dfn": 46,
       "speed": 12,
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
-      "power": 118,
+      "power": 109,
       "traits": [
         {
           "name": "背水",
@@ -533,7 +556,8 @@
               "duration": 900
             }
           ]
-        }
+        },
+        "vs_go"
       ],
       "skill": {
         "name": "突撃",
@@ -549,6 +573,7 @@
     {
       "id": "hoto_7",
       "person": "龐統",
+      "faction": "shu",
       "name": "龐統〔鳳雛〕",
       "tier": "high",
       "cost": 7,
@@ -576,6 +601,7 @@
     {
       "id": "jokou_7",
       "person": "徐晃",
+      "faction": "wei",
       "name": "徐晃〔長駆〕",
       "tier": "high",
       "cost": 7,
@@ -603,12 +629,13 @@
     {
       "id": "gien_6",
       "person": "魏延",
+      "faction": "shu",
       "name": "魏延〔子午〕",
       "tier": "mid",
       "cost": 6,
       "troop": "cav",
       "role": "dps",
-      "hp": 2540,
+      "hp": 2530,
       "atk": 80,
       "dfn": 40,
       "speed": 12,
@@ -646,19 +673,20 @@
     {
       "id": "kyoi_6",
       "person": "姜維",
+      "faction": "shu",
       "name": "姜維〔幼麟〕",
       "tier": "mid",
       "cost": 6,
       "troop": "cav",
       "role": "bruiser",
-      "hp": 3620,
-      "atk": 54,
+      "hp": 3480,
+      "atk": 52,
       "dfn": 46,
       "speed": 12,
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
-      "power": 108,
+      "power": 100,
       "traits": [
         {
           "name": "遺志",
@@ -673,7 +701,8 @@
               "duration": 200
             }
           ]
-        }
+        },
+        "vs_wei"
       ],
       "skill": {
         "name": "九伐中原",
@@ -689,6 +718,7 @@
     {
       "id": "chokaku_6",
       "person": "張郃",
+      "faction": "wei",
       "name": "張郃〔巧変〕",
       "tier": "mid",
       "cost": 6,
@@ -716,6 +746,7 @@
     {
       "id": "ryomo_6",
       "person": "呂蒙",
+      "faction": "go",
       "name": "呂蒙〔白衣〕",
       "tier": "mid",
       "cost": 6,
@@ -743,12 +774,13 @@
     {
       "id": "kakuka_6",
       "person": "郭嘉",
+      "faction": "wei",
       "name": "郭嘉〔鬼才〕",
       "tier": "mid",
       "cost": 6,
       "troop": "arc",
       "role": "support",
-      "hp": 3840,
+      "hp": 3830,
       "atk": 64,
       "dfn": 34,
       "speed": 7,
@@ -786,6 +818,7 @@
     {
       "id": "ukin_6",
       "person": "于禁",
+      "faction": "wei",
       "name": "于禁〔毅重〕",
       "tier": "mid",
       "cost": 6,
@@ -815,6 +848,7 @@
     {
       "id": "juniku_6",
       "person": "荀彧",
+      "faction": "wei",
       "name": "荀彧〔王佐〕",
       "tier": "mid",
       "cost": 6,
@@ -858,6 +892,7 @@
     {
       "id": "gakushin_5",
       "person": "楽進",
+      "faction": "wei",
       "name": "楽進〔先登〕",
       "tier": "mid",
       "cost": 5,
@@ -885,6 +920,7 @@
     {
       "id": "riten_5",
       "person": "李典",
+      "faction": "wei",
       "name": "李典〔慎重〕",
       "tier": "mid",
       "cost": 5,
@@ -912,19 +948,20 @@
     {
       "id": "ryoto_5",
       "person": "凌統",
+      "faction": "go",
       "name": "凌統〔断金〕",
       "tier": "mid",
       "cost": 5,
       "troop": "inf",
       "role": "dps",
-      "hp": 2610,
+      "hp": 2640,
       "atk": 82,
       "dfn": 48,
       "speed": 8,
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
-      "power": 97,
+      "power": 98,
       "traits": [
         {
           "name": "弔い合戦",
@@ -953,6 +990,7 @@
     {
       "id": "teiho2_5",
       "person": "程普",
+      "faction": "go",
       "name": "程普〔老練〕",
       "tier": "mid",
       "cost": 5,
@@ -982,6 +1020,7 @@
     {
       "id": "kogai_5",
       "person": "黄蓋",
+      "faction": "go",
       "name": "黄蓋〔苦肉〕",
       "tier": "mid",
       "cost": 5,
@@ -1018,6 +1057,7 @@
     {
       "id": "kaku_5",
       "person": "賈詡",
+      "faction": "wei",
       "name": "賈詡〔毒士〕",
       "tier": "mid",
       "cost": 5,
@@ -1047,13 +1087,14 @@
     {
       "id": "hosei_5",
       "person": "法正",
+      "faction": "shu",
       "name": "法正〔翼侯〕",
       "tier": "mid",
       "cost": 5,
       "troop": "arc",
       "role": "support",
-      "hp": 3870,
-      "atk": 65,
+      "hp": 3930,
+      "atk": 64,
       "dfn": 34,
       "speed": 7,
       "gauge_rate": 130,
@@ -1088,6 +1129,7 @@
     {
       "id": "kakoen_5",
       "person": "夏侯淵",
+      "faction": "wei",
       "name": "夏侯淵〔神速〕",
       "tier": "mid",
       "cost": 5,
@@ -1115,6 +1157,7 @@
     {
       "id": "sojin_4",
       "person": "曹仁",
+      "faction": "wei",
       "name": "曹仁〔堅守〕",
       "tier": "mid",
       "cost": 4,
@@ -1144,6 +1187,7 @@
     {
       "id": "kanto_4",
       "person": "韓当",
+      "faction": "go",
       "name": "韓当〔老弓〕",
       "tier": "mid",
       "cost": 4,
@@ -1171,6 +1215,7 @@
     {
       "id": "shuzen_4",
       "person": "朱然",
+      "faction": "go",
       "name": "朱然〔江陵〕",
       "tier": "mid",
       "cost": 4,
@@ -1214,19 +1259,20 @@
     {
       "id": "ohei_4",
       "person": "王平",
+      "faction": "shu",
       "name": "王平〔無当〕",
       "tier": "mid",
       "cost": 4,
       "troop": "inf",
       "role": "bruiser",
-      "hp": 3640,
-      "atk": 54,
+      "hp": 3490,
+      "atk": 52,
       "dfn": 55,
       "speed": 8,
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
-      "power": 94,
+      "power": 86,
       "traits": [
         {
           "name": "遺志",
@@ -1241,7 +1287,8 @@
               "duration": 200
             }
           ]
-        }
+        },
+        "vs_wei"
       ],
       "skill": {
         "name": "無当飛軍",
@@ -1257,6 +1304,7 @@
     {
       "id": "kakuwai_4",
       "person": "郭淮",
+      "faction": "wei",
       "name": "郭淮〔雍涼〕",
       "tier": "mid",
       "cost": 4,
@@ -1284,6 +1332,7 @@
     {
       "id": "junyu_4",
       "person": "荀攸",
+      "faction": "wei",
       "name": "荀攸〔謀主〕",
       "tier": "mid",
       "cost": 4,
@@ -1319,6 +1368,7 @@
     {
       "id": "chinkyu_4",
       "person": "陳宮",
+      "faction": "gun",
       "name": "陳宮〔公台〕",
       "tier": "mid",
       "cost": 4,
@@ -1348,6 +1398,7 @@
     {
       "id": "kojun_4",
       "person": "高順",
+      "faction": "gun",
       "name": "高順〔陥陣〕",
       "tier": "mid",
       "cost": 4,
@@ -1378,6 +1429,7 @@
     {
       "id": "chinto_3",
       "person": "陳到",
+      "faction": "shu",
       "name": "陳到〔白毦〕",
       "tier": "low",
       "cost": 3,
@@ -1410,6 +1462,7 @@
     {
       "id": "fusen_3",
       "person": "傅僉",
+      "faction": "shu",
       "name": "傅僉〔守将〕",
       "tier": "low",
       "cost": 3,
@@ -1439,6 +1492,7 @@
     {
       "id": "ryoka_3",
       "person": "廖化",
+      "faction": "shu",
       "name": "廖化〔老将〕",
       "tier": "low",
       "cost": 3,
@@ -1482,6 +1536,7 @@
     {
       "id": "batai_3",
       "person": "馬岱",
+      "faction": "shu",
       "name": "馬岱〔追撃〕",
       "tier": "low",
       "cost": 3,
@@ -1509,19 +1564,20 @@
     {
       "id": "shutai_3",
       "person": "周泰",
+      "faction": "go",
       "name": "周泰〔身代〕",
       "tier": "low",
       "cost": 3,
       "troop": "inf",
       "role": "tank",
-      "hp": 3770,
+      "hp": 3810,
       "atk": 42,
       "dfn": 60,
       "speed": 8,
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
-      "power": 78,
+      "power": 79,
       "traits": [
         {
           "name": "弔い合戦",
@@ -1552,6 +1608,7 @@
     {
       "id": "josei_3",
       "person": "徐盛",
+      "faction": "go",
       "name": "徐盛〔疑城〕",
       "tier": "low",
       "cost": 3,
@@ -1579,6 +1636,7 @@
     {
       "id": "sokou_3",
       "person": "曹洪",
+      "faction": "wei",
       "name": "曹洪〔救主〕",
       "tier": "low",
       "cost": 3,
@@ -1606,19 +1664,23 @@
     {
       "id": "manchou_3",
       "person": "満寵",
+      "faction": "wei",
       "name": "満寵〔剛毅〕",
       "tier": "low",
       "cost": 3,
       "troop": "arc",
       "role": "dps",
-      "hp": 2530,
-      "atk": 78,
+      "hp": 2410,
+      "atk": 76,
       "dfn": 33,
       "speed": 7,
       "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
-      "power": 77,
+      "power": 72,
+      "traits": [
+        "vs_go"
+      ],
       "skill": {
         "name": "剛毅",
         "target": "enemy_lowest",
@@ -1633,6 +1695,7 @@
     {
       "id": "hansho_2",
       "person": "潘璋",
+      "faction": "go",
       "name": "潘璋〔急襲〕",
       "tier": "low",
       "cost": 2,
@@ -1676,6 +1739,7 @@
     {
       "id": "teiho_2",
       "person": "丁奉",
+      "faction": "go",
       "name": "丁奉〔雪中〕",
       "tier": "low",
       "cost": 2,
@@ -1703,6 +1767,7 @@
     {
       "id": "goi_2",
       "person": "呉懿",
+      "faction": "shu",
       "name": "呉懿〔外戚〕",
       "tier": "low",
       "cost": 2,
@@ -1730,6 +1795,7 @@
     {
       "id": "chogyoku_2",
       "person": "張嶷",
+      "faction": "shu",
       "name": "張嶷〔越巂〕",
       "tier": "low",
       "cost": 2,
@@ -1775,6 +1841,7 @@
     {
       "id": "rigen_2",
       "person": "李厳",
+      "faction": "shu",
       "name": "李厳〔正方〕",
       "tier": "low",
       "cost": 2,
@@ -1802,6 +1869,7 @@
     {
       "id": "gakushin2_2",
       "person": "楽綝",
+      "faction": "wei",
       "name": "楽綝〔揚州〕",
       "tier": "low",
       "cost": 2,
@@ -1829,12 +1897,13 @@
     {
       "id": "toshu_2",
       "person": "董襲",
+      "faction": "go",
       "name": "董襲〔断纜〕",
       "tier": "low",
       "cost": 2,
       "troop": "inf",
       "role": "dps",
-      "hp": 2240,
+      "hp": 2230,
       "atk": 70,
       "dfn": 48,
       "speed": 8,
@@ -1873,19 +1942,20 @@
     {
       "id": "hanken_1",
       "person": "樊建",
+      "faction": "shu",
       "name": "樊建〔伝令〕",
       "tier": "low",
       "cost": 1,
       "troop": "arc",
       "role": "support",
-      "hp": 3100,
+      "hp": 3090,
       "atk": 52,
       "dfn": 34,
       "speed": 7,
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
-      "power": 64,
+      "power": 63,
       "traits": [
         {
           "name": "呼応",
@@ -1914,6 +1984,7 @@
     {
       "id": "soyo_1",
       "person": "宗預",
+      "faction": "shu",
       "name": "宗預〔使者〕",
       "tier": "low",
       "cost": 1,
@@ -1943,6 +2014,7 @@
     {
       "id": "zensou_1",
       "person": "全琮",
+      "faction": "go",
       "name": "全琮〔護軍〕",
       "tier": "low",
       "cost": 1,
@@ -1970,6 +2042,7 @@
     {
       "id": "sonken_1",
       "person": "孫乾",
+      "faction": "shu",
       "name": "孫乾〔従事〕",
       "tier": "low",
       "cost": 1,

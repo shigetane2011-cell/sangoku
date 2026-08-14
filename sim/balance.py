@@ -429,12 +429,18 @@ def cmd_skills():
 # --- traits --------------------------------------------------------------
 
 def trait_team(trait_key=None, cost=5, troop="inf", role="bruiser", skill="strike"):
-    """全員が同じ固有特性を持つ検証用編成。特性以外の条件を完全に揃える。"""
+    """全員が同じ固有特性を持つ検証用編成。特性以外の条件を完全に揃える。
+
+    勢力は魏・蜀・呉を2枚ずつ割り当てる。対抗能力（vs_wei など）は相手の勢力が
+    一致したときだけ働くので、**相手に勢力が無いと測れない**。実際の編成も
+    勢力が混ざるため、この2枚ずつが期待値どおりの発動率（1/3）を与える。
+    """
     import roster
     cards = []
     for i in range(6):
         person = f"特{trait_key or 'none'}{i}"
         roster.ROMAJI[person] = f"x{trait_key or 'none'}{i}"
+        roster.FACTION_OF[person] = ("wei", "shu", "go")[i % 3]
         traits = [trait_key] if trait_key else []
         card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", traits))
         CARDS[card["id"]] = card
@@ -454,7 +460,7 @@ def cmd_traits():
     print("  コスト5・歩兵・均衡役・必殺技 strike で揃え、特性だけを変えて")
     print("  「特性なし」の編成と戦わせる。50%なら価値ゼロ。\n")
     plain = trait_team(None)
-    keys = sorted(roster.TRIGGERS)
+    keys = sorted(roster.TRIGGERS) + sorted(roster.COUNTERS)
     rows = []
     for k in keys:
         wr = winrate(trait_team(k), plain, seeds=300)
@@ -463,11 +469,15 @@ def cmd_traits():
     print(f"  {'特性':<10} {'対 特性なし':>10} {'現補正':>7} {'次補正':>7}  {'条件':<16} {'上限':>4}")
     nxt = {}
     for wr, k in rows:
-        tr = roster.TRIGGERS[k]
         cur = roster.TRAIT_ADJUST.get(k, 0.0)
         nxt[k] = roster.next_adjust(cur, wr)
-        print(f"  {tr['name']:<10} {wr:>9}% {cur:>+7.2f} {nxt[k]:>+7.2f}  "
-              f"{tr['trigger']:<16} {tr.get('limit', 1):>4}")
+        if k in roster.COUNTERS:
+            name = roster.FACTION_LABEL[roster.COUNTERS[k]] + "特効"
+            cond, lim = f"敵が{roster.FACTION_LABEL[roster.COUNTERS[k]]}", "常在"
+        else:
+            tr = roster.TRIGGERS[k]
+            name, cond, lim = tr["name"], tr["trigger"], str(tr.get("limit", 1))
+        print(f"  {name:<10} {wr:>9}% {cur:>+7.2f} {nxt[k]:>+7.2f}  {cond:<16} {lim:>4}")
     lo, hi = rows[-1][0], rows[0][0]
     print(f"\n  最弱 {lo}% 〜 最強 {hi}%（幅 {hi - lo}pt）"
           f" → {'OK' if hi - lo <= 20 else 'NG: 特性の価値が揃っていない'}")
@@ -685,6 +695,19 @@ def cmd_exploit():
         print("    最終世代が過去のすべてに勝つ → NG: 攻略が収束している（詰み）")
     else:
         print("    過去世代に食われる関係がある → OK: 攻略が循環している")
+
+    # 循環しているだけでは足りない。**毎世代どれだけ札が入れ替わるか**を見る。
+    # 6枠のうち1〜2枠しか動かず残りが固定なら、実質は1つの最適解である。
+    sets = [set(ids) for _, ids in history]
+    core = set.intersection(*sets)
+    turn = [len(sets[i] - sets[i - 1]) for i in range(1, len(sets))]
+    print(f"    毎世代の入れ替わり: {turn} 枚 / 6枠")
+    if core:
+        print(f"    全世代に残った札 {len(core)}枚: "
+              f"{'、'.join(CARDS[c]['name'].split('〔')[0] for c in sorted(core))}"
+              f" → {'NG: 固定コアがある' if len(core) >= 2 else '許容範囲'}")
+    else:
+        print("    全世代に残った札: なし → OK: 固定コアがない")
 
 
 # --- sensitivity ---------------------------------------------------------

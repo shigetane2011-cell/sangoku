@@ -127,6 +127,19 @@ ARC_SUPPRESS = 8              # 接敵中の弓兵の与ダメージ −8%
 KITE_TRIGGER = 20 * 10
 KITE_SPEED_PCT = 50
 
+# 対抗能力（§6.6）。指定勢力への与ダメージ補正。
+#
+# **自己強化ではなく対抗能力にする。** 「AとBを組むと両方強い」は正のフィードバックで、
+# 使うほど正しさが強化されるため編成が固定化する。実際、攻略探索では諸葛亮が
+# 4世代すべてに残り、6枠のうち入れ替わるのは1〜2枠だけだった。
+# 対抗能力は負のフィードバックで、**自分の成功が自分の価値を下げる**。
+# 魏特効が流行れば魏が減り、魏が減れば魏特効が腐り、また魏が戻る。収束しない。
+#
+# 価値は「相手が対象である確率 × 効果量」なので、固定の価格を付けきれない。
+# 3勢力を標的にできるため、相手1人が対象である確率をおよそ 1/3 と見て値付けする。
+# 実際の頻度がそこからずれるぶんが、狙っている自己調整になる。
+COUNTER_BONUS = 25            # 対象勢力への与ダメージ +25%
+
 # 三すくみ（§5.3）。attacker が victim に対して有利なら True。
 BEATS = {"cav": "arc", "arc": "inf", "inf": "cav"}
 
@@ -406,6 +419,9 @@ class Battle:
             base = base * TROOP_ADVANTAGE // 100
         if self.suppressed(attacker):
             base = base * (100 - ARC_SUPPRESS) // 100
+        # 対抗能力（§6.6）。相手の勢力が標的と一致したときだけ乗る。
+        if self.has_trait(attacker.card, f"vs_{target.card.get('faction')}"):
+            base = base * (100 + COUNTER_BONUS) // 100
         if self.exposed(target):
             base = base * FLANKED_TAKEN // 100
         dfn = target.card["dfn"] * (100 + target.mod("dfn")) // 100

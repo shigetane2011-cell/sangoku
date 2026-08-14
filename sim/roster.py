@@ -92,11 +92,15 @@ UNPRICED_SKILLS = {"urge"}
 
 # 固有特性の補正（総合値の%）。「特性なし」との対戦で50%を超えたぶんが価値。
 TRAIT_ADJUST = {
-    "laststand": 3.00, "avenge": 3.00, "legacy": 2.90, "pursuit": 2.60,
-    "rearguard": 2.15, "chain": 0.35,
+    "laststand": 3.35, "legacy": 3.10, "pursuit": 2.85, "avenge": 2.05,
+    "rearguard": 2.00, "chain": 0.50,
     # vanguard は総大将かつ前衛のときだけ働く条件付きで、他と同じ土俵で測れない。
     # §4.2 の測定（前衛配置で +16〜+48pt）の中間から暫定で 2.5% 相当とする。
     "vanguard": 2.50,
+    # 対抗能力。+25%のダメージが敵のおよそ1/3に乗るので、火力+8%相当から始める。
+    # 反復の刻み（ADJUST_STEP=20）は慎重に倒してあるため、0から反復すると
+    # 何往復も要る。効果量から見積もれる場合は初期値を計算で置く。
+    "vs_shu": 8.65, "vs_wei": 7.90, "vs_go": 7.75,
 }
 
 
@@ -196,21 +200,21 @@ ROSTER = [
     ("趙雲", "長坂坡", 9, "cav", "dps", "raid", "単騎突入", []),
     # --- コスト8 ---
     ("張飛", "当陽橋", 8, "inf", "tank", "roar", "一喝", ["vanguard"]),
-    ("司馬懿", "冢虎", 8, "arc", "support", "snare", "堅忍", []),
+    ("司馬懿", "冢虎", 8, "arc", "support", "snare", "堅忍", ["vs_shu"]),
     ("黄忠", "定軍山", 8, "arc", "burst", "snipe", "百歩穿楊", []),
     ("孫策", "小覇王", 8, "cav", "dps", "strike", "江東の疾風", ["vanguard"]),
-    ("陸遜", "夷陵", 8, "arc", "support", "burn", "連環の計", []),
+    ("陸遜", "夷陵", 8, "arc", "support", "burn", "連環の計", ["vs_shu"]),
     ("馬超", "錦馬超", 8, "cav", "dps", "raid", "西涼の驍将", ["pursuit"]),
     # --- コスト7 ---
     ("夏侯惇", "独眼", 7, "inf", "tank", "guard", "抜矢啖睛", ["vanguard"]),
     ("太史慈", "神射", 7, "arc", "dps", "snipe", "神射", ["laststand"]),
-    ("甘寧", "錦帆賊", 7, "cav", "burst", "raid", "百騎劫営", ["vanguard"]),
-    ("張遼", "逍遥津", 7, "cav", "bruiser", "strike", "突撃", ["laststand"]),
+    ("甘寧", "錦帆賊", 7, "cav", "burst", "raid", "百騎劫営", ["vanguard", "vs_wei"]),
+    ("張遼", "逍遥津", 7, "cav", "bruiser", "strike", "突撃", ["laststand", "vs_go"]),
     ("龐統", "鳳雛", 7, "arc", "support", "urge", "鳳雛の献策", []),
     ("徐晃", "長駆", 7, "inf", "bruiser", "strike", "長駆直入", []),
     # --- コスト6 ---
     ("魏延", "子午", 6, "cav", "dps", "snipe", "子午の奇襲", ["pursuit"]),
-    ("姜維", "幼麟", 6, "cav", "bruiser", "sweep", "九伐中原", ["legacy"]),
+    ("姜維", "幼麟", 6, "cav", "bruiser", "sweep", "九伐中原", ["legacy", "vs_wei"]),
     ("張郃", "巧変", 6, "inf", "bruiser", "strike", "巧変", []),
     ("呂蒙", "白衣", 6, "arc", "dps", "raid", "白衣渡江", []),
     ("郭嘉", "鬼才", 6, "arc", "support", "curse", "十勝十敗", ["chain"]),
@@ -229,7 +233,7 @@ ROSTER = [
     ("曹仁", "堅守", 4, "inf", "tank", "guard", "鉄壁", []),
     ("韓当", "老弓", 4, "arc", "dps", "sweep", "連射", []),
     ("朱然", "江陵", 4, "inf", "tank", "hold", "江陵の守", ["rearguard"]),
-    ("王平", "無当", 4, "inf", "bruiser", "hold", "無当飛軍", ["legacy"]),
+    ("王平", "無当", 4, "inf", "bruiser", "hold", "無当飛軍", ["legacy", "vs_wei"]),
     ("郭淮", "雍涼", 4, "cav", "bruiser", "strike", "雍涼の備", []),
     ("荀攸", "謀主", 4, "arc", "support", "snare", "謀主", []),
     ("陳宮", "公台", 4, "arc", "support", "curse", "公台の策", []),
@@ -242,7 +246,7 @@ ROSTER = [
     ("周泰", "身代", 3, "inf", "tank", "guard", "身代わり", ["avenge"]),
     ("徐盛", "疑城", 3, "arc", "bruiser", "sweep", "疑城の計", []),
     ("曹洪", "救主", 3, "cav", "bruiser", "strike", "救主", []),
-    ("満寵", "剛毅", 3, "arc", "dps", "snipe", "剛毅", []),
+    ("満寵", "剛毅", 3, "arc", "dps", "snipe", "剛毅", ["vs_go"]),
     # --- コスト2 ---
     ("潘璋", "急襲", 2, "cav", "dps", "raid", "急襲", ["pursuit"]),
     ("丁奉", "雪中", 2, "arc", "burst", "snipe", "雪中奮短兵", []),
@@ -257,6 +261,31 @@ ROSTER = [
     ("全琮", "護軍", 1, "cav", "bruiser", "strike", "護軍", []),
     ("孫乾", "従事", 1, "inf", "support", "guard", "従事", []),
 ]
+
+# 勢力（§4.4）。対抗能力の軸に使う。
+#
+# **自己強化ではなく対抗能力を軸にする。** 自己強化（AとBを組むと両方強い）は
+# 正のフィードバックで、使うほど正しさが強化されるため編成が固定化する。
+# 対抗能力（魏に強い）は負のフィードバックで、**自分の成功が自分の価値を下げる**。
+# 魏特効が流行れば魏が減り、魏が減れば魏特効が腐り、また魏が戻る。原理的に収束しない。
+#
+# 群雄は3人しかいないので対抗の標的にはしない。魏19・蜀21・呉17 の3勢力を軸とする。
+FACTION = {
+    "wei": ["曹操", "司馬懿", "夏侯惇", "張遼", "徐晃", "張郃", "郭嘉", "于禁", "荀彧",
+            "楽進", "李典", "賈詡", "夏侯淵", "曹仁", "郭淮", "荀攸", "曹洪", "満寵", "楽綝"],
+    "shu": ["諸葛亮", "関羽", "趙雲", "張飛", "黄忠", "馬超", "龐統", "魏延", "姜維",
+            "法正", "王平", "陳到", "傅僉", "廖化", "馬岱", "呉懿", "張嶷", "李厳",
+            "樊建", "宗預", "孫乾"],
+    "go":  ["周瑜", "孫策", "陸遜", "太史慈", "甘寧", "呂蒙", "凌統", "程普", "黄蓋",
+            "韓当", "朱然", "周泰", "徐盛", "潘璋", "丁奉", "董襲", "全琮"],
+    "gun": ["呂布", "陳宮", "高順"],
+}
+FACTION_LABEL = {"wei": "魏", "shu": "蜀", "go": "呉", "gun": "群"}
+FACTION_OF = {p: f for f, ps in FACTION.items() for p in ps}
+
+# 対抗能力。指定勢力への与ダメージが増える常在型（§6.6）。
+# 効果量は engine.COUNTER_BONUS。標的は魏・蜀・呉のみ。
+COUNTERS = {"vs_wei": "wei", "vs_shu": "shu", "vs_go": "go"}
 
 ROMAJI = {
     "呂布": "ryofu", "諸葛亮": "shokatsuryo", "関羽": "kanu", "曹操": "sosou",
@@ -345,6 +374,7 @@ def build_card(entry):
     card = {
         "id": f"{ROMAJI[person]}_{cost}",
         "person": person,
+        "faction": FACTION_OF.get(person, "gun"),
         "name": f"{person}〔{epithet}〕",
         "tier": tier_of(cost),
         "cost": cost,
