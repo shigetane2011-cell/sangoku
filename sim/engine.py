@@ -75,6 +75,51 @@ COMMANDER_GAUGE_BONUS = 110   # 総大将の必殺技ゲージ上昇率 +10%（�
 VANGUARD_HP_BONUS = 125       # 自身の最大兵力 +25%
 VANGUARD_ALLY_ATK = 8         # 味方全体の攻撃力 +8%
 
+# 突破（§5.2）。レーン単位で判定し、突破力が前衛の抑えを上回ると
+# **そのレーンの近接兵は全員**が後衛を狙う。
+#
+# 全員一斉でなければならない。一部だけ抜ける方式を先に試して失敗した。
+# 前衛1人につき1人ずつ抜ける形にすると、2人で攻めるとき1人が前衛・1人が後衛へ
+# 分かれてしまい、**攻め手だけが火力を分散する**。守り手は残兵力の低い敵へ
+# 集中し続けるので、殴り合いでは集中している側が一方的に勝つ。
+# 実測では騎兵→弓兵の勝率が 89% から 5% へ落ちた。突破は攻め手の利点であって、
+# 火力分散の罰であってはならない。
+#
+# 騎兵の突破力は歩兵の1.5倍。前衛1人が抑えられるのは突破力6まで。
+#   騎兵2 (6) 対 前衛1 (6) → 抑えられる
+#   騎兵3 (9) 対 前衛1 (6) → 突破する
+#   騎兵2 (6) 対 前衛0 (0) → 突破する
+# 弓兵は元から前衛越しに撃てるため突破力を持たない。
+#
+# **この6という値は未確定である。** 5にすると騎兵2人で前衛1人を抜けるようになり、
+# 型同士の総当たりで騎兵突撃が平均91%の無敵になる。6にすると抜けなくなり、
+# 今度は盾＋弓が99%の無敵に戻る。**その中間が存在しない。**
+# 突破をレーン単位の全か無かにした結果、この1点が勝敗をまるごと決めている。
+# 段階的な突破（盾を抜けにくさの度合いとして扱う）への作り替えが要る（§13）。
+BREAK_POWER = {"cav": 3, "inf": 2, "arc": 0}
+BLOCK_POWER = 6
+
+# 接敵抑制（§5.3）。近接兵に MELEE_GRIP まで寄られた弓兵は威力が落ちる。
+#
+# **これが射程に価値を与える本体である。** 弓兵が接敵しても素の威力のまま戦えると、
+# 寄り切る側に何の見返りもない。実測では、盾と突破だけを入れても騎兵→弓兵は
+# 3〜30% までしか戻らなかった。後衛へ抜ける権利を与えても、弓兵の射程内を
+# より深く歩かされるだけで損をしていた。
+# 接敵に罰があって初めて「速く寄る」ことが騎兵の役割になり、
+# 「盾で寄らせない」ことが歩兵の役割になる。
+MELEE_GRIP = 12 * 10
+ARC_SUPPRESS = 8              # 接敵中の弓兵の与ダメージ −8%
+# 8% でも効きは大きい。25% にすると弓兵→歩兵が 70% から 0% へ落ちる。
+# §4.6 の増幅（総合値1%あたり勝率6.5pt）がそのまま乗るため、
+# 見た目の小ささに対して勝率の動きが桁違いになる。
+
+# 後退射撃（§5.3）。近接に KITE_TRIGGER まで寄られた弓兵は、下がりながら撃つ。
+# 後退速度は移動速度の KITE_SPEED_PCT%。開始位置より後ろへは下がれない。
+# これがないと射程の価値は「最初の数発」で尽き、寄り切られた時点で消える。
+# 後衛に置いた弓兵ほど下がる余地が大きいため、配置の判断にも意味が出る。
+KITE_TRIGGER = 20 * 10
+KITE_SPEED_PCT = 50
+
 # 三すくみ（§5.3）。attacker が victim に対して有利なら True。
 BEATS = {"cav": "arc", "arc": "inf", "inf": "cav"}
 
@@ -138,6 +183,7 @@ class Unit:
     max_hp: int
     hp: int
     pos: int                  # 共有座標。side0 は +方向、side1 は −方向へ進む
+    home: int = 0             # 開始位置。弓兵が後退射撃で下がれる限界（§5.3）
     gauge: int = 0
     next_attack: int = 0      # 次に攻撃できるティック
     effects: list = field(default_factory=list)
@@ -181,6 +227,7 @@ class Battle:
         self.tick = 0
         self.events: list = []
         self.log = log
+        self._breach: dict = {}   # 突破判定のティック内キャッシュ（§5.2）
         # 先攻側をシードから決定論的に決める（§8.1）
         self.first = self.rng.below(2)
         self.units: list[Unit] = []
@@ -244,7 +291,7 @@ class Battle:
         else:
             pos = LANE_DEPTH if row == "front" else LANE_DEPTH + BACK_OFFSET
         return Unit(card=card, side=side, lane=lane, row=row, is_commander=is_commander,
-                    max_hp=hp, hp=hp, pos=pos)
+                    max_hp=hp, hp=hp, pos=pos, home=pos)
 
     # ---- 参照値 -----------------------------------------------------------
 
@@ -268,6 +315,13 @@ class Battle:
 
     def interval(self, u: Unit) -> int:
         return self.base(u, "interval")
+
+    def suppressed(self, u: Unit) -> bool:
+        """弓兵が近接兵に組みつかれているか（§5.3）。組みつかれると威力が落ちる。"""
+        if u.troop != "arc":
+            return False
+        return any(abs(e.pos - u.pos) <= MELEE_GRIP
+                   for e in self.alive(1 - u.side, u.lane) if e.troop != "arc")
 
     def accuracy(self, u: Unit, target: Unit) -> int:
         acc = u.card["acc"]
@@ -306,6 +360,8 @@ class Battle:
         base = base * wear // 1000
         if BEATS.get(attacker.troop) == target.troop:
             base = base * TROOP_ADVANTAGE // 100
+        if self.suppressed(attacker):
+            base = base * (100 - ARC_SUPPRESS) // 100
         dfn = target.card["dfn"] * (100 + target.mod("dfn")) // 100
         dfn = max(0, dfn)
         if target.troop == "inf" and attacker.troop == "arc":
@@ -343,10 +399,49 @@ class Battle:
         target.gauge += dmg * 1500 // max(1, target.max_hp)
         return dmg
 
+    # ---- 突破（§5.2） ----------------------------------------------------
+
+    def broke_through(self, u: Unit) -> bool:
+        """自レーンの近接兵が敵前衛を突破しているか（§5.2）。
+
+        レーン単位の全か無かで判定する。突破したレーンの近接兵は全員が後衛を狙う。
+        これがないと「前衛を薄くして弓兵を増やす」編成を咎める手段が無く、
+        メタが「盾＋弓」で止まる（実測で天敵なしの99%だった）。
+        """
+        if u.troop == "arc":
+            return False          # 弓兵は元から前衛越しに撃てる
+        key = (u.side, u.lane)
+        if key not in self._breach:
+            blockers = sum(1 for e in self.alive(1 - u.side, u.lane)
+                           if e.row == "front")
+            power = sum(BREAK_POWER[a.troop] for a in self.alive(u.side, u.lane))
+            self._breach[key] = power > blockers * BLOCK_POWER
+        return self._breach[key]
+
     # ---- 標的選択（§5.2） ------------------------------------------------
 
+    def reachable(self, u: Unit, enemies: list) -> list:
+        """u が狙える敵を返す。**前衛は後衛の盾になる。**
+
+        近接兵は、そのレーンに敵前衛が生きているあいだ後衛へ届かない。突破した
+        レーンでは逆に後衛だけを狙う（前衛の脇を抜けていく）。弓兵は前衛越しに
+        撃てるので制限を受けない。
+
+        この「盾」がないと突破は成立しない。盾のない状態で「後衛を狙う権利」だけを
+        与えたところ、騎兵は弓兵の射程内をより深くまで歩かされるだけになり、
+        勝率が 89% から 5% へ落ちた。突破は盾を前提にして初めて利点になる。
+        """
+        if u.troop == "arc":
+            return enemies
+        front = [e for e in enemies if e.row == "front"]
+        if not front:
+            return enemies
+        if self.broke_through(u):
+            return [e for e in enemies if e.row == "back"] or enemies
+        return front
+
     def pick_target(self, u: Unit):
-        enemies = self.alive(1 - u.side, u.lane)
+        enemies = self.reachable(u, self.alive(1 - u.side, u.lane))
         if not enemies:
             return None
         reach = self.reach(u)
@@ -359,20 +454,19 @@ class Battle:
         if u.troop == "arc":
             return min(in_range, key=lambda e: (e.hp * 1000 // e.max_hp,
                                                 e.row != "front", e.card["id"]))
-        # 歩兵・騎兵は前衛優先、同条件なら残兵力率の低い方
-        return min(in_range, key=lambda e: (e.row != "front",
-                                            e.hp * 1000 // e.max_hp, e.card["id"]))
+        # 歩兵・騎兵は狙える範囲のうち残兵力率の低い敵を狙う。
+        # 前衛/後衛の制限は reachable() が済ませている（§5.2）。
+        return min(in_range, key=lambda e: (e.hp * 1000 // e.max_hp, e.card["id"]))
 
     def approach_target(self, u: Unit):
         """移動先を決めるための標的（射程外でもよい）。"""
-        enemies = self.alive(1 - u.side, u.lane)
+        enemies = self.reachable(u, self.alive(1 - u.side, u.lane))
         if not enemies:
             return None
         if u.troop == "arc":
             return min(enemies, key=lambda e: (e.hp * 1000 // e.max_hp,
                                                e.row != "front", e.card["id"]))
-        return min(enemies, key=lambda e: (e.row != "front",
-                                           e.hp * 1000 // e.max_hp, e.card["id"]))
+        return min(enemies, key=lambda e: (e.hp * 1000 // e.max_hp, e.card["id"]))
 
     # ---- 必殺技（§7） ----------------------------------------------------
 
@@ -511,6 +605,7 @@ class Battle:
 
     def step(self):
         self.tick += 1
+        self._breach.clear()      # 突破判定は撤退と移動で変わるのでティックごとに引き直す
         actors = self.order()
 
         # 1. 状態効果の経過処理
@@ -538,6 +633,18 @@ class Battle:
             if not self.alive(1 - u.side, u.lane):
                 self.lane_support(u)
                 continue
+            # 弓兵は近接に寄られたら下がりながら撃つ（§5.3）。開始位置が下限なので、
+            # 後衛に置いた弓兵ほど下がる余地が大きい。移動速度は歩兵8・騎兵12に対し
+            # 弓兵7で、後退はその半分。振り切ることはできず、時間を買うだけ。
+            if u.troop == "arc":
+                threat = min((abs(e.pos - u.pos)
+                              for e in self.alive(1 - u.side, u.lane)
+                              if e.troop != "arc"), default=None)
+                if threat is not None and threat < KITE_TRIGGER:
+                    step = max(1, self.speed(u) * KITE_SPEED_PCT // 100)
+                    u.pos = (max(u.home, u.pos - step) if u.side == 0
+                             else min(u.home, u.pos + step))
+                    continue
             target = self.approach_target(u)
             if target is None:
                 continue
