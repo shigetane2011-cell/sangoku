@@ -11,6 +11,7 @@ usage:
   python3 sim/balance.py skills      必殺技のひな型ごとの強さ
   python3 sim/balance.py traits      誘発型の固有特性ごとの強さ
   python3 sim/balance.py formations  陣形×構成の総当たり
+  python3 sim/balance.py support     1枚だけ混ぜたときの寄与（支援技の価格付け）
   python3 sim/balance.py exploit     攻略探索（最強編成を探し、収束するか循環するか）
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
@@ -510,6 +511,60 @@ def cmd_formations():
           f" → {'NG' if unbeaten else 'OK'}")
 
 
+# --- support -------------------------------------------------------------
+
+def single_skill_team(skill_key, cost=5, troop="inf", role="bruiser"):
+    """5枚を strike にし、後衛の1枚だけを skill_key にした編成。
+
+    支援技（ゲージ付与・回復）は全員同技の総当たりでは測れない。攻撃手段が
+    ゼロになり、実測5%が「弱い」ではなく「測れていない」を意味してしまう。
+    1枚だけ混ぜれば、部隊としての攻撃力を保ったまま寄与を測れる。
+    """
+    import roster
+    cards = []
+    for i in range(6):
+        key = skill_key if i == 4 else "strike"     # 4番=後衛中央に置く
+        person = f"支{skill_key}{i}"
+        roster.ROMAJI[person] = f"g{skill_key}{i}"
+        card = roster.build_card((person, "検証", cost, troop, role, key, key, []))
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
+def cmd_support():
+    """1枚だけ混ぜる方式で必殺技を測る。支援技の価格付けに使う（§7.5）。
+
+    **カードは既に価格を払っているので、正しく値付けできている技は50%になる。**
+    ずれるのは価格付けできていない技だけ、という形で出る。
+    """
+    import roster
+    print("=== 1枚だけ混ぜたときの寄与 ===")
+    print("  5枚を strike で揃え、後衛の1枚だけを変えて、全員 strike の編成と戦わせる。")
+    print("  能力値は既に補正を払っているので、正しく値付けできていれば50%になる。\n")
+    base = single_skill_team("strike")
+    keys = sorted(roster.SKILLS)
+    rows = sorted(((winrate(single_skill_team(k), base, seeds=300), k) for k in keys),
+                  reverse=True)
+    print(f"  {'ひな型':<10} {'寄与':>6} {'現補正':>7}")
+    for wr, k in rows:
+        mark = "  ← 価格付けなし" if k in roster.UNPRICED_SKILLS else ""
+        print(f"  {k:<10} {wr:>5}% {roster.SKILL_ADJUST.get(k, 0.0):>+7.2f}{mark}")
+    priced = [wr for wr, k in rows if k not in roster.UNPRICED_SKILLS]
+    print(f"\n  価格付け済みの技: {min(priced)}% 〜 {max(priced)}%（幅 {max(priced)-min(priced)}pt）"
+          f" → {'OK' if max(priced) - min(priced) <= 15 else 'NG'}")
+
+    for k in sorted(roster.UNPRICED_SKILLS & set(roster.SKILLS)):
+        print(f"\n  {k} の補正を振って、寄与が50%になる点を探す")
+        saved = roster.SKILL_ADJUST.get(k, 0.0)
+        for adj in (0.0, 2.0, 4.0, 6.0, 8.0):
+            roster.SKILL_ADJUST[k] = adj
+            print(f"    補正 {adj:>+5.1f}% → 寄与 "
+                  f"{winrate(single_skill_team(k), base, seeds=300):>3}%")
+        roster.SKILL_ADJUST[k] = saved
+
+
 # --- exploit -------------------------------------------------------------
 #
 # ここまでの指標には構造的な穴がある。swap と meta は**ランダム編成の平均**を見て
@@ -664,6 +719,7 @@ def main():
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
              "skills": cmd_skills, "traits": cmd_traits,
              "formations": cmd_formations, "exploit": cmd_exploit,
+             "support": cmd_support,
              "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
