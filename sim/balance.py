@@ -14,6 +14,7 @@ usage:
   python3 sim/balance.py support     1枚だけ混ぜたときの寄与（支援技の価格付け）
   python3 sim/balance.py exploit     攻略探索（最強編成を探し、収束するか循環するか）
   python3 sim/balance.py bo3         BO3のマッチ勝率（1戦の勝率が3戦でどう化けるか）
+  python3 sim/balance.py factions    勢力の規模と対抗能力の実効価値
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -203,13 +204,22 @@ def mixed_team(troop, roles=("tank", "tank", "bruiser", "bruiser", "dps", "dps")
 def cmd_troops():
     print("=== 兵種三すくみ ===")
     label = {"inf": "歩兵", "cav": "騎兵", "arc": "弓兵"}
+    lo, hi = (round(per_battle_for(t) * 100) for t in TARGET_MATCH)
+    print(f"  目標帯 1戦 {lo}-{hi}%（マッチ {TARGET_MATCH[0]*100:.0f}-"
+          f"{TARGET_MATCH[1]*100:.0f}% からの逆算・§5.3）")
+    print("  **帯はマッチ単位で決めて1戦へ逆算する。** 三すくみの優位は3部隊とも")
+    print("  同じ向きに効きうるので、1戦で許した幅がマッチで最大まで増幅される"
+          f"（{hi}%→{TARGET_MATCH[1]*100:.0f}%）。")
+    print(f"  下端 {lo}% は 200戦の2σ={2*100/math.sqrt(200):.0f}pt に埋もれるので、"
+          "守れるのは上端だけである。\n")
     print("  [役割を混ぜた編成 — こちらが本番の指標]")
     print("  耐久2・均衡2・火力2。実際の編成と同じく後衛に火力役が並ぶ。")
     mixed = {t: mixed_team(t) for t in ("inf", "cav", "arc")}
     for a, b in (("inf", "cav"), ("cav", "arc"), ("arc", "inf")):
         wr = winrate(mixed[a], mixed[b], seeds=200)
-        mark = "OK" if 55 <= wr <= 80 else ("NG(弱すぎ)" if wr < 55 else "NG(強すぎ)")
-        print(f"    {label[a]}→{label[b]}  {wr:>3}%  {mark}")
+        mark = "OK" if lo <= wr <= hi else ("NG(弱すぎ)" if wr < lo else "NG(強すぎ)")
+        m3 = match_rate((wr / 100,) * 3) * 100
+        print(f"    {label[a]}→{label[b]}  {wr:>3}%  (マッチ {m3:>3.0f}%)  {mark}")
 
     print("\n  [役割を揃えた編成 — 参考。役割が相性へどれだけ効くかを見る]")
     print("  揃えると後衛も前衛と同じ硬さになり、迂回の価値が中立になるので")
@@ -514,6 +524,135 @@ def cmd_traits():
     print_next("TRAIT_ADJUST", nxt)
 
 
+# --- factions ------------------------------------------------------------
+
+def faction_team(factions, counters=None, cost=5, tag=""):
+    """勢力を指定した検証用編成。
+
+    `counters` は factions と同じ長さで、各枠が持つ対抗能力（不要な枠は None）。
+    **1枚だけ持たせたいときに全員へ配らないこと。** 実戦の特効の密度は
+    12枚/80枚 = 6枠に0.9枚なので、全員に配ると6倍の濃さで測ることになる。
+    最初にそれをやって「1枚の特効で勝率0%」という数字を出した。
+
+    **勢力は必ず明示する。** 合成カードの既定は roster.NEUTRAL_FACTION で、
+    どの対抗能力の的にもならない。明示しないと「相手が全員中立」の条件で
+    測ることになり、特効の価値は必ず0と出る。
+    """
+    import roster
+    counters = counters if counters is not None else [None] * len(factions)
+    cards = []
+    for i, (f, ct) in enumerate(zip(factions, counters)):
+        person = f"勢{tag}{i}"
+        roster.ROMAJI[person] = f"y{tag}{i}"
+        roster.FACTION_OF[person] = f
+        c = roster.build_card((person, "検証", cost, "inf", "bruiser", "strike",
+                               "検証", [ct] if ct else []))
+        c["skill"] = {"name": "なし", "target": "self", "effects": []}
+        CARDS[c["id"]] = c
+        cards.append(c)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
+def cmd_factions():
+    """勢力の規模と、対抗能力の実効価値を測る（§6.6）。
+
+    対抗能力の価値は「相手が対象である確率 × 効果量」なので、**勢力の規模が
+    そのまま札の強さになる**。規模が違えば同じ +25% でも価値が違う。
+    群雄は的にされないため、この軸から外れている。
+    """
+    import roster
+    print("=== 勢力と対抗能力 ===")
+    print("  完全に均衡していれば、どの勢力の編成も勝率50%、どの対抗能力も")
+    print("  同じ実効価値になる。まず規模を数える。\n")
+
+    share = Counter(c["faction"] for c in CARDS.values())
+    total = sum(share.values())
+    print(f"  {'勢力':<6}{'枚数':>5}{'割合':>7}{'6枠の期待':>10}{'1枚でも当たる':>13}"
+          f"{'低コスト戦':>11}")
+    for f in ("wei", "shu", "go", "gun"):
+        s = share[f] / total
+        costs = sorted(c["cost"] for c in CARDS.values() if c["faction"] == f)
+        cheapest6 = sum(costs[:6]) if len(costs) >= 6 else None
+        low = "不可" if cheapest6 is None or cheapest6 > REGULATIONS["low"][1] \
+            else f"{cheapest6}"
+        print(f"  {roster.FACTION_LABEL[f]:<6}{share[f]:>5}{s*100:>6.0f}%"
+              f"{s*6:>9.2f}人{(1-(1-s)**6)*100:>11.0f}%{low:>12}")
+    print("  「1枚でも当たる」= 敵6枚のうち少なくとも1枚がその勢力である確率。")
+    print("  「低コスト戦」= その勢力だけで6枚組んだときの最小コスト（上限18）。")
+
+    print("\n  対抗能力を持つ札の数: "
+          + " / ".join(f"{roster.FACTION_LABEL[v]}特効 "
+                       f"{sum(1 for c in CARDS.values() if k in c.get('traits', []))}枚"
+                       for k, v in roster.COUNTERS.items()))
+
+    print("\n  対抗能力の価値を、敵の勢力構成を振って測る（コスト5・歩兵・6枚）")
+    print("  **全員が蜀特効を持つ編成**が、敵6枚のうち蜀がk枚のときにどれだけ勝つか。")
+    print("  **特効なしの同じ編成を並べる。** 特効の価格ぶんだけ能力値が下がって")
+    print("  いるので、当たらなければ50%を割る。そこが価格が正しいかの目安になる。\n")
+    all_shu = ["vs_shu"] * 6
+    print(f"  {'敵の蜀':>6}{'蜀特効あり':>11}{'特効なし(対照)':>16}")
+    for k in (0, 1, 2, 3, 4, 6):
+        enemy = faction_team(["shu"] * k + ["go"] * (6 - k), tag=f"e{k}")
+        with_c = winrate(faction_team(["go"] * 6, all_shu, tag="c"), enemy, seeds=200)
+        without = winrate(faction_team(["go"] * 6, tag="n"), enemy, seeds=200)
+        print(f"  {k:>5}枚{with_c:>10}%{without:>15}%")
+    gun_enemy = faction_team(["gun"] * 6, tag="eg")
+    gun_c = winrate(faction_team(["go"] * 6, all_shu, tag="c2"), gun_enemy, seeds=200)
+    gun_n = winrate(faction_team(["go"] * 6, tag="n2"), gun_enemy, seeds=200)
+    print(f"  {'群6枚':>6}{gun_c:>10}%{gun_n:>15}%   ← 無所属なのでどの特効も刺さる")
+
+    exp_shu = share["shu"] / total * 6
+    print(f"\n  実戦での的中枚数の期待値は 蜀 {exp_shu:.2f}枚（上の表の1〜2枚の行）。")
+    print("  対抗能力はそこで釣り合うように価格付けしてある（roster.TRAIT_ADJUST）。")
+    print("  **ただし価値の傾きが急すぎる。** 0枚で1%・2枚で63%・3枚で95%なので、")
+    print("  対抗能力は「戦略」ではなく「当たれば勝ち・外れれば負け」の賭けになっている。")
+    gun_share = share["gun"] / total
+    print(f"\n  **群雄は {share['gun']}枚・{gun_share*100:.0f}% しかない。**")
+    print(f"  仮に群特効を作っても、敵6枚に群が入る確率は "
+          f"{(1-(1-gun_share)**6)*100:.0f}% で、期待{gun_share*6:.2f}枚。")
+    print(f"  他の勢力の {exp_shu/(gun_share*6):.1f}分の1 しか当たらない。"
+          "負のフィードバック（§6.6）は\n  規模に比例して効くので、この規模では自己調整が働かない。")
+    print("  → 専用の群特効は作らず、**群を「どの特効の的にもなる無所属」として"
+          "軸へ載せる**。")
+
+    print("\n  無所属の不利がどれだけかを測り、FACTION_ADJUST を決める。")
+    print("  敵6枚のうち1枚が特効を持つ統制パネルを使い、特効の種類を3通り回す。")
+    print("  群はどれにも刺さり、魏蜀呉は1/3だけ刺さる。")
+    print("  **実ロスターからサンプルした敵で測ってはいけない。** 強さが揃って")
+    print("  いないので10組中8組が0%か100%へ張り付き、数%の能力差が見えない。\n")
+    # 実戦の特効の密度の確認。誘発型の特性は dict なので文字列だけを見る。
+    sampled = [t for t, _ids, _cmd in sample_teams(REGULATIONS["mid"][1], 10, seed=7)]
+    ncount = Counter(sum(1 for u in e["units"]
+                         for t in u["card"].get("traits", [])
+                         if isinstance(t, str) and t in roster.COUNTERS)
+                     for e in sampled)
+    print("  参考: 実ロスターの敵10編成が持つ特効の枚数 "
+          + " / ".join(f"{k}枚 {v}編成" for k, v in sorted(ncount.items())))
+
+    panels = {f: faction_team(["go"] * 6, [f"vs_{f}"] + [None] * 5, tag=f"p{f}")
+              for f in ("wei", "shu", "go")}
+    scores = {}
+    for f in ("wei", "shu", "go", "gun"):
+        team = faction_team([f] * 6, tag=f"t{f}")
+        vs = {g: winrate(team, p, seeds=200) for g, p in panels.items()}
+        scores[f] = sum(vs.values()) / len(vs)
+        print(f"    {roster.FACTION_LABEL[f]}6枚 → "
+              + " / ".join(f"{roster.FACTION_LABEL[g]}特効に {v}%" for g, v in vs.items())
+              + f"   平均 {scores[f]:.1f}%")
+    ref = sum(scores[f] for f in ("wei", "shu", "go")) / 3
+    diff = scores["gun"] - ref
+    cur = roster.FACTION_ADJUST.get("gun", 0.0)
+    noise = 2 * 100 / math.sqrt(200 * 3)
+    print(f"\n  魏蜀呉の平均 {ref:.1f}% に対し 群 {scores['gun']:.1f}%（差 {diff:+.1f}pt）")
+    print(f"  現補正 {cur:+.2f}  2σ={noise:.1f}pt  "
+          f"{'OK: 釣り合っている' if abs(diff) <= noise else '要調整'}")
+    print("\n  **勾配1歩の反復では決めないこと。範囲を掃く。** 攻撃力が整数なので、")
+    print("  値引きを増やすと hp と atk の配分が入れ替わる。総合値が上がっていても")
+    print("  被ダメージ増加のかかる相手には耐久のほうが効くため、勝率はのこぎり波に")
+    print("  なる。実測 -1.05→50.7% / -1.35→51.7% / -1.70→45.7%（atk 56→57）。")
+    print("  現在値は谷から離れた平坦部にある。")
+
 
 # --- formations ----------------------------------------------------------
 
@@ -542,30 +681,49 @@ def formation_team(formation, mix, cost=5):
     return {"units": units, "commander": cmd}
 
 
+COMPOSITIONS = {
+    "std": ("標準", [("inf", "tank")] * 2 + [("cav", "dps")] * 2
+            + [("arc", "dps")] * 2),
+    "cav": ("騎馬", [("cav", "dps")] * 6),
+    "bow": ("盾弓", [("inf", "tank")] * 3 + [("arc", "dps")] * 3),
+}
+
+
 def cmd_formations():
     """陣形×兵種構成の総当たり。狙いは「どれかが無敵にならない」こと。
 
     自由配置ではなく名前のついた陣形から選ばせるので、組み合わせが有限になり
     ここで釣り合わせられる（§4.1）。
+
+    **陣形の margin と構成の margin を分けて数える。** 12型を一緒くたに並べると
+    0%/100% のセルが陣形のせいか構成のせいかが分からない。分けずに測っていた
+    あいだ、陣形の効果をいくら動かしても数字が動かず、原因を取り違えていた。
     """
-    from engine import FORMATIONS
+    from engine import FORMATIONS, LANE_CAP
+    fkeys, ckeys = list(FORMATIONS), list(COMPOSITIONS)
+    n = 120
     print("=== 陣形×構成の総当たり ===")
     print("  コスト5×6人・必殺技と固有特性なし。総大将は各型の最も安全な枠。")
     print("  **同じ6枚を陣形だけ変えて置く。** 陣形ごとに構成を変えると、"
-          "陣形の差か構成の差か分からなくなる。\n")
-    COMPOSITIONS = {
-        "std": ("標準", [("inf", "tank")] * 2 + [("cav", "dps")] * 2
-                + [("arc", "dps")] * 2),
-        "cav": ("騎馬", [("cav", "dps")] * 6),
-        "bow": ("盾弓", [("inf", "tank")] * 3 + [("arc", "dps")] * 3),
-    }
+          "陣形の差か構成の差か分からなくなる。")
+    print(f"  完全に均衡していれば全セル50%・幅0pt。{n}戦の2σ = "
+          f"{2*100/math.sqrt(n):.0f}pt なので、幅が"
+          f"{2*100/math.sqrt(n):.0f}pt 以下なら均衡と区別できない。\n")
+    print(f"  レーンあたりの人数は全陣形で {LANE_CAP} に揃えてある: "
+          + " / ".join(
+              f"{FORMATIONS[f]['label']}"
+              f"{[sum(1 for r, l in FORMATIONS[f]['slots'] if l == L) for L in range(3)]}"
+              f"前{[sum(1 for r, l in FORMATIONS[f]['slots'] if l == L and r == 'front') for L in range(3)]}"
+              for f in fkeys))
+    print()
+
     builds = {(f, c): formation_team(f, COMPOSITIONS[c][1])
-              for f in FORMATIONS for c in COMPOSITIONS}
+              for f in fkeys for c in ckeys}
     keys = list(builds)
     grid, sc = {}, {k: [] for k in keys}
     for i, a in enumerate(keys):
         for b in keys[i + 1:]:
-            wr = winrate(builds[a], builds[b], seeds=120)
+            wr = winrate(builds[a], builds[b], seeds=n)
             grid[(a, b)] = wr; grid[(b, a)] = 100 - wr
             sc[a].append(wr); sc[b].append(100 - wr)
     name = lambda k: f"{FORMATIONS[k[0]]['label']}・{COMPOSITIONS[k[1]][0]}"
@@ -577,9 +735,41 @@ def cmd_formations():
     lo, hi = min(avgs.values()), max(avgs.values())
     unbeaten = [name(k) for k in keys if all(grid[(k, b)] >= 45 for b in keys if b != k)]
     print(f"\n  最弱 {lo:.0f}% 〜 最強 {hi:.0f}%（幅 {hi-lo:.0f}pt）"
-          f" → {'OK' if hi - lo <= 30 else 'NG: 陣形の強さが揃っていない'}")
+          f" → {'OK' if hi - lo <= 30 else 'NG: 型の強さが揃っていない'}")
     print(f"  天敵のない型: {'、'.join(unbeaten) if unbeaten else 'なし（すべての型に天敵がある）'}"
           f" → {'NG' if unbeaten else 'OK'}")
+
+    # --- 内訳。陣形のせいか構成のせいかを分ける ---
+    def summarize(pairs, title):
+        vals = [(a, b, grid[(a, b)]) for a, b in pairs]
+        nums = [v for _, _, v in vals]
+        ext = [(a, b, v) for a, b, v in vals if v <= 5 or v >= 95]
+        print(f"\n  [{title}] {len(nums)}組  幅 {max(nums)-min(nums)}pt"
+              f"（{min(nums)}%〜{max(nums)}%）  極端(≦5/≧95) {len(ext)}/{len(nums)}")
+        for a, b, v in ext:
+            print(f"      {name(a)} → {name(b)} {v}%")
+        return max(nums) - min(nums)
+
+    fpairs = [((f1, c), (f2, c)) for c in ckeys
+              for i, f1 in enumerate(fkeys) for f2 in fkeys[i + 1:]]
+    cpairs = [((f, c1), (f, c2)) for f in fkeys
+              for i, c1 in enumerate(ckeys) for c2 in ckeys[i + 1:]]
+    fw = summarize(fpairs, "陣形の margin（構成を固定して陣形だけ変える）")
+    cw = summarize(cpairs, "構成の margin（陣形を固定して構成だけ変える）")
+    print(f"\n  → 陣形 {fw}pt / 構成 {cw}pt。"
+          f"{'構成' if cw >= fw else '陣形'}のほうが大きい。")
+
+    print("\n  構成ごとに、どの陣形が最善か（同じ構成の相手だけと戦った平均）")
+    for c in ckeys:
+        row = {f: sum(grid[((f, c), (g, c))] for g in fkeys if g != f) / (len(fkeys) - 1)
+               for f in fkeys}
+        best = max(row, key=row.get)
+        print(f"    {COMPOSITIONS[c][0]}: "
+              + " / ".join(f"{FORMATIONS[f]['label']}{row[f]:.0f}%" for f in fkeys)
+              + f"  幅 {max(row.values())-min(row.values()):.0f}pt"
+              f"  最善={FORMATIONS[best]['label']}")
+    print("  **構成ごとに最善の陣形が違えば、陣形の選択は本物である。**"
+          "同じ陣形が常に最善なら\n  選択は形だけになる。")
 
 
 # --- support -------------------------------------------------------------
@@ -767,16 +957,55 @@ def cmd_exploit():
 
 # --- bo3 -----------------------------------------------------------------
 
+# 帯ごとのシードずらし。**hash() を使ってはいけない。** Python の文字列ハッシュは
+# プロセスごとに変わるため、bo3 の測定値が実行のたびに動いていた（§8.4 違反）。
+BO3_SALT = {"low": 11, "mid": 37, "high": 71}
+
+
 def bo3_match(a, b, seeds=60):
-    """3レギュレーションを戦い、2勝した側を勝ちとする。a から見たマッチ勝率。"""
-    wins = 0
+    """3レギュレーションを戦い、2勝した側を勝ちとする。a から見たマッチ勝率。
+
+    引き分けはどちらの勝ちにも数えない。2勝に届く側がなければマッチも引き分けとし、
+    50% として集計する（play と同じ扱い）。**引き分けを一律に負けと数えてはいけない。**
+    時間切れは最大17%出るので、A 側だけが systematically 損をする。
+
+    play と同様に半数は左右を入れ替える。先攻の有利/不利を打ち消すため。
+    """
+    wins = ties = 0
     for i in range(seeds):
-        won = 0
-        for key in ("low", "mid", "high"):
-            r = Battle([a[key], b[key]], seed=i * 7919 + 13 + hash(key) % 97).run()
-            won += 1 if r["winner"] == 0 else 0
-        wins += 1 if won >= 2 else 0
-    return wins * 100 // seeds
+        won = lost = 0
+        for key in REGULATIONS:
+            seed = i * 7919 + 13 + BO3_SALT[key]
+            if i % 2 == 0:
+                w = Battle([a[key], b[key]], seed=seed).run()["winner"]
+            else:
+                r = Battle([b[key], a[key]], seed=seed).run()["winner"]
+                w = None if r is None else 1 - r
+            won += 1 if w == 0 else 0
+            lost += 1 if w == 1 else 0
+        if won >= 2:
+            wins += 1
+        elif lost < 2:
+            ties += 1
+    return (wins * 100 + ties * 50) // seeds
+
+
+def match_rate(ps):
+    """1戦あたりの勝率 (p1,p2,p3) から、2勝で決着するマッチの勝率を出す。"""
+    p1, p2, p3 = ps
+    return p1 * p2 + p1 * p3 + p2 * p3 - 2 * p1 * p2 * p3
+
+
+def per_battle_for(target):
+    """マッチ勝率の目標から1戦あたりの勝率を逆算する（優位が3戦とも効く場合）。"""
+    lo, hi = 0.5, 1.0
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        if match_rate((mid, mid, mid)) < target:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def bo3_pool(rng, weights=(1, 1, 1)):
@@ -817,31 +1046,68 @@ def bo3_pool(rng, weights=(1, 1, 1)):
     return teams
 
 
+TARGET_MATCH = (0.55, 0.80)   # 三すくみの有利側が取ってよいマッチ勝率（§5.3）
+
+
 def cmd_bo3():
     """1戦あたりの勝率が、3戦のマッチ勝率へどう化けるかを見る。
 
-    **ここまでの指標はすべて1戦あたりで測っている。** BO3 をランク戦に採るなら、
-    許容できる幅はマッチ単位で決まる。1戦で許した差が3戦で膨らむ。
+    **目標帯はマッチ単位で決め、1戦へ逆算する。** 逆にしてはいけない。
+    ここまでの指標はすべて1戦あたりで測っており、1戦で許した幅がマッチで
+    どこまで膨らむかを見ていなかった。
     """
     print("=== BO3（3レギュレーション・2勝で決着）===")
-    print("  1戦あたりの勝率 → マッチ勝率の換算（3戦とも同じ勝率のとき）\n")
-    print(f"  {'1戦':>6} {'マッチ':>8}   {'判定'}")
-    for p in (52, 55, 60, 65, 70, 80):
+    lo_p, hi_p = (per_battle_for(t) for t in TARGET_MATCH)
+
+    print("  完全に均衡していれば（3戦とも50%）マッチも50%。まずそこを確認する。")
+    print(f"    3戦とも50% → マッチ {match_rate((.5, .5, .5)) * 100:.0f}%\n")
+
+    print("  **BO3 は一律の増幅器ではない。優位が何戦に効くかで向きが変わる。**")
+    print(f"  {'1戦':>6}{'1戦だけ':>10}{'2戦':>8}{'3戦とも':>9}   {'向き'}")
+    for p in (55, 60, 65, 70, 80, 90):
         q = p / 100
-        m = round((3 * q * q - 2 * q ** 3) * 100)
-        mark = "OK" if m <= 60 else ("要注意" if m <= 75 else "NG: マッチでは大差")
-        print(f"  {p:>5}% {m:>7}%   {mark}")
-    print("\n  **1戦で60%を許すとマッチでは65%になる。** いまの指標の目標帯"
-          "（三すくみ55-80%）は\n  マッチ単位では 57-90% にあたる。")
+        m1 = match_rate((q, .5, .5)) * 100
+        m2 = match_rate((q, q, .5)) * 100
+        m3 = match_rate((q, q, q)) * 100
+        print(f"  {p:>5}% {m1:>8.0f}% {m2:>7.0f}% {m3:>8.0f}%   "
+              f"{'1戦だけなら減る／3戦なら増える'}")
+    print("\n  1戦だけに効く優位は**薄まる**（0.5p+0.25）。2戦に効くとちょうど"
+          "\n  そのまま（p）。3戦とも効いて初めて増幅する（3p²−2p³）。")
+    print("  → BO3 が報いるのは「刺さる1枚」ではなく「3帯すべてで通る読み」である。")
+
+    print(f"\n  目標帯をマッチ単位で {TARGET_MATCH[0]*100:.0f}-{TARGET_MATCH[1]*100:.0f}% "
+          f"と置くと、1戦あたりでは {lo_p*100:.0f}-{hi_p*100:.0f}% になる。")
+    print(f"    現行の1戦の帯 55-80% → マッチ {match_rate((.55,)*3)*100:.0f}-"
+          f"{match_rate((.8,)*3)*100:.0f}%（上端が緩すぎる）")
+    print(f"    改めた1戦の帯 {lo_p*100:.0f}-{hi_p*100:.0f}% → マッチ "
+          f"{TARGET_MATCH[0]*100:.0f}-{TARGET_MATCH[1]*100:.0f}%")
+    n_need = math.ceil((100 / (lo_p * 100 - 50)) ** 2)
+    print(f"  ただし下端 {lo_p*100:.0f}% は 50% と紙一重で、"
+          f"区別するには1条件あたり {n_need} 戦が要る（2σ）。")
+    print(f"  現在の SEEDS={SEEDS} では 2σ={100/math.sqrt(SEEDS):.1f}pt なので、"
+          "下端は**測定で守れない**。\n  守れるのは上端だけである。")
+
+    print("\n  換算式を実測で検算する（総合値を振った合成カードで既知の勝率を作る）")
+    even = {k: scaled_team(1.0, tag="b3e") for k in REGULATIONS}
+    for mult, edges in ((1.03, 3), (1.03, 1), (1.06, 3)):
+        strong = scaled_team(mult, tag=f"b3s{int(mult*100)}")
+        p = winrate(strong, scaled_team(1.0, tag="b3e2"), seeds=300) / 100
+        keys = list(REGULATIONS)[:edges]
+        team = {k: (strong if k in keys else scaled_team(1.0, tag=f"b3n{k}"))
+                for k in REGULATIONS}
+        got = bo3_match(team, even, seeds=120)
+        want = match_rate(tuple(p if k in keys else .5 for k in REGULATIONS)) * 100
+        ok = "OK" if abs(got - want) <= 12 else "NG: 式が実態と合っていない"
+        print(f"    総合値+{(mult-1)*100:.0f}% を{edges}戦に効かせる: 1戦{p*100:.0f}% "
+              f"→ マッチ実測{got}% / 式{want:.0f}%  {ok}")
 
     print("\n  3戦が同じ勝率とは限らない。帯ごとに強さが違う場合:")
     for label, ps in (("均等 60/60/60", (60, 60, 60)),
                       ("やや偏り 70/60/50", (70, 60, 50)),
                       ("2帯集中 85/85/20", (85, 85, 20)),
                       ("1帯を捨てる 90/90/10", (90, 90, 10))):
-        a, b, c = (x / 100 for x in ps)
-        m = round((a*b + a*c + b*c - 2*a*b*c) * 100)
-        print(f"    {label:<20} → マッチ {m}%")
+        m = match_rate(tuple(x / 100 for x in ps)) * 100
+        print(f"    {label:<20} → マッチ {m:.0f}%")
     print("  → 2勝でよいので**1帯を捨てる配分が有利になりうる**。ただし各帯の")
     print("     コスト上限は独立なので、帯をまたいで予算は移せない。移せるのは")
     print("     良い札をどの帯へ回すかだけ。実測で確かめる。\n")
@@ -918,7 +1184,7 @@ def main():
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
              "skills": cmd_skills, "traits": cmd_traits,
              "formations": cmd_formations, "exploit": cmd_exploit,
-             "support": cmd_support, "bo3": cmd_bo3,
+             "support": cmd_support, "bo3": cmd_bo3, "factions": cmd_factions,
              "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):

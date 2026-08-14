@@ -97,20 +97,37 @@ UNPRICED_SKILLS = {"urge"}
 
 # 固有特性の補正（総合値の%）。「特性なし」との対戦で50%を超えたぶんが価値。
 TRAIT_ADJUST = {
-    "laststand": 3.70, "legacy": 2.25, "pursuit": 2.05, "avenge": 1.60,
-    "rearguard": 1.60, "chain": -0.05,
+    "laststand": 3.80, "legacy": 2.25, "pursuit": 2.15, "avenge": 1.50,
+    "rearguard": 1.60, "chain": -0.20,
     # 陣頭。条件を「前衛に置く」へ緩めたことで初めて実測できるようになった。
     # 暫定の2.50%は大幅に安すぎた（1枚だけ前衛に置いて対戦すると94%）。
-    "vanguard": 10.00,
-    # 対抗能力。+25%のダメージが敵のおよそ1/3に乗るので、火力+8%相当から始める。
-    # 反復の刻み（ADJUST_STEP=20）は慎重に倒してあるため、0から反復すると
-    # 何往復も要る。効果量から見積もれる場合は初期値を計算で置く。
-    "vs_shu": 7.60, "vs_wei": 7.15, "vs_go": 6.95,
+    "vanguard": 9.95,
+    # 対抗能力。効果量を +25% から +10% へ下げたので、価格も 25分の10 へ置き直して
+    # から反復した（engine.COUNTER_BONUS）。反復の刻み（ADJUST_STEP=20）は慎重に
+    # 倒してあるため、0から反復すると何往復も要る。効果量から見積もれる場合は
+    # 初期値を計算で置く。
+    "vs_shu": 2.64, "vs_wei": 2.41, "vs_go": 2.33,
 }
 
 
-def ability_premium(skill_key, traits):
-    """必殺技と固有特性の価値を、総合値の倍率へ換算する。
+# 勢力そのものの有利不利（§6.6）。対抗能力の的になりやすさは能力ではなく
+# 所属で決まるので、必殺技や特性と同じように予算へ織り込む。
+#
+# 群雄は無所属で、**どの勢力の対抗能力の的にもなる**（engine.UNALIGNED）。
+# 魏蜀呉が4枚ずつの特効に狙われるのに対し、群は12枚すべてに狙われる。
+# その一方的な不利を負の補正＝値引きとして返し、素の能力値を上げる。
+# 無補正での不利は実測 -6.7pt、-1.35 で -0.7pt まで詰まる（balance.py factions）。
+#
+# **勾配1歩の反復で決めてはいけない。範囲を掃く。** 攻撃力は整数なので、
+# 値引きを増やすと hp と atk の配分が入れ替わる。総合値は上がっているのに、
+# 被ダメージ増加のかかる相手には耐久のほうが効くため成績が落ちる。実測は
+# のこぎり波で、-1.35 の 51.7% に対し -1.70 は 45.7% へ落ちる（atk 56→57）。
+# -1.35 は谷から離れた平坦部にある。
+FACTION_ADJUST = {"gun": -1.35}
+
+
+def ability_premium(skill_key, traits, faction=None):
+    """必殺技・固有特性・勢力の価値を、総合値の倍率へ換算する。
 
     1.00 より大きい = 効果が強いので素の能力値を下げる
     1.00 より小さい = 効果が弱いので素の能力値を上げる
@@ -118,6 +135,7 @@ def ability_premium(skill_key, traits):
     pct = SKILL_ADJUST.get(skill_key, 0.0)
     for t in traits or ():
         pct += TRAIT_ADJUST.get(t, 0.0)
+    pct += FACTION_ADJUST.get(faction, 0.0)
     return 1 + pct / 100
 
 
@@ -307,6 +325,21 @@ FACTION = {
 FACTION_LABEL = {"wei": "魏", "shu": "蜀", "go": "呉", "gun": "群"}
 FACTION_OF = {p: f for f, ps in FACTION.items() for p in ps}
 
+# 検証用の合成カードに付く勢力。どの対抗能力の的にもならず、予算の補正も受けない。
+#
+# **既定を "gun" にしてはいけない。** balance.py の合成カードは人物名が
+# FACTION_OF に無いので既定値がそのまま入る。既定が群だと、群に付けた
+# 値引き（FACTION_ADJUST）が検証用カードにも乗る。しかも攻撃力は整数丸めで
+# 動かず値引きが全額 hp へ回るため、耐久寄りの相性だけが持ち上がる。
+# 実際、三すくみの 歩兵→騎兵 が 67% → 74% へ動いた。
+NEUTRAL_FACTION = "none"
+
+# 逆に、実在の武将が勢力表から漏れて中立になると、その札だけ対抗能力が
+# 効かなくなる。静かに起きるので明示的に落とす。
+_missing = [e[0] for e in ROSTER if e[0] not in FACTION_OF]
+if _missing:
+    raise ValueError(f"勢力が未設定の武将: {_missing}")
+
 # 対抗能力。指定勢力への与ダメージが増える常在型（§6.6）。
 # 効果量は engine.COUNTER_BONUS。標的は魏・蜀・呉のみ。
 COUNTERS = {"vs_wei": "wei", "vs_shu": "shu", "vs_go": "go"}
@@ -412,20 +445,21 @@ def solve_hp(target, atk, dfn, troop):
 def build_card(entry):
     person, epithet, cost, troop, role, skill_key, skill_name, traits = entry
     t, r = TROOP[troop], ROLE[role]
+    faction = FACTION_OF.get(person, NEUTRAL_FACTION)
     dfn = max(10, round(t["dfn"] * r["dfn"]))
     # 総合値が value(cost) になるよう倍率を解く
     hp1, atk1 = 1000 * r["hp"], 20 * r["atk"]
     score1 = effective_score(hp1, atk1, dfn, t["interval"], t["acc"], t["crit"],
                              evade_of(troop))
     target = (value(cost) / BEHAVIOR_PREMIUM[troop]
-              / ability_premium(skill_key, traits))
+              / ability_premium(skill_key, traits, faction))
     f = math.sqrt(target / score1)
     atk = max(5, round(atk1 * f))          # 端数は兵力側で吸収する（solve_hp）
     hp = solve_hp(target, atk, dfn, troop)
     card = {
         "id": f"{ROMAJI[person]}_{cost}",
         "person": person,
-        "faction": FACTION_OF.get(person, "gun"),
+        "faction": faction,
         "name": f"{person}〔{epithet}〕",
         "tier": tier_of(cost),
         "cost": cost,

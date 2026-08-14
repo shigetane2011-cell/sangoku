@@ -22,6 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from roster import (BEHAVIOR_PREMIUM, ROSTER, TROOP, ability_premium,  # noqa: E402
                     effective_score, evade_of, value)
+from roster import FACTION_OF, NEUTRAL_FACTION  # noqa: E402
 
 TOLERANCE = 8      # 目標値からのずれの許容幅（%）
 
@@ -53,7 +54,8 @@ def main():
         s = score(c, intervals[c["troop"]])
         skill_key, traits = ABILITY[c["person"]]
         target = (value(c["cost"]) / BEHAVIOR_PREMIUM[c["troop"]]
-                  / ability_premium(skill_key, traits))
+                  / ability_premium(skill_key, traits,
+                                    FACTION_OF.get(c["person"], NEUTRAL_FACTION)))
         rows.append((c, s, round((s / target - 1) * 100)))
 
     worst = max(rows, key=lambda r: abs(r[2]))

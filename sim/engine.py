@@ -174,7 +174,27 @@ KITE_SPEED_PCT = 50
 # 価値は「相手が対象である確率 × 効果量」なので、固定の価格を付けきれない。
 # 3勢力を標的にできるため、相手1人が対象である確率をおよそ 1/3 と見て値付けする。
 # 実際の頻度がそこからずれるぶんが、狙っている自己調整になる。
-COUNTER_BONUS = 25            # 対象勢力への与ダメージ +25%
+# **+25% は急すぎた。** 敵6枚のうち対象勢力が0枚なら勝率1%、2枚で63%、
+# 6枚で100%（幅99pt）。当たり枚数がそのまま勝敗になり、戦略ではなく引きになる。
+# 効果量を振って測ると 25%→幅99pt / 15%→91pt / 10%→77pt / 6%→48pt。
+# 10% を採る。実戦の期待当たり枚数（2枚前後）の付近で 32〜51% に収まり、
+# 外れても死に札にならない。**群を無所属として軸へ載せられるのもこの傾きから**で、
+# 25% のままだと無所属の不利が22ptに達し、能力値の刻み（攻撃力が整数）では
+# 払い戻せない。
+COUNTER_BONUS = 10            # 対象勢力への与ダメージ +10%
+
+# 群雄は「無所属」であり、**どの勢力の対抗能力の的にもなる**（§6.6）。
+#
+# 7枚・9%しかないため、群を標的とする専用の特効は作れない。作っても敵6枚に
+# 群が入る確率は42%、期待0.52枚で、他の勢力の4分の1しか当たらない。対抗能力の
+# 価値は当たる枚数でほぼ決まり（0枚で勝率1%・2枚で63%・3枚で95%）、
+# 負のフィードバックも規模に比例するので、この規模では自己調整が働かない。
+#
+# 代わりに「後ろ盾がないので誰の対策も通る」という向きで軸へ載せる。これで
+# 群は勢力システムの外に置かれなくなり、対抗能力の的中率も上がって死に札が減る。
+# 一方的な不利になるため、roster.FACTION_ADJUST で予算側から払い戻す。
+COUNTER_TRAITS = ("vs_wei", "vs_shu", "vs_go")
+UNALIGNED = "gun"             # 無所属（群雄）
 
 # 三すくみ（§5.3）。attacker が victim に対して有利なら True。
 BEATS = {"cav": "arc", "arc": "inf", "inf": "cav"}
@@ -204,15 +224,25 @@ BATTLEFIELDS = {
 # 「どの陣形も2人ずつ均等に配る」へ収束し、陣形そのものが意味を失う。
 # 効果を1つずつ持たせれば、陣形ごとに調整レバーができ、
 # 「魚鱗は突撃陣形」と一言で説明できるようにもなる。BATTLEFIELDS と同じ形式。
+#
+# **レーンあたりの人数は2で揃える（LANE_CAP）。** 効果量をいくら動かしても
+# 陣形の相性が 0%/100% から動かなかった原因はここだった。旧・魚鱗だけが
+# 1/4/1 で、中央の4人は3レーン制では戦う場所がなく、1人しかいない両翼が
+# 2対1で食われる。局所的な数の差は二乗で効く（ランチェスター）ので、
+# 9コストぶんの札の差より配り方の差のほうが大きくなっていた。
+# 2/2/2 に揃えると総当たりの幅が 55pt → 30pt、陣形別の幅が 24pt → 17pt へ縮む。
+# **陣形の個性は前衛と後衛の割り振り（3/3・4/2・5/1・2/4）が担う。**
+# レーンごとの前衛の枚数が変わるので、迂回の値段（§5.2）は陣形ごとに違ったまま。
+LANE_CAP = 2
 FORMATIONS = {
     "kakuyoku": {"label": "鶴翼", "note": "前3後3。横に広く、どのレーンにも盾がある",
                  "effect": "隣レーンへの支援移動が速い", "support_speed": 60,
                  "slots": [("front", 0), ("front", 1), ("front", 2),
                            ("back", 0), ("back", 1), ("back", 2)]},
-    "gyorin":   {"label": "魚鱗", "note": "前4後2。中央を厚くして押し込む",
+    "gyorin":   {"label": "魚鱗", "note": "前4後2。中央の前衛を厚くして押し込む",
                  "effect": "前衛の与ダメージ +12%", "front_deal": 112,
                  "slots": [("front", 1), ("front", 1), ("front", 0), ("front", 2),
-                           ("back", 1), ("back", 1)]},
+                           ("back", 0), ("back", 2)]},
     "hoen":     {"label": "方円", "note": "前5後1。守りを固め、中央に1人だけ隠す",
                  "effect": "前衛の被ダメージ −12%", "front_taken2": 88,
                  "slots": [("front", 0), ("front", 0), ("front", 1),
@@ -222,6 +252,13 @@ FORMATIONS = {
                  "slots": [("front", 0), ("front", 2),
                            ("back", 0), ("back", 1), ("back", 1), ("back", 2)]},
 }
+
+# 陣形を足すときに LANE_CAP を破らないための検算。1レーンへ3人以上入れると
+# 局所的な数の差が二乗で効いて、相性が 0%/100% へ張り付く。
+for _key, _f in FORMATIONS.items():
+    _per = [sum(1 for _r, _l in _f["slots"] if _l == _lane) for _lane in range(3)]
+    if max(_per) > LANE_CAP:
+        raise ValueError(f"陣形 {_key} のレーン人数 {_per} が上限 {LANE_CAP} を超えている")
 
 
 class Rng:
@@ -389,6 +426,13 @@ class Battle:
     def has_trait(self, card, trait) -> bool:
         return trait in card.get("traits", [])
 
+    def counters(self, attacker_card, target_card) -> bool:
+        """attacker の対抗能力が target に刺さるか（§6.6）。"""
+        faction = target_card.get("faction")
+        if faction == UNALIGNED:
+            return any(self.has_trait(attacker_card, t) for t in COUNTER_TRAITS)
+        return self.has_trait(attacker_card, f"vs_{faction}")
+
     def _make_unit(self, entry, side, is_commander) -> Unit:
         card = entry["card"]
         hp = card["hp"]
@@ -489,7 +533,8 @@ class Battle:
         if self.suppressed(attacker):
             base = base * (100 - ARC_SUPPRESS) // 100
         # 対抗能力（§6.6）。相手の勢力が標的と一致したときだけ乗る。
-        if self.has_trait(attacker.card, f"vs_{target.card.get('faction')}"):
+        # 無所属（群雄）は後ろ盾がないので、どの勢力の対抗能力でも刺さる。
+        if self.counters(attacker.card, target.card):
             base = base * (100 + COUNTER_BONUS) // 100
         if self.exposed(target):
             base = base * FLANKED_TAKEN // 100
