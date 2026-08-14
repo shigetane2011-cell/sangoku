@@ -643,13 +643,13 @@ def neighbors(ids, formation, cmd, cap, rng, per_slot=4):
     return out
 
 
-def climb(opponents, cap, rng, start, steps=6, seeds=20):
+def climb(opponents, cap, rng, start, steps=8, seeds=10):
     """山登りで opponents にもっとも強い編成を探す。"""
     ids, formation, cmd = start
     best = evaluate(team_of(ids, formation, cmd), opponents, seeds)
     for _ in range(steps):
         gain = None
-        for trial in neighbors(ids, formation, cmd, cap, rng):
+        for trial in neighbors(ids, formation, cmd, cap, rng, per_slot=3):
             wr = evaluate(team_of(*trial), opponents, seeds)
             if wr > best:
                 best, gain = wr, trial
@@ -657,6 +657,23 @@ def climb(opponents, cap, rng, start, steps=6, seeds=20):
             break
         ids, formation, cmd = gain
     return (ids, formation, cmd), best
+
+
+def best_climb(opponents, cap, rng, starts, steps=8, seeds=10):
+    """複数の初期値から登り、もっとも良かったものを採る。
+
+    **初期値が1つだと探索の失敗を meta の性質と誤読する。** 固定の baseline から
+    6手だけ登らせていたときは、ある世代で前世代に 0% の編成しか見つけられず、
+    それを「循環している」と読みかけた。実際には対抗札（魏特効）が相手に刺さる
+    はずの場面で、探索がそこへ辿り着けていなかっただけだった。
+    判定基準が信用できないと、対抗能力が効いたかどうかも判断できない。
+    """
+    best, best_wr = None, -1
+    for start in starts:
+        found, wr = climb(opponents, cap, rng, start, steps, seeds)
+        if wr > best_wr:
+            best, best_wr = found, wr
+    return best, best_wr
 
 
 def cmd_exploit():
@@ -669,11 +686,19 @@ def cmd_exploit():
     print("  山登りで最強編成を探し、それを次の世代の標的にする。")
     print("  **見つかることは問題ではない。1つに収束することが問題。**\n")
 
+    # 初期値は baseline とランダム3種。**1つだけだと探索の失敗を meta の性質と
+    # 誤読する。** 実際に前世代へ 0% の編成しか見つけられず「循環している」と
+    # 読みかけたことがある。
+    forms = list(FORMATIONS)
+    starts = [(baseline(cap), "kakuyoku", 4)]
+    for t in sample_teams(cap, 3, seed=31337):
+        starts.append((t[1], forms[rng.below(len(forms))], t[2]))
+    print(f"  初期値 {len(starts)}種（baseline + ランダム3）から8手ずつ登る\n")
+
     history = []
     opponents = field
     for gen in range(4):
-        start = (baseline(cap), "kakuyoku", 4)
-        (ids, form, cmd), wr = climb(opponents, cap, rng, start)
+        (ids, form, cmd), wr = best_climb(opponents, cap, rng, starts)
         team = team_of(ids, form, cmd)
         names = "/".join(CARDS[c]["name"].split("〔")[0] for c in ids)
         print(f"  第{gen + 1}世代  対 前世代 {wr}%  陣形 {FORMATIONS[form]['label']}"
