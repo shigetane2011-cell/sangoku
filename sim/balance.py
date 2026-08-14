@@ -292,15 +292,20 @@ def cmd_meta():
     # 1度も出ない。実測の下限割れ34枚のうち26枚はノイズだった。
     # 上位30編成なら 60×0.9^30 ≒ 2.5枚まで下がり、信号が読める。
     # 総当たりは編成数の二乗で効くので、固定の対戦相手への成績で順位付けする。
+    # 上位N編成は**カード枚数から決める**。固定にすると枚数を増やしたとき
+    # 偶然0%になる札が増え、下限割れが読めなくなる。60枚なら28、80枚なら42。
+    import math
+    n = len(ALL_IDS)
+    top_n = max(20, round(math.log(3 / n) / math.log(1 - 6 / n)))
     for key, (label, cap) in REGULATIONS.items():
-        teams = sample_teams(cap, 120, seed=2026)
+        teams = sample_teams(cap, top_n * 4, seed=2026)
         panel = [t[0] for t in sample_teams(cap, 12, seed=99991)]
         scores = []
         for t in teams:
             a = sum(play(t[0], o, seeds=8)[0] for o in panel)
             scores.append(a)
         ranked = sorted(range(len(teams)), key=lambda i: -scores[i])
-        top = ranked[:30]
+        top = ranked[:top_n]
         freq = Counter()
         for i in top:
             freq.update(teams[i][1])

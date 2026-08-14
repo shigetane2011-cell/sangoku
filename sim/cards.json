@@ -84,50 +84,22 @@
       }
     },
     {
-      "id": "kanu_9",
-      "person": "関羽",
-      "faction": "shu",
-      "name": "関羽〔漢寿亭侯〕",
-      "tier": "high",
-      "cost": 9,
-      "troop": "cav",
-      "role": "bruiser",
-      "hp": 4180,
-      "atk": 63,
-      "dfn": 46,
-      "speed": 12,
-      "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 145,
-      "skill": {
-        "name": "青龍偃月",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 120
-          }
-        ]
-      }
-    },
-    {
-      "id": "sosou_9",
+      "id": "sosou_10",
       "person": "曹操",
       "faction": "wei",
       "name": "曹操〔魏王〕",
       "tier": "high",
-      "cost": 9,
+      "cost": 10,
       "troop": "cav",
       "role": "support",
-      "hp": 3970,
-      "atk": 66,
+      "hp": 4100,
+      "atk": 68,
       "dfn": 42,
       "speed": 12,
       "gauge_rate": 130,
       "acc": 90,
       "crit": 14,
-      "power": 140,
+      "power": 149,
       "traits": [
         "vanguard"
       ],
@@ -145,22 +117,56 @@
       }
     },
     {
-      "id": "shuyu_9",
+      "id": "kanu_10",
+      "person": "関羽",
+      "faction": "shu",
+      "name": "関羽〔漢寿亭侯〕",
+      "tier": "high",
+      "cost": 10,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 4140,
+      "atk": 63,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 143,
+      "traits": [
+        "vs_go"
+      ],
+      "skill": {
+        "name": "青龍偃月",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
+          }
+        ]
+      }
+    },
+    {
+      "id": "shuyu_10",
       "person": "周瑜",
       "faction": "go",
       "name": "周瑜〔赤壁〕",
       "tier": "high",
-      "cost": 9,
+      "cost": 10,
       "troop": "arc",
       "role": "dps",
-      "hp": 3180,
+      "hp": 3160,
       "atk": 99,
       "dfn": 33,
       "speed": 7,
       "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
-      "power": 123,
+      "power": 122,
+      "traits": [
+        "vs_wei"
+      ],
       "skill": {
         "name": "火計",
         "target": "lane_enemies",
@@ -170,6 +176,113 @@
             "power": 38,
             "duration": 200,
             "interval": 20
+          }
+        ]
+      }
+    },
+    {
+      "id": "shibai_10",
+      "person": "司馬懿",
+      "faction": "wei",
+      "name": "司馬懿〔冢虎〕",
+      "tier": "high",
+      "cost": 10,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4550,
+      "atk": 76,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 136,
+      "traits": [
+        "vs_shu"
+      ],
+      "skill": {
+        "name": "堅忍",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "speed",
+            "value": -35,
+            "duration": 200
+          },
+          {
+            "type": "dot",
+            "power": 24,
+            "duration": 150,
+            "interval": 20
+          }
+        ]
+      }
+    },
+    {
+      "id": "sonsaku_10",
+      "person": "孫策",
+      "faction": "go",
+      "name": "孫策〔小覇王〕",
+      "tier": "high",
+      "cost": 10,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2950,
+      "atk": 92,
+      "dfn": 40,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 143,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "江東の疾風",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "chohi_10",
+      "person": "張飛",
+      "faction": "shu",
+      "name": "張飛〔当陽橋〕",
+      "tier": "high",
+      "cost": 10,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4940,
+      "atk": 55,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 134,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "一喝",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 20
+          },
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": -18,
+            "duration": 100
           }
         ]
       }
@@ -203,27 +316,258 @@
       }
     },
     {
-      "id": "chohi_8",
-      "person": "張飛",
-      "faction": "shu",
-      "name": "張飛〔当陽橋〕",
+      "id": "kakoton_9",
+      "person": "夏侯惇",
+      "faction": "wei",
+      "name": "夏侯惇〔独眼〕",
       "tier": "high",
-      "cost": 8,
+      "cost": 9,
       "troop": "inf",
       "role": "tank",
-      "hp": 4670,
-      "atk": 51,
+      "hp": 4990,
+      "atk": 54,
       "dfn": 60,
       "speed": 8,
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
-      "power": 117,
+      "power": 133,
       "traits": [
         "vanguard"
       ],
       "skill": {
-        "name": "一喝",
+        "name": "抜矢啖睛",
+        "target": "lane_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "rikuson_9",
+      "person": "陸遜",
+      "faction": "go",
+      "name": "陸遜〔夷陵〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4200,
+      "atk": 69,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 114,
+      "traits": [
+        "vs_shu"
+      ],
+      "skill": {
+        "name": "連環の計",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "dot",
+            "power": 38,
+            "duration": 200,
+            "interval": 20
+          }
+        ]
+      }
+    },
+    {
+      "id": "bachou_9",
+      "person": "馬超",
+      "faction": "shu",
+      "name": "馬超〔錦馬超〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2940,
+      "atk": 92,
+      "dfn": 40,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 143,
+      "traits": [
+        {
+          "name": "執念",
+          "trigger": "enemy_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 12,
+              "duration": 200
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "西涼の驍将",
+        "target": "enemy_back_lane",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 175
+          }
+        ]
+      }
+    },
+    {
+      "id": "choryo_9",
+      "person": "張遼",
+      "faction": "wei",
+      "name": "張遼〔逍遥津〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 3890,
+      "atk": 58,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 124,
+      "traits": [
+        "vs_go",
+        {
+          "name": "背水",
+          "trigger": "self_low_hp",
+          "threshold": 40,
+          "target": "self",
+          "limit": 1,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 25,
+              "duration": 900
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "突撃",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "taishiji_9",
+      "person": "太史慈",
+      "faction": "go",
+      "name": "太史慈〔神射〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "arc",
+      "role": "dps",
+      "hp": 3290,
+      "atk": 103,
+      "dfn": 33,
+      "speed": 7,
+      "gauge_rate": 100,
+      "acc": 91,
+      "crit": 12,
+      "power": 133,
+      "traits": [
+        {
+          "name": "背水",
+          "trigger": "self_low_hp",
+          "threshold": 40,
+          "target": "self",
+          "limit": 1,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 25,
+              "duration": 900
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "神射",
+        "target": "enemy_lowest",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 215
+          }
+        ]
+      }
+    },
+    {
+      "id": "ryubi_9",
+      "person": "劉備",
+      "faction": "shu",
+      "name": "劉備〔徳将〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 5070,
+      "atk": 55,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 137,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "仁徳",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": 6,
+            "duration": 220
+          }
+        ]
+      }
+    },
+    {
+      "id": "toutaku_9",
+      "person": "董卓",
+      "faction": "gun",
+      "name": "董卓〔暴虐〕",
+      "tier": "high",
+      "cost": 9,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4840,
+      "atk": 54,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 129,
+      "skill": {
+        "name": "暴威",
         "target": "lane_enemies",
         "effects": [
           {
@@ -235,45 +579,6 @@
             "stat": "atk",
             "value": -18,
             "duration": 100
-          }
-        ]
-      }
-    },
-    {
-      "id": "shibai_8",
-      "person": "司馬懿",
-      "faction": "wei",
-      "name": "司馬懿〔冢虎〕",
-      "tier": "high",
-      "cost": 8,
-      "troop": "arc",
-      "role": "support",
-      "hp": 4260,
-      "atk": 71,
-      "dfn": 34,
-      "speed": 7,
-      "gauge_rate": 130,
-      "acc": 91,
-      "crit": 12,
-      "power": 119,
-      "traits": [
-        "vs_shu"
-      ],
-      "skill": {
-        "name": "堅忍",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "mod",
-            "stat": "speed",
-            "value": -35,
-            "duration": 200
-          },
-          {
-            "type": "dot",
-            "power": 24,
-            "duration": 150,
-            "interval": 20
           }
         ]
       }
@@ -307,210 +612,23 @@
       }
     },
     {
-      "id": "sonsaku_8",
-      "person": "孫策",
-      "faction": "go",
-      "name": "孫策〔小覇王〕",
-      "tier": "high",
-      "cost": 8,
-      "troop": "cav",
-      "role": "dps",
-      "hp": 2760,
-      "atk": 86,
-      "dfn": 40,
-      "speed": 12,
-      "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 125,
-      "traits": [
-        "vanguard"
-      ],
-      "skill": {
-        "name": "江東の疾風",
-        "target": "front_enemy",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 190
-          }
-        ]
-      }
-    },
-    {
-      "id": "rikuson_8",
-      "person": "陸遜",
-      "faction": "go",
-      "name": "陸遜〔夷陵〕",
-      "tier": "high",
-      "cost": 8,
-      "troop": "arc",
-      "role": "support",
-      "hp": 4040,
-      "atk": 67,
-      "dfn": 34,
-      "speed": 7,
-      "gauge_rate": 130,
-      "acc": 91,
-      "crit": 12,
-      "power": 107,
-      "traits": [
-        "vs_shu"
-      ],
-      "skill": {
-        "name": "連環の計",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "dot",
-            "power": 38,
-            "duration": 200,
-            "interval": 20
-          }
-        ]
-      }
-    },
-    {
-      "id": "bachou_8",
-      "person": "馬超",
-      "faction": "shu",
-      "name": "馬超〔錦馬超〕",
-      "tier": "high",
-      "cost": 8,
-      "troop": "cav",
-      "role": "dps",
-      "hp": 2840,
-      "atk": 89,
-      "dfn": 40,
-      "speed": 12,
-      "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 133,
-      "traits": [
-        {
-          "name": "執念",
-          "trigger": "enemy_retreat",
-          "target": "self",
-          "limit": 3,
-          "effects": [
-            {
-              "type": "mod",
-              "stat": "atk",
-              "value": 12,
-              "duration": 200
-            }
-          ]
-        }
-      ],
-      "skill": {
-        "name": "西涼の驍将",
-        "target": "enemy_back_lane",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 175
-          }
-        ]
-      }
-    },
-    {
-      "id": "kakoton_7",
-      "person": "夏侯惇",
-      "faction": "wei",
-      "name": "夏侯惇〔独眼〕",
-      "tier": "high",
-      "cost": 7,
-      "troop": "inf",
-      "role": "tank",
-      "hp": 4580,
-      "atk": 51,
-      "dfn": 60,
-      "speed": 8,
-      "gauge_rate": 95,
-      "acc": 88,
-      "crit": 9,
-      "power": 115,
-      "traits": [
-        "vanguard"
-      ],
-      "skill": {
-        "name": "抜矢啖睛",
-        "target": "lane_allies",
-        "effects": [
-          {
-            "type": "mod",
-            "stat": "dfn",
-            "value": 28,
-            "duration": 250
-          }
-        ]
-      }
-    },
-    {
-      "id": "taishiji_7",
-      "person": "太史慈",
-      "faction": "go",
-      "name": "太史慈〔神射〕",
-      "tier": "high",
-      "cost": 7,
-      "troop": "arc",
-      "role": "dps",
-      "hp": 3060,
-      "atk": 96,
-      "dfn": 33,
-      "speed": 7,
-      "gauge_rate": 100,
-      "acc": 91,
-      "crit": 12,
-      "power": 115,
-      "traits": [
-        {
-          "name": "背水",
-          "trigger": "self_low_hp",
-          "threshold": 40,
-          "target": "self",
-          "limit": 1,
-          "effects": [
-            {
-              "type": "mod",
-              "stat": "atk",
-              "value": 25,
-              "duration": 900
-            }
-          ]
-        }
-      ],
-      "skill": {
-        "name": "神射",
-        "target": "enemy_lowest",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 215
-          }
-        ]
-      }
-    },
-    {
-      "id": "kannei_7",
+      "id": "kannei_8",
       "person": "甘寧",
       "faction": "go",
       "name": "甘寧〔錦帆賊〕",
       "tier": "high",
-      "cost": 7,
+      "cost": 8,
       "troop": "cav",
       "role": "burst",
-      "hp": 2390,
-      "atk": 93,
+      "hp": 2500,
+      "atk": 98,
       "dfn": 37,
       "speed": 12,
       "gauge_rate": 105,
       "acc": 90,
       "crit": 14,
-      "power": 115,
+      "power": 126,
       "traits": [
-        "vanguard",
         "vs_wei"
       ],
       "skill": {
@@ -525,47 +643,196 @@
       }
     },
     {
-      "id": "choryo_7",
-      "person": "張遼",
+      "id": "jokou_8",
+      "person": "徐晃",
       "faction": "wei",
-      "name": "張遼〔逍遥津〕",
+      "name": "徐晃〔長駆〕",
       "tier": "high",
-      "cost": 7,
-      "troop": "cav",
+      "cost": 8,
+      "troop": "inf",
       "role": "bruiser",
-      "hp": 3630,
-      "atk": 54,
-      "dfn": 46,
-      "speed": 12,
+      "hp": 4200,
+      "atk": 63,
+      "dfn": 55,
+      "speed": 8,
       "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 108,
-      "traits": [
-        {
-          "name": "背水",
-          "trigger": "self_low_hp",
-          "threshold": 40,
-          "target": "self",
-          "limit": 1,
-          "effects": [
-            {
-              "type": "mod",
-              "stat": "atk",
-              "value": 25,
-              "duration": 900
-            }
-          ]
-        },
-        "vs_go"
-      ],
+      "acc": 88,
+      "crit": 9,
+      "power": 126,
       "skill": {
-        "name": "突撃",
+        "name": "長駆直入",
         "target": "front_enemy",
         "effects": [
           {
             "type": "damage",
             "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "kyoi_8",
+      "person": "姜維",
+      "faction": "shu",
+      "name": "姜維〔幼麟〕",
+      "tier": "high",
+      "cost": 8,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 3840,
+      "atk": 58,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 123,
+      "traits": [
+        "vs_wei",
+        {
+          "name": "遺志",
+          "trigger": "ally_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 15,
+              "duration": 200
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "九伐中原",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
+          }
+        ]
+      }
+    },
+    {
+      "id": "ryomo_8",
+      "person": "呂蒙",
+      "faction": "go",
+      "name": "呂蒙〔白衣〕",
+      "tier": "high",
+      "cost": 8,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4430,
+      "atk": 73,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 128,
+      "skill": {
+        "name": "白衣渡江",
+        "target": "enemy_back_lane",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 175
+          }
+        ]
+      }
+    },
+    {
+      "id": "chokaku_8",
+      "person": "張郃",
+      "faction": "wei",
+      "name": "張郃〔巧変〕",
+      "tier": "high",
+      "cost": 8,
+      "troop": "inf",
+      "role": "bruiser",
+      "hp": 4010,
+      "atk": 61,
+      "dfn": 55,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 117,
+      "traits": [
+        "vs_shu"
+      ],
+      "skill": {
+        "name": "巧変",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "kyocho_8",
+      "person": "許褚",
+      "faction": "wei",
+      "name": "許褚〔虎痴〕",
+      "tier": "high",
+      "cost": 8,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4740,
+      "atk": 53,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 124,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "虎痴",
+        "target": "lane_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "sonken2_8",
+      "person": "孫権",
+      "faction": "go",
+      "name": "孫権〔碧眼〕",
+      "tier": "high",
+      "cost": 8,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4410,
+      "atk": 72,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 125,
+      "skill": {
+        "name": "江東の主",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": 6,
+            "duration": 220
           }
         ]
       }
@@ -599,50 +866,22 @@
       }
     },
     {
-      "id": "jokou_7",
-      "person": "徐晃",
-      "faction": "wei",
-      "name": "徐晃〔長駆〕",
-      "tier": "high",
-      "cost": 7,
-      "troop": "inf",
-      "role": "bruiser",
-      "hp": 4030,
-      "atk": 61,
-      "dfn": 55,
-      "speed": 8,
-      "gauge_rate": 100,
-      "acc": 88,
-      "crit": 9,
-      "power": 117,
-      "skill": {
-        "name": "長駆直入",
-        "target": "front_enemy",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 190
-          }
-        ]
-      }
-    },
-    {
-      "id": "gien_6",
+      "id": "gien_7",
       "person": "魏延",
       "faction": "shu",
       "name": "魏延〔子午〕",
-      "tier": "mid",
-      "cost": 6,
+      "tier": "high",
+      "cost": 7,
       "troop": "cav",
       "role": "dps",
-      "hp": 2630,
-      "atk": 83,
+      "hp": 2750,
+      "atk": 86,
       "dfn": 40,
       "speed": 12,
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
-      "power": 115,
+      "power": 125,
       "traits": [
         {
           "name": "執念",
@@ -671,123 +910,22 @@
       }
     },
     {
-      "id": "kyoi_6",
-      "person": "姜維",
-      "faction": "shu",
-      "name": "姜維〔幼麟〕",
-      "tier": "mid",
-      "cost": 6,
-      "troop": "cav",
-      "role": "bruiser",
-      "hp": 3540,
-      "atk": 54,
-      "dfn": 46,
-      "speed": 12,
-      "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 105,
-      "traits": [
-        {
-          "name": "遺志",
-          "trigger": "ally_retreat",
-          "target": "self",
-          "limit": 3,
-          "effects": [
-            {
-              "type": "mod",
-              "stat": "atk",
-              "value": 15,
-              "duration": 200
-            }
-          ]
-        },
-        "vs_wei"
-      ],
-      "skill": {
-        "name": "九伐中原",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 120
-          }
-        ]
-      }
-    },
-    {
-      "id": "chokaku_6",
-      "person": "張郃",
-      "faction": "wei",
-      "name": "張郃〔巧変〕",
-      "tier": "mid",
-      "cost": 6,
-      "troop": "inf",
-      "role": "bruiser",
-      "hp": 3840,
-      "atk": 59,
-      "dfn": 55,
-      "speed": 8,
-      "gauge_rate": 100,
-      "acc": 88,
-      "crit": 9,
-      "power": 108,
-      "skill": {
-        "name": "巧変",
-        "target": "front_enemy",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 190
-          }
-        ]
-      }
-    },
-    {
-      "id": "ryomo_6",
-      "person": "呂蒙",
-      "faction": "go",
-      "name": "呂蒙〔白衣〕",
-      "tier": "mid",
-      "cost": 6,
-      "troop": "arc",
-      "role": "dps",
-      "hp": 3010,
-      "atk": 93,
-      "dfn": 33,
-      "speed": 7,
-      "gauge_rate": 100,
-      "acc": 91,
-      "crit": 12,
-      "power": 110,
-      "skill": {
-        "name": "白衣渡江",
-        "target": "enemy_back_lane",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 175
-          }
-        ]
-      }
-    },
-    {
-      "id": "kakuka_6",
+      "id": "kakuka_7",
       "person": "郭嘉",
       "faction": "wei",
       "name": "郭嘉〔鬼才〕",
-      "tier": "mid",
-      "cost": 6,
+      "tier": "high",
+      "cost": 7,
       "troop": "arc",
       "role": "support",
-      "hp": 3980,
-      "atk": 66,
+      "hp": 4120,
+      "atk": 69,
       "dfn": 34,
       "speed": 7,
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
-      "power": 104,
+      "power": 112,
       "traits": [
         {
           "name": "呼応",
@@ -816,22 +954,22 @@
       }
     },
     {
-      "id": "ukin_6",
+      "id": "ukin_7",
       "person": "于禁",
       "faction": "wei",
       "name": "于禁〔毅重〕",
-      "tier": "mid",
-      "cost": 6,
+      "tier": "high",
+      "cost": 7,
       "troop": "inf",
       "role": "tank",
-      "hp": 4510,
-      "atk": 49,
+      "hp": 4690,
+      "atk": 51,
       "dfn": 60,
       "speed": 8,
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
-      "power": 109,
+      "power": 118,
       "skill": {
         "name": "毅重",
         "target": "lane_allies",
@@ -841,6 +979,157 @@
             "stat": "dfn",
             "value": 28,
             "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "ryoto_7",
+      "person": "凌統",
+      "faction": "go",
+      "name": "凌統〔断金〕",
+      "tier": "high",
+      "cost": 7,
+      "troop": "inf",
+      "role": "dps",
+      "hp": 2840,
+      "atk": 89,
+      "dfn": 48,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 115,
+      "traits": [
+        {
+          "name": "弔い合戦",
+          "trigger": "ally_retreat",
+          "target": "all_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 4
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "断金の交",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "tenni_7",
+      "person": "典韋",
+      "faction": "wei",
+      "name": "典韋〔古之悪来〕",
+      "tier": "high",
+      "cost": 7,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4520,
+      "atk": 49,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 109,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "悪来",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 20
+          },
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": -18,
+            "duration": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "roshuku_7",
+      "person": "魯粛",
+      "faction": "go",
+      "name": "魯粛〔塌上策〕",
+      "tier": "high",
+      "cost": 7,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4210,
+      "atk": 70,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 116,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "塌上の策",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": 6,
+            "duration": 220
+          }
+        ]
+      }
+    },
+    {
+      "id": "ganryo_7",
+      "person": "顔良",
+      "faction": "gun",
+      "name": "顔良〔河北の驍〕",
+      "tier": "high",
+      "cost": 7,
+      "troop": "cav",
+      "role": "burst",
+      "hp": 2430,
+      "atk": 95,
+      "dfn": 37,
+      "speed": 12,
+      "gauge_rate": 105,
+      "acc": 90,
+      "crit": 14,
+      "power": 119,
+      "skill": {
+        "name": "河北の驍将",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
           }
         ]
       }
@@ -885,6 +1174,230 @@
             "stat": "atk",
             "value": 6,
             "duration": 220
+          }
+        ]
+      }
+    },
+    {
+      "id": "hosei_6",
+      "person": "法正",
+      "faction": "shu",
+      "name": "法正〔翼侯〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "arc",
+      "role": "support",
+      "hp": 4290,
+      "atk": 70,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 118,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "献策",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "gauge",
+            "seconds": 8
+          }
+        ]
+      }
+    },
+    {
+      "id": "kakoen_6",
+      "person": "夏侯淵",
+      "faction": "wei",
+      "name": "夏侯淵〔神速〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2680,
+      "atk": 83,
+      "dfn": 40,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 117,
+      "skill": {
+        "name": "神速",
+        "target": "enemy_back_lane",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 175
+          }
+        ]
+      }
+    },
+    {
+      "id": "teiho2_6",
+      "person": "程普",
+      "faction": "go",
+      "name": "程普〔老練〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4510,
+      "atk": 49,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 109,
+      "skill": {
+        "name": "老練",
+        "target": "lane_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "kogai_6",
+      "person": "黄蓋",
+      "faction": "go",
+      "name": "黄蓋〔苦肉〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4350,
+      "atk": 47,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 101,
+      "traits": [
+        "vanguard"
+      ],
+      "skill": {
+        "name": "苦肉の計",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 20
+          },
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": -18,
+            "duration": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "tougai_6",
+      "person": "鄧艾",
+      "faction": "wei",
+      "name": "鄧艾〔陰平〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "inf",
+      "role": "bruiser",
+      "hp": 3750,
+      "atk": 56,
+      "dfn": 55,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 100,
+      "traits": [
+        "vs_shu"
+      ],
+      "skill": {
+        "name": "陰平越え",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "kanpei_6",
+      "person": "関平",
+      "faction": "shu",
+      "name": "関平〔麒麟児〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2580,
+      "atk": 81,
+      "dfn": 40,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 110,
+      "skill": {
+        "name": "麒麟児",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "bunshu_6",
+      "person": "文醜",
+      "faction": "gun",
+      "name": "文醜〔河北の勇〕",
+      "tier": "mid",
+      "cost": 6,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 3700,
+      "atk": 57,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 116,
+      "skill": {
+        "name": "河北の勇",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
           }
         ]
       }
@@ -946,115 +1459,6 @@
       }
     },
     {
-      "id": "ryoto_5",
-      "person": "凌統",
-      "faction": "go",
-      "name": "凌統〔断金〕",
-      "tier": "mid",
-      "cost": 5,
-      "troop": "inf",
-      "role": "dps",
-      "hp": 2610,
-      "atk": 82,
-      "dfn": 48,
-      "speed": 8,
-      "gauge_rate": 100,
-      "acc": 88,
-      "crit": 9,
-      "power": 97,
-      "traits": [
-        {
-          "name": "弔い合戦",
-          "trigger": "ally_retreat",
-          "target": "all_allies",
-          "limit": 2,
-          "effects": [
-            {
-              "type": "gauge",
-              "seconds": 4
-            }
-          ]
-        }
-      ],
-      "skill": {
-        "name": "断金の交",
-        "target": "front_enemy",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 190
-          }
-        ]
-      }
-    },
-    {
-      "id": "teiho2_5",
-      "person": "程普",
-      "faction": "go",
-      "name": "程普〔老練〕",
-      "tier": "mid",
-      "cost": 5,
-      "troop": "inf",
-      "role": "tank",
-      "hp": 4320,
-      "atk": 47,
-      "dfn": 60,
-      "speed": 8,
-      "gauge_rate": 95,
-      "acc": 88,
-      "crit": 9,
-      "power": 100,
-      "skill": {
-        "name": "老練",
-        "target": "lane_allies",
-        "effects": [
-          {
-            "type": "mod",
-            "stat": "dfn",
-            "value": 28,
-            "duration": 250
-          }
-        ]
-      }
-    },
-    {
-      "id": "kogai_5",
-      "person": "黄蓋",
-      "faction": "go",
-      "name": "黄蓋〔苦肉〕",
-      "tier": "mid",
-      "cost": 5,
-      "troop": "inf",
-      "role": "tank",
-      "hp": 4170,
-      "atk": 45,
-      "dfn": 60,
-      "speed": 8,
-      "gauge_rate": 95,
-      "acc": 88,
-      "crit": 9,
-      "power": 92,
-      "traits": [
-        "vanguard"
-      ],
-      "skill": {
-        "name": "苦肉の計",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "stun",
-            "duration": 20
-          },
-          {
-            "type": "mod",
-            "stat": "atk",
-            "value": -18,
-            "duration": 100
-          }
-        ]
-      }
-    },
-    {
       "id": "kaku_5",
       "person": "賈詡",
       "faction": "wei",
@@ -1085,122 +1489,67 @@
       }
     },
     {
-      "id": "hosei_5",
-      "person": "法正",
+      "id": "ohei_5",
+      "person": "王平",
       "faction": "shu",
-      "name": "法正〔翼侯〕",
+      "name": "王平〔無当〕",
       "tier": "mid",
       "cost": 5,
-      "troop": "arc",
-      "role": "support",
-      "hp": 4110,
-      "atk": 67,
-      "dfn": 34,
-      "speed": 7,
-      "gauge_rate": 130,
-      "acc": 91,
-      "crit": 12,
-      "power": 109,
+      "troop": "inf",
+      "role": "bruiser",
+      "hp": 3660,
+      "atk": 55,
+      "dfn": 55,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 96,
       "traits": [
+        "vs_wei",
         {
-          "name": "呼応",
-          "trigger": "ally_skill",
+          "name": "遺志",
+          "trigger": "ally_retreat",
           "target": "self",
-          "limit": 5,
+          "limit": 3,
           "effects": [
             {
-              "type": "gauge",
-              "seconds": 2
+              "type": "mod",
+              "stat": "atk",
+              "value": 15,
+              "duration": 200
             }
           ]
         }
       ],
       "skill": {
-        "name": "献策",
-        "target": "all_allies",
+        "name": "無当飛軍",
+        "target": "front_enemy",
         "effects": [
           {
-            "type": "gauge",
-            "seconds": 8
+            "type": "stun",
+            "duration": 30
           }
         ]
       }
     },
     {
-      "id": "kakoen_5",
-      "person": "夏侯淵",
-      "faction": "wei",
-      "name": "夏侯淵〔神速〕",
-      "tier": "mid",
-      "cost": 5,
-      "troop": "cav",
-      "role": "dps",
-      "hp": 2550,
-      "atk": 80,
-      "dfn": 40,
-      "speed": 12,
-      "gauge_rate": 100,
-      "acc": 90,
-      "crit": 14,
-      "power": 108,
-      "skill": {
-        "name": "神速",
-        "target": "enemy_back_lane",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 175
-          }
-        ]
-      }
-    },
-    {
-      "id": "sojin_4",
-      "person": "曹仁",
-      "faction": "wei",
-      "name": "曹仁〔堅守〕",
-      "tier": "mid",
-      "cost": 4,
-      "troop": "inf",
-      "role": "tank",
-      "hp": 4100,
-      "atk": 45,
-      "dfn": 60,
-      "speed": 8,
-      "gauge_rate": 95,
-      "acc": 88,
-      "crit": 9,
-      "power": 91,
-      "skill": {
-        "name": "鉄壁",
-        "target": "lane_allies",
-        "effects": [
-          {
-            "type": "mod",
-            "stat": "dfn",
-            "value": 28,
-            "duration": 250
-          }
-        ]
-      }
-    },
-    {
-      "id": "kanto_4",
+      "id": "kanto_5",
       "person": "韓当",
       "faction": "go",
       "name": "韓当〔老弓〕",
       "tier": "mid",
-      "cost": 4,
+      "cost": 5,
       "troop": "arc",
       "role": "dps",
-      "hp": 2720,
-      "atk": 85,
+      "hp": 2860,
+      "atk": 89,
       "dfn": 33,
       "speed": 7,
       "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
-      "power": 90,
+      "power": 100,
       "skill": {
         "name": "連射",
         "target": "lane_enemies",
@@ -1213,22 +1562,22 @@
       }
     },
     {
-      "id": "shuzen_4",
+      "id": "shuzen_5",
       "person": "朱然",
       "faction": "go",
       "name": "朱然〔江陵〕",
       "tier": "mid",
-      "cost": 4,
+      "cost": 5,
       "troop": "inf",
       "role": "tank",
-      "hp": 4200,
-      "atk": 46,
+      "hp": 4420,
+      "atk": 48,
       "dfn": 60,
       "speed": 8,
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
-      "power": 95,
+      "power": 104,
       "traits": [
         {
           "name": "殿",
@@ -1257,46 +1606,98 @@
       }
     },
     {
-      "id": "ohei_4",
-      "person": "王平",
+      "id": "bashoku_5",
+      "person": "馬謖",
       "faction": "shu",
-      "name": "王平〔無当〕",
+      "name": "馬謖〔幼常〕",
+      "tier": "mid",
+      "cost": 5,
+      "troop": "arc",
+      "role": "bruiser",
+      "hp": 4050,
+      "atk": 62,
+      "dfn": 38,
+      "speed": 7,
+      "gauge_rate": 100,
+      "acc": 91,
+      "crit": 12,
+      "power": 102,
+      "skill": {
+        "name": "街亭",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "speed",
+            "value": -35,
+            "duration": 200
+          },
+          {
+            "type": "dot",
+            "power": 24,
+            "duration": 150,
+            "interval": 20
+          }
+        ]
+      }
+    },
+    {
+      "id": "shoukai_5",
+      "person": "鍾会",
+      "faction": "wei",
+      "name": "鍾会〔士季〕",
+      "tier": "mid",
+      "cost": 5,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 3590,
+      "atk": 54,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 107,
+      "skill": {
+        "name": "士季の計",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
+          }
+        ]
+      }
+    },
+    {
+      "id": "sojin_4",
+      "person": "曹仁",
+      "faction": "wei",
+      "name": "曹仁〔堅守〕",
       "tier": "mid",
       "cost": 4,
       "troop": "inf",
-      "role": "bruiser",
-      "hp": 3450,
-      "atk": 53,
-      "dfn": 55,
+      "role": "tank",
+      "hp": 4000,
+      "atk": 43,
+      "dfn": 60,
       "speed": 8,
-      "gauge_rate": 100,
+      "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
-      "power": 87,
+      "power": 85,
       "traits": [
-        {
-          "name": "遺志",
-          "trigger": "ally_retreat",
-          "target": "self",
-          "limit": 3,
-          "effects": [
-            {
-              "type": "mod",
-              "stat": "atk",
-              "value": 15,
-              "duration": 200
-            }
-          ]
-        },
-        "vs_wei"
+        "vs_go"
       ],
       "skill": {
-        "name": "無当飛軍",
-        "target": "front_enemy",
+        "name": "鉄壁",
+        "target": "lane_allies",
         "effects": [
           {
-            "type": "stun",
-            "duration": 30
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
           }
         ]
       }
@@ -1337,12 +1738,12 @@
       "tier": "mid",
       "cost": 4,
       "troop": "arc",
-      "role": "support",
-      "hp": 3800,
-      "atk": 62,
-      "dfn": 34,
+      "role": "dps",
+      "hp": 2760,
+      "atk": 86,
+      "dfn": 33,
       "speed": 7,
-      "gauge_rate": 130,
+      "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
       "power": 93,
@@ -1427,6 +1828,106 @@
       }
     },
     {
+      "id": "shutai_4",
+      "person": "周泰",
+      "faction": "go",
+      "name": "周泰〔身代〕",
+      "tier": "mid",
+      "cost": 4,
+      "troop": "inf",
+      "role": "tank",
+      "hp": 4030,
+      "atk": 45,
+      "dfn": 60,
+      "speed": 8,
+      "gauge_rate": 95,
+      "acc": 88,
+      "crit": 9,
+      "power": 89,
+      "traits": [
+        {
+          "name": "弔い合戦",
+          "trigger": "ally_retreat",
+          "target": "all_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 4
+            }
+          ]
+        }
+      ],
+      "skill": {
+        "name": "身代わり",
+        "target": "lane_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "josei_4",
+      "person": "徐盛",
+      "faction": "go",
+      "name": "徐盛〔疑城〕",
+      "tier": "mid",
+      "cost": 4,
+      "troop": "arc",
+      "role": "bruiser",
+      "hp": 3840,
+      "atk": 58,
+      "dfn": 38,
+      "speed": 7,
+      "gauge_rate": 100,
+      "acc": 91,
+      "crit": 12,
+      "power": 90,
+      "skill": {
+        "name": "疑城の計",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
+          }
+        ]
+      }
+    },
+    {
+      "id": "chojin_4",
+      "person": "張任",
+      "faction": "gun",
+      "name": "張任〔落鳳〕",
+      "tier": "mid",
+      "cost": 4,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2460,
+      "atk": 76,
+      "dfn": 40,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 99,
+      "skill": {
+        "name": "落鳳坡",
+        "target": "enemy_lowest",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 215
+          }
+        ]
+      }
+    },
+    {
       "id": "chinto_3",
       "person": "陳到",
       "faction": "shu",
@@ -1496,16 +1997,16 @@
       "name": "廖化〔老将〕",
       "tier": "low",
       "cost": 3,
-      "troop": "inf",
-      "role": "bruiser",
-      "hp": 3420,
-      "atk": 52,
-      "dfn": 55,
-      "speed": 8,
+      "troop": "cav",
+      "role": "dps",
+      "hp": 2270,
+      "atk": 72,
+      "dfn": 40,
+      "speed": 12,
       "gauge_rate": 100,
-      "acc": 88,
-      "crit": 9,
-      "power": 85,
+      "acc": 90,
+      "crit": 14,
+      "power": 86,
       "traits": [
         {
           "name": "遺志",
@@ -1557,78 +2058,6 @@
           {
             "type": "damage",
             "power": 215
-          }
-        ]
-      }
-    },
-    {
-      "id": "shutai_3",
-      "person": "周泰",
-      "faction": "go",
-      "name": "周泰〔身代〕",
-      "tier": "low",
-      "cost": 3,
-      "troop": "inf",
-      "role": "tank",
-      "hp": 3890,
-      "atk": 42,
-      "dfn": 60,
-      "speed": 8,
-      "gauge_rate": 95,
-      "acc": 88,
-      "crit": 9,
-      "power": 80,
-      "traits": [
-        {
-          "name": "弔い合戦",
-          "trigger": "ally_retreat",
-          "target": "all_allies",
-          "limit": 2,
-          "effects": [
-            {
-              "type": "gauge",
-              "seconds": 4
-            }
-          ]
-        }
-      ],
-      "skill": {
-        "name": "身代わり",
-        "target": "lane_allies",
-        "effects": [
-          {
-            "type": "mod",
-            "stat": "dfn",
-            "value": 28,
-            "duration": 250
-          }
-        ]
-      }
-    },
-    {
-      "id": "josei_3",
-      "person": "徐盛",
-      "faction": "go",
-      "name": "徐盛〔疑城〕",
-      "tier": "low",
-      "cost": 3,
-      "troop": "arc",
-      "role": "bruiser",
-      "hp": 3650,
-      "atk": 55,
-      "dfn": 38,
-      "speed": 7,
-      "gauge_rate": 100,
-      "acc": 91,
-      "crit": 12,
-      "power": 82,
-      "skill": {
-        "name": "疑城の計",
-        "target": "lane_enemies",
-        "effects": [
-          {
-            "type": "damage",
-            "power": 120
           }
         ]
       }
@@ -1688,6 +2117,64 @@
           {
             "type": "damage",
             "power": 215
+          }
+        ]
+      }
+    },
+    {
+      "id": "shokatsukin_3",
+      "person": "諸葛瑾",
+      "faction": "go",
+      "name": "諸葛瑾〔子瑜〕",
+      "tier": "low",
+      "cost": 3,
+      "troop": "arc",
+      "role": "support",
+      "hp": 3540,
+      "atk": 58,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 81,
+      "skill": {
+        "name": "子瑜の弁",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": 6,
+            "duration": 220
+          }
+        ]
+      }
+    },
+    {
+      "id": "gengan_3",
+      "person": "厳顔",
+      "faction": "shu",
+      "name": "厳顔〔老当〕",
+      "tier": "low",
+      "cost": 3,
+      "troop": "inf",
+      "role": "bruiser",
+      "hp": 3460,
+      "atk": 52,
+      "dfn": 55,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 86,
+      "skill": {
+        "name": "老当益壮",
+        "target": "lane_enemies",
+        "effects": [
+          {
+            "type": "damage",
+            "power": 120
           }
         ]
       }
@@ -1771,16 +2258,16 @@
       "name": "呉懿〔外戚〕",
       "tier": "low",
       "cost": 2,
-      "troop": "inf",
+      "troop": "cav",
       "role": "bruiser",
-      "hp": 3250,
-      "atk": 50,
-      "dfn": 55,
-      "speed": 8,
+      "hp": 3060,
+      "atk": 47,
+      "dfn": 46,
+      "speed": 12,
       "gauge_rate": 100,
-      "acc": 88,
-      "crit": 9,
-      "power": 77,
+      "acc": 90,
+      "crit": 14,
+      "power": 79,
       "skill": {
         "name": "堅陣",
         "target": "front_enemy",
@@ -1845,16 +2332,16 @@
       "name": "李厳〔正方〕",
       "tier": "low",
       "cost": 2,
-      "troop": "arc",
-      "role": "support",
-      "hp": 3480,
-      "atk": 58,
-      "dfn": 34,
-      "speed": 7,
-      "gauge_rate": 130,
-      "acc": 91,
-      "crit": 12,
-      "power": 80,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 3230,
+      "atk": 48,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 85,
       "skill": {
         "name": "督運",
         "target": "all_allies",
@@ -1935,6 +2422,36 @@
           {
             "type": "damage",
             "power": 190
+          }
+        ]
+      }
+    },
+    {
+      "id": "chosho_2",
+      "person": "張昭",
+      "faction": "go",
+      "name": "張昭〔文淵〕",
+      "tier": "low",
+      "cost": 2,
+      "troop": "arc",
+      "role": "support",
+      "hp": 3320,
+      "atk": 55,
+      "dfn": 34,
+      "speed": 7,
+      "gauge_rate": 130,
+      "acc": 91,
+      "crit": 12,
+      "power": 72,
+      "skill": {
+        "name": "江東の柱石",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "atk",
+            "value": 6,
+            "duration": 220
           }
         ]
       }
@@ -2065,6 +2582,120 @@
             "stat": "dfn",
             "value": 28,
             "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "kanyo_1",
+      "person": "簡雍",
+      "faction": "shu",
+      "name": "簡雍〔憲和〕",
+      "tier": "low",
+      "cost": 1,
+      "troop": "inf",
+      "role": "support",
+      "hp": 3130,
+      "atk": 51,
+      "dfn": 49,
+      "speed": 8,
+      "gauge_rate": 130,
+      "acc": 88,
+      "crit": 9,
+      "power": 73,
+      "skill": {
+        "name": "弁舌",
+        "target": "all_allies",
+        "effects": [
+          {
+            "type": "gauge",
+            "seconds": 8
+          }
+        ]
+      }
+    },
+    {
+      "id": "bijiku_1",
+      "person": "糜竺",
+      "faction": "shu",
+      "name": "糜竺〔子仲〕",
+      "tier": "low",
+      "cost": 1,
+      "troop": "inf",
+      "role": "bruiser",
+      "hp": 2980,
+      "atk": 45,
+      "dfn": 55,
+      "speed": 8,
+      "gauge_rate": 100,
+      "acc": 88,
+      "crit": 9,
+      "power": 64,
+      "skill": {
+        "name": "糧道",
+        "target": "lane_allies",
+        "effects": [
+          {
+            "type": "mod",
+            "stat": "dfn",
+            "value": 28,
+            "duration": 250
+          }
+        ]
+      }
+    },
+    {
+      "id": "ryohan_1",
+      "person": "呂範",
+      "faction": "go",
+      "name": "呂範〔子衡〕",
+      "tier": "low",
+      "cost": 1,
+      "troop": "arc",
+      "role": "bruiser",
+      "hp": 3250,
+      "atk": 49,
+      "dfn": 38,
+      "speed": 7,
+      "gauge_rate": 100,
+      "acc": 91,
+      "crit": 12,
+      "power": 65,
+      "skill": {
+        "name": "子衡の備",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 30
+          }
+        ]
+      }
+    },
+    {
+      "id": "denyo_1",
+      "person": "田豫",
+      "faction": "wei",
+      "name": "田豫〔国譲〕",
+      "tier": "low",
+      "cost": 1,
+      "troop": "cav",
+      "role": "bruiser",
+      "hp": 2860,
+      "atk": 44,
+      "dfn": 46,
+      "speed": 12,
+      "gauge_rate": 100,
+      "acc": 90,
+      "crit": 14,
+      "power": 69,
+      "skill": {
+        "name": "国譲の守",
+        "target": "front_enemy",
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 30
           }
         ]
       }
