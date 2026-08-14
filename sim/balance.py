@@ -9,6 +9,7 @@ usage:
   python3 sim/balance.py commander   総大将の前衛配置と後衛配置の勝率差
   python3 sim/balance.py cost        コストの加算性（1点の価値がどこでも同じか）
   python3 sim/balance.py skills      必殺技のひな型ごとの強さ
+  python3 sim/balance.py traits      誘発型の固有特性ごとの強さ
   python3 sim/balance.py all         すべて
 """
 
@@ -338,11 +339,55 @@ def cmd_skills():
           f" → {'OK' if hi - lo <= 30 else 'NG: 必殺技の強さが揃っていない'}")
 
 
+
+# --- traits --------------------------------------------------------------
+
+def trait_team(trait_key=None, cost=5, troop="inf", role="bruiser", skill="strike"):
+    """全員が同じ固有特性を持つ検証用編成。特性以外の条件を完全に揃える。"""
+    import roster
+    cards = []
+    for i in range(6):
+        person = f"特{trait_key or 'none'}{i}"
+        roster.ROMAJI[person] = f"x{trait_key or 'none'}{i}"
+        traits = [trait_key] if trait_key else []
+        card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", traits))
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
+def cmd_traits():
+    """誘発型の固有特性ごとの強さを、特性なしの編成と比べて測る。
+
+    必殺技と同じく、特性の価値もコスト予算（§4.6）に含める必要がある。
+    含めるにはまず「どれだけ強いか」を数値で知る必要がある。
+    """
+    import roster
+    print("=== 誘発型の固有特性ごとの強さ ===")
+    print("  コスト5・歩兵・均衡役・必殺技 strike で揃え、特性だけを変えて")
+    print("  「特性なし」の編成と戦わせる。50%なら価値ゼロ。\n")
+    plain = trait_team(None)
+    keys = sorted(roster.TRIGGERS)
+    rows = []
+    for k in keys:
+        wr = winrate(trait_team(k), plain, seeds=300)
+        rows.append((wr, k))
+    rows.sort(reverse=True)
+    print(f"  {'特性':<10} {'対 特性なし':>10}  {'条件':<16} {'上限':>4}")
+    for wr, k in rows:
+        tr = roster.TRIGGERS[k]
+        print(f"  {tr['name']:<10} {wr:>9}%  {tr['trigger']:<16} {tr.get('limit', 1):>4}")
+    lo, hi = rows[-1][0], rows[0][0]
+    print(f"\n  最弱 {lo}% 〜 最強 {hi}%（幅 {hi - lo}pt）")
+    print(f"  → 特性を持つだけで {lo - 50:+d}〜{hi - 50:+d}pt の得。この分をコスト予算へ入れる必要がある。")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
-             "skills": cmd_skills}
+             "skills": cmd_skills, "traits": cmd_traits}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()

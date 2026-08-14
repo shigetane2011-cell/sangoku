@@ -151,6 +151,8 @@ class Unit:
     crits: int = 0
     skills: int = 0
     stun_ticks: int = 0
+    triggers: int = 0                       # 誘発型の固有特性が発動した回数
+    fired: dict = field(default_factory=dict)   # 特性名 → 発動回数
 
     @property
     def troop(self) -> str:
@@ -183,9 +185,12 @@ class Battle:
         self.first = self.rng.below(2)
         self.units: list[Unit] = []
         self.defaults = TROOP_TABLE
+        self.firing = False           # 誘発の連鎖を防ぐためのフラグ
         for side, team in enumerate(teams):
             for idx, entry in enumerate(team["units"]):
                 self.units.append(self._make_unit(entry, side, idx == team["commander"]))
+        self.trigger_events = {t["trigger"] for u in self.units
+                               for t in self.triggers_of(u.card)}
         self.apply_vanguard()
         self.apply_surplus(teams)
         self.result = None
@@ -398,37 +403,89 @@ class Battle:
             return [u]
         raise ValueError(f"unknown selector: {selector}")
 
-    def cast(self, u: Unit):
-        skill = u.card["skill"]
-        targets = self.skill_targets(u, skill["target"])
-        u.skills += 1
-        u.gauge = 0
-        for eff in skill["effects"]:
+    def apply_effects(self, source: Unit, effects, targets, label: str):
+        """効果の並びを対象へ適用する。必殺技と誘発型の固有特性で共通に使う。"""
+        for eff in effects:
             kind = eff["type"]
             for t in targets:
                 if t.retreated:
                     continue
                 if kind == "damage":
                     # 必殺技は原則必中（§6.4）。乱数はクリティカル判定のみ消費する。
-                    self.damage(u, t, eff["power"], is_skill=True)
+                    self.damage(source, t, eff["power"], is_skill=True)
                 elif kind == "mod":
                     self.add_effect(t, Effect(kind="mod", stat=eff["stat"], value=eff["value"],
-                                              remaining=eff["duration"], name=skill["name"]))
+                                              remaining=eff["duration"], name=label))
                 elif kind == "stun":
                     self.add_effect(t, Effect(kind="stun", remaining=eff["duration"],
-                                              name=skill["name"]))
+                                              name=label))
                 elif kind == "dot":
                     self.add_effect(t, Effect(kind="dot", value=eff["power"],
                                               remaining=eff["duration"],
                                               interval=eff["interval"],
                                               countdown=eff["interval"],
-                                              source_atk=u.card["atk"], name=skill["name"]))
+                                              source_atk=source.card["atk"], name=label))
                 elif kind == "gauge":
                     # seconds 指定を基本とする。value は旧形式の固定値。
                     gain = (self.gauge_seconds(t, eff["seconds"]) if "seconds" in eff
                             else eff.get("value", 0))
                     t.gauge = min(GAUGE_MAX, t.gauge + gain)
+
+    def cast(self, u: Unit):
+        skill = u.card["skill"]
+        targets = self.skill_targets(u, skill["target"])
+        u.skills += 1
+        u.gauge = 0
+        self.apply_effects(u, skill["effects"], targets, skill["name"])
         self.emit(f"{u.card['name']}の必殺技「{skill['name']}」が発動")
+        # 味方の必殺技発動を誘発条件とする固有特性（§6.6）
+        self.fire("ally_skill", u.side, source=u)
+
+    # ---- 誘発型の固有特性（§6.6） ----------------------------------------
+
+    def triggers_of(self, card):
+        """カードの固有特性のうち、誘発型（dict 形式）だけを返す。
+
+        文字列は常在型の組み込み特性（陣頭など）で、ここでは扱わない。
+        """
+        return [t for t in card.get("traits", []) if isinstance(t, dict)]
+
+    def fire(self, event: str, side: int, source: Unit | None = None,
+             subject: Unit | None = None):
+        """誘発条件 event を満たした側の固有特性を発動させる。
+
+        - 対象は side 側の生存武将。処理順は配置枠の固定順序（§8.1）で一意にする。
+        - 各特性には発動回数の上限がある（既定1回）。上限まで達したら以後発動しない。
+        - **誘発の連鎖は許さない。** 誘発型の効果が別の誘発型を呼ぶと、順序と回数が
+          編成によって変わり、§8.4 の再現性と実況の可読性が壊れる。
+        """
+        if self.firing or event not in self.trigger_events:
+            return
+        self.firing = True
+        try:
+            for u in self.order():
+                if u.side != side or u.retreated:
+                    continue
+                for tr in self.triggers_of(u.card):
+                    if tr["trigger"] != event:
+                        continue
+                    if u is subject and not tr.get("include_self", True):
+                        continue
+                    name = tr["name"]
+                    if u.fired.get(name, 0) >= tr.get("limit", 1):
+                        continue
+                    if event == "self_low_hp":
+                        if u.hp * 100 > u.max_hp * tr.get("threshold", 50):
+                            continue
+                    targets = self.skill_targets(u, tr["target"])
+                    if not targets:
+                        continue
+                    u.fired[name] = u.fired.get(name, 0) + 1
+                    u.triggers += 1
+                    self.apply_effects(u, tr["effects"], targets, name)
+                    self.emit(f"{u.card['name']}の固有特性「{name}」が発動")
+        finally:
+            self.firing = False
 
     def add_effect(self, target: Unit, eff: Effect):
         """同名の効果は上書きせず、効果量が大きい方・持続の長い方を採る（§6.5）。"""
@@ -516,6 +573,10 @@ class Battle:
                 continue
             self.cast(u)
 
+        # 兵力低下を誘発条件とする固有特性（§6.6）。撤退判定の前に見る。
+        for side in (self.first, 1 - self.first):
+            self.fire("self_low_hp", side)
+
         # 11. 撤退判定
         for u in self.units:
             if not u.retreated and u.hp <= 0:
@@ -533,6 +594,9 @@ class Battle:
                         for a in allies:
                             a.gauge = min(GAUGE_MAX, a.gauge + share)
                     u.gauge = 0
+                # 撤退を誘発条件とする固有特性（§6.6）
+                self.fire("ally_retreat", u.side, source=u, subject=u)
+                self.fire("enemy_retreat", 1 - u.side, source=u)
 
         # 12. 勝敗判定
         return self.judge()
@@ -645,11 +709,21 @@ def simulate(team_a, team_b, seed: int, battlefield: str = "clear", log: bool = 
 
 
 if __name__ == "__main__":
-    a = make_team(["chohi_toyo", "kakoton_dokugan", "ryofu_hisho",
-                   "kochu_teigun", "shokatsuryo_garyo", "chouun_chohan"], commander=4)
-    b = make_team(["jokou_choku", "gakushin_sento", "kanu_kanju",
-                   "shuyu_sekiheki", "rikuson_iryo", "choryo_shoyoshin"], commander=4)
-    battle = Battle([a, b], seed=12345, log=True)
+    # 動作確認用に、コスト上限30の編成を2つ組んで1戦を実況付きで再生する。
+    def pick(costs, exclude=()):
+        used = set(exclude)
+        out = []
+        for c in costs:
+            cid = next(k for k in sorted(CARDS)
+                       if CARDS[k]["cost"] == c and CARDS[k]["person"] not in used)
+            out.append(cid)
+            used.add(CARDS[cid]["person"])
+        return out
+
+    left = pick([8, 6, 5, 5, 3, 3])
+    right = pick([7, 6, 6, 5, 3, 3], exclude={CARDS[c]["person"] for c in left})
+    battle = Battle([make_team(left, commander=4), make_team(right, commander=4)],
+                    seed=12345, log=True)
     res = battle.run()
     for tick, text in battle.events:
         print(f"【{tick // 600:02d}:{tick // 10 % 60:02d}】 {text}")

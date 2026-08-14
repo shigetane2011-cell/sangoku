@@ -85,6 +85,31 @@ SKILLS = {
                             {"type": "dot", "power": 24, "duration": 150, "interval": 20}]},
 }
 
+# 誘発型の固有特性（§6.6）。戦闘中の出来事で発火し、ゲージは消費しない。
+# 「単に強くする」ではなく「別の組み立てを開く」方向で設計する。
+# limit は1戦闘あたりの発動回数の上限。
+TRIGGERS = {
+    # 味方が落ちるほど強くなる。損害を織り込んだ編成を成立させる。
+    "legacy":   {"name": "遺志", "trigger": "ally_retreat", "target": "self", "limit": 3,
+                 "effects": [{"type": "mod", "stat": "atk", "value": 15, "duration": 200}]},
+    # 味方の撤退をゲージへ変える。ゲージ引き継ぎ（§7.4）と重ねて使う。
+    "avenge":   {"name": "弔い合戦", "trigger": "ally_retreat", "target": "all_allies", "limit": 2,
+                 "effects": [{"type": "gauge", "seconds": 4}]},
+    # 味方が落ちた瞬間に自レーンを固める。前衛を薄くする編成を支える。
+    "rearguard": {"name": "殿", "trigger": "ally_retreat", "target": "lane_allies", "limit": 2,
+                  "effects": [{"type": "mod", "stat": "dfn", "value": 20, "duration": 200}]},
+    # 削られてから本領を出す。消耗係数（§6.1）の減衰を打ち消す方向に働く。
+    "laststand": {"name": "背水", "trigger": "self_low_hp", "threshold": 40,
+                  "target": "self", "limit": 1,
+                  "effects": [{"type": "mod", "stat": "atk", "value": 25, "duration": 900}]},
+    # 味方の必殺技に合わせて自分のゲージが進む。必殺技の連鎖を組める。
+    "chain":    {"name": "呼応", "trigger": "ally_skill", "target": "self", "limit": 5,
+                 "effects": [{"type": "gauge", "seconds": 2}]},
+    # 倒すほど加速する。突破役の押し込みを伸ばす。
+    "pursuit":  {"name": "執念", "trigger": "enemy_retreat", "target": "self", "limit": 3,
+                 "effects": [{"type": "mod", "stat": "atk", "value": 12, "duration": 200}]},
+}
+
 # (人物, 字号, コスト, 兵種, 役割, 必殺技ひな型, 必殺技名, 特性)
 ROSTER = [
     # --- コスト10 ---
@@ -101,36 +126,36 @@ ROSTER = [
     ("黄忠", "定軍山", 8, "arc", "burst", "snipe", "百歩穿楊", []),
     ("孫策", "小覇王", 8, "cav", "dps", "strike", "江東の疾風", ["vanguard"]),
     ("陸遜", "夷陵", 8, "arc", "support", "burn", "連環の計", []),
-    ("馬超", "錦馬超", 8, "cav", "dps", "raid", "西涼の驍将", []),
+    ("馬超", "錦馬超", 8, "cav", "dps", "raid", "西涼の驍将", ["pursuit"]),
     # --- コスト7 ---
     ("夏侯惇", "独眼", 7, "inf", "tank", "guard", "抜矢啖睛", ["vanguard"]),
-    ("太史慈", "神射", 7, "arc", "dps", "snipe", "神射", []),
+    ("太史慈", "神射", 7, "arc", "dps", "snipe", "神射", ["laststand"]),
     ("甘寧", "錦帆賊", 7, "cav", "burst", "raid", "百騎劫営", ["vanguard"]),
-    ("張遼", "逍遥津", 7, "cav", "bruiser", "strike", "突撃", []),
+    ("張遼", "逍遥津", 7, "cav", "bruiser", "strike", "突撃", ["laststand"]),
     ("龐統", "鳳雛", 7, "arc", "support", "urge", "鳳雛の献策", []),
     ("徐晃", "長駆", 7, "inf", "bruiser", "strike", "長駆直入", []),
     # --- コスト6 ---
-    ("魏延", "子午", 6, "cav", "dps", "snipe", "子午の奇襲", []),
-    ("姜維", "幼麟", 6, "cav", "bruiser", "sweep", "九伐中原", []),
+    ("魏延", "子午", 6, "cav", "dps", "snipe", "子午の奇襲", ["pursuit"]),
+    ("姜維", "幼麟", 6, "cav", "bruiser", "sweep", "九伐中原", ["legacy"]),
     ("張郃", "巧変", 6, "inf", "bruiser", "strike", "巧変", []),
     ("呂蒙", "白衣", 6, "arc", "dps", "raid", "白衣渡江", []),
-    ("郭嘉", "鬼才", 6, "arc", "support", "curse", "十勝十敗", []),
+    ("郭嘉", "鬼才", 6, "arc", "support", "curse", "十勝十敗", ["chain"]),
     ("于禁", "毅重", 6, "inf", "tank", "guard", "毅重", []),
-    ("荀彧", "王佐", 6, "arc", "support", "rally", "王佐の才", []),
+    ("荀彧", "王佐", 6, "arc", "support", "rally", "王佐の才", ["chain"]),
     # --- コスト5 ---
     ("楽進", "先登", 5, "inf", "bruiser", "hold", "先登", []),
     ("李典", "慎重", 5, "arc", "dps", "sweep", "斉射", []),
-    ("凌統", "断金", 5, "inf", "dps", "strike", "断金の交", []),
+    ("凌統", "断金", 5, "inf", "dps", "strike", "断金の交", ["avenge"]),
     ("程普", "老練", 5, "inf", "tank", "guard", "老練", []),
     ("黄蓋", "苦肉", 5, "inf", "tank", "roar", "苦肉の計", ["vanguard"]),
     ("賈詡", "毒士", 5, "arc", "support", "curse", "離間の計", []),
-    ("法正", "翼侯", 5, "arc", "support", "urge", "献策", []),
+    ("法正", "翼侯", 5, "arc", "support", "urge", "献策", ["chain"]),
     ("夏侯淵", "神速", 5, "cav", "dps", "raid", "神速", []),
     # --- コスト4 ---
     ("曹仁", "堅守", 4, "inf", "tank", "guard", "鉄壁", []),
     ("韓当", "老弓", 4, "arc", "dps", "sweep", "連射", []),
-    ("朱然", "江陵", 4, "inf", "tank", "hold", "江陵の守", []),
-    ("王平", "無当", 4, "inf", "bruiser", "hold", "無当飛軍", []),
+    ("朱然", "江陵", 4, "inf", "tank", "hold", "江陵の守", ["rearguard"]),
+    ("王平", "無当", 4, "inf", "bruiser", "hold", "無当飛軍", ["legacy"]),
     ("郭淮", "雍涼", 4, "cav", "bruiser", "strike", "雍涼の備", []),
     ("荀攸", "謀主", 4, "arc", "support", "snare", "謀主", []),
     ("陳宮", "公台", 4, "arc", "support", "curse", "公台の策", []),
@@ -138,22 +163,22 @@ ROSTER = [
     # --- コスト3 ---
     ("陳到", "白毦", 3, "inf", "tank", "guard", "白毦兵", ["vanguard"]),
     ("傅僉", "守将", 3, "inf", "tank", "guard", "堅守", []),
-    ("廖化", "老将", 3, "inf", "bruiser", "hold", "殿軍", []),
+    ("廖化", "老将", 3, "inf", "bruiser", "hold", "殿軍", ["legacy"]),
     ("馬岱", "追撃", 3, "cav", "dps", "snipe", "追撃", []),
-    ("周泰", "身代", 3, "inf", "tank", "guard", "身代わり", []),
+    ("周泰", "身代", 3, "inf", "tank", "guard", "身代わり", ["avenge"]),
     ("徐盛", "疑城", 3, "arc", "bruiser", "sweep", "疑城の計", []),
     ("曹洪", "救主", 3, "cav", "bruiser", "strike", "救主", []),
     ("満寵", "剛毅", 3, "arc", "dps", "snipe", "剛毅", []),
     # --- コスト2 ---
-    ("潘璋", "急襲", 2, "cav", "dps", "raid", "急襲", []),
+    ("潘璋", "急襲", 2, "cav", "dps", "raid", "急襲", ["pursuit"]),
     ("丁奉", "雪中", 2, "arc", "burst", "snipe", "雪中奮短兵", []),
     ("呉懿", "外戚", 2, "inf", "bruiser", "hold", "堅陣", []),
-    ("張嶷", "越巂", 2, "inf", "tank", "guard", "越巂の鎮", []),
+    ("張嶷", "越巂", 2, "inf", "tank", "guard", "越巂の鎮", ["rearguard"]),
     ("李厳", "正方", 2, "arc", "support", "urge", "督運", []),
     ("楽綝", "揚州", 2, "cav", "dps", "strike", "揚州の驍", []),
-    ("董襲", "断纜", 2, "inf", "dps", "strike", "断纜", []),
+    ("董襲", "断纜", 2, "inf", "dps", "strike", "断纜", ["laststand"]),
     # --- コスト1 ---
-    ("樊建", "伝令", 1, "arc", "support", "urge", "伝令", []),
+    ("樊建", "伝令", 1, "arc", "support", "urge", "伝令", ["chain"]),
     ("宗預", "使者", 1, "arc", "support", "rally", "結盟", []),
     ("全琮", "護軍", 1, "cav", "bruiser", "strike", "護軍", []),
     ("孫乾", "従事", 1, "inf", "support", "guard", "従事", []),
@@ -241,7 +266,8 @@ def build_card(entry):
         "crit": t["crit"],
     }
     if traits:
-        card["traits"] = traits
+        # 文字列は常在型の組み込み特性、TRIGGERS のキーは誘発型に展開する（§6.6）
+        card["traits"] = [dict(TRIGGERS[t]) if t in TRIGGERS else t for t in traits]
     card["skill"] = {"name": skill_name, **SKILLS[skill_key]}
     return card
 

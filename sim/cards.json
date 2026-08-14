@@ -357,6 +357,22 @@
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
+      "traits": [
+        {
+          "name": "執念",
+          "trigger": "enemy_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 12,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "西涼の驍将",
         "target": "enemy_back_lane",
@@ -414,6 +430,23 @@
       "gauge_rate": 100,
       "acc": 91,
       "crit": 12,
+      "traits": [
+        {
+          "name": "背水",
+          "trigger": "self_low_hp",
+          "threshold": 40,
+          "target": "self",
+          "limit": 1,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 25,
+              "duration": 900
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "神射",
         "target": "enemy_lowest",
@@ -469,6 +502,23 @@
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
+      "traits": [
+        {
+          "name": "背水",
+          "trigger": "self_low_hp",
+          "threshold": 40,
+          "target": "self",
+          "limit": 1,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 25,
+              "duration": 900
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "突撃",
         "target": "front_enemy",
@@ -547,6 +597,22 @@
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
+      "traits": [
+        {
+          "name": "執念",
+          "trigger": "enemy_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 12,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "子午の奇襲",
         "target": "enemy_lowest",
@@ -573,6 +639,22 @@
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
+      "traits": [
+        {
+          "name": "遺志",
+          "trigger": "ally_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 15,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "九伐中原",
         "target": "lane_enemies",
@@ -651,6 +733,20 @@
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "十勝十敗",
         "target": "all_enemies",
@@ -707,6 +803,20 @@
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "王佐の才",
         "target": "all_allies",
@@ -787,6 +897,20 @@
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "弔い合戦",
+          "trigger": "ally_retreat",
+          "target": "all_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 4
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "断金の交",
         "target": "front_enemy",
@@ -904,6 +1028,20 @@
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "献策",
         "target": "all_allies",
@@ -1010,6 +1148,22 @@
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "殿",
+          "trigger": "ally_retreat",
+          "target": "lane_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "dfn",
+              "value": 20,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "江陵の守",
         "target": "front_enemy",
@@ -1036,6 +1190,22 @@
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "遺志",
+          "trigger": "ally_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 15,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "無当飛軍",
         "target": "front_enemy",
@@ -1238,6 +1408,22 @@
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "遺志",
+          "trigger": "ally_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 15,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "殿軍",
         "target": "front_enemy",
@@ -1290,6 +1476,20 @@
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "弔い合戦",
+          "trigger": "ally_retreat",
+          "target": "all_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 4
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "身代わり",
         "target": "lane_allies",
@@ -1396,6 +1596,22 @@
       "gauge_rate": 100,
       "acc": 90,
       "crit": 14,
+      "traits": [
+        {
+          "name": "執念",
+          "trigger": "enemy_retreat",
+          "target": "self",
+          "limit": 3,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 12,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "急襲",
         "target": "enemy_back_lane",
@@ -1474,6 +1690,22 @@
       "gauge_rate": 95,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "殿",
+          "trigger": "ally_retreat",
+          "target": "lane_allies",
+          "limit": 2,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "dfn",
+              "value": 20,
+              "duration": 200
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "越巂の鎮",
         "target": "lane_allies",
@@ -1554,6 +1786,23 @@
       "gauge_rate": 100,
       "acc": 88,
       "crit": 9,
+      "traits": [
+        {
+          "name": "背水",
+          "trigger": "self_low_hp",
+          "threshold": 40,
+          "target": "self",
+          "limit": 1,
+          "effects": [
+            {
+              "type": "mod",
+              "stat": "atk",
+              "value": 25,
+              "duration": 900
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "断纜",
         "target": "front_enemy",
@@ -1580,6 +1829,20 @@
       "gauge_rate": 130,
       "acc": 91,
       "crit": 12,
+      "traits": [
+        {
+          "name": "呼応",
+          "trigger": "ally_skill",
+          "target": "self",
+          "limit": 5,
+          "effects": [
+            {
+              "type": "gauge",
+              "seconds": 2
+            }
+          ]
+        }
+      ],
       "skill": {
         "name": "伝令",
         "target": "all_allies",
