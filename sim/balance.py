@@ -51,6 +51,17 @@ def winrate(team_a, team_b, seeds=SEEDS):
     return (a * 100 + d * 50) // max(1, a + b + d)
 
 
+def print_next(name, values):
+    """次の反復で roster.py へ貼る補正表を出力する（§7.5）。
+
+    効果の価値は勝率でしか測れないが、予算は総合値で表されている。両者の関係は
+    非線形なので一発で当てられない。測る → 貼る → 測る、を残差が消えるまで繰り返す。
+    """
+    body = ", ".join(f'"{k}": {values[k]:.2f}'
+                     for k in sorted(values, key=lambda k: -values[k]))
+    print(f"\n  次の反復で roster.py へ貼る値:\n    {name} = {{{body}}}")
+
+
 def random_team(rng, cap, commander_slot=None):
     """コスト上限を満たす6人編成をランダムに作る。超過分は安い札へ置換して修復する。"""
     ids = []
@@ -318,8 +329,12 @@ def cmd_skills():
     """
     import roster
     print("=== 必殺技のひな型ごとの強さ ===")
-    print("  コスト5・歩兵・均衡役で揃え、必殺技だけを変えた編成同士を総当たりさせる。\n")
-    keys = sorted(roster.SKILLS)
+    print("  コスト5・歩兵・均衡役で揃え、必殺技だけを変えた編成同士を総当たりさせる。")
+    skipped = sorted(roster.UNPRICED_SKILLS & set(roster.SKILLS))
+    if skipped:
+        print(f"  除外（このハーネスでは測れない）: {'、'.join(skipped)}")
+    print()
+    keys = [k for k in sorted(roster.SKILLS) if k not in roster.UNPRICED_SKILLS]
     teams = {k: skill_team(k) for k in keys}
     scores = {k: [] for k in keys}
     for i, a in enumerate(keys):
@@ -328,16 +343,20 @@ def cmd_skills():
             scores[a].append(wr)
             scores[b].append(100 - wr)
     ranked = sorted(keys, key=lambda k: -sum(scores[k]) / len(scores[k]))
-    print(f"  {'ひな型':<10} {'平均勝率':>8}  {'効果':<44}")
+    print(f"  {'ひな型':<10} {'平均勝率':>8} {'現補正':>7} {'次補正':>7}  {'効果':<40}")
+    nxt = {}
     for k in ranked:
         avg = sum(scores[k]) / len(scores[k])
+        cur = roster.SKILL_ADJUST.get(k, 0.0)
+        nxt[k] = roster.next_adjust(cur, avg)
         eff = roster.SKILLS[k]
         desc = " / ".join(f"{e['type']}" + (f"({e.get('power') or e.get('value') or e.get('duration')})")
                           for e in eff["effects"])
-        print(f"  {k:<10} {avg:>7.0f}%  {eff['target']} → {desc}")
+        print(f"  {k:<10} {avg:>7.0f}% {cur:>+7.2f} {nxt[k]:>+7.2f}  {eff['target']} → {desc}")
     lo, hi = min(sum(scores[k]) / len(scores[k]) for k in keys), max(sum(scores[k]) / len(scores[k]) for k in keys)
     print(f"\n  最弱 {lo:.0f}% 〜 最強 {hi:.0f}%（幅 {hi - lo:.0f}pt）"
           f" → {'OK' if hi - lo <= 30 else 'NG: 必殺技の強さが揃っていない'}")
+    print_next("SKILL_ADJUST", nxt)
 
 
 
@@ -375,13 +394,18 @@ def cmd_traits():
         wr = winrate(trait_team(k), plain, seeds=300)
         rows.append((wr, k))
     rows.sort(reverse=True)
-    print(f"  {'特性':<10} {'対 特性なし':>10}  {'条件':<16} {'上限':>4}")
+    print(f"  {'特性':<10} {'対 特性なし':>10} {'現補正':>7} {'次補正':>7}  {'条件':<16} {'上限':>4}")
+    nxt = {}
     for wr, k in rows:
         tr = roster.TRIGGERS[k]
-        print(f"  {tr['name']:<10} {wr:>9}%  {tr['trigger']:<16} {tr.get('limit', 1):>4}")
+        cur = roster.TRAIT_ADJUST.get(k, 0.0)
+        nxt[k] = roster.next_adjust(cur, wr)
+        print(f"  {tr['name']:<10} {wr:>9}% {cur:>+7.2f} {nxt[k]:>+7.2f}  "
+              f"{tr['trigger']:<16} {tr.get('limit', 1):>4}")
     lo, hi = rows[-1][0], rows[0][0]
-    print(f"\n  最弱 {lo}% 〜 最強 {hi}%（幅 {hi - lo}pt）")
-    print(f"  → 特性を持つだけで {lo - 50:+d}〜{hi - 50:+d}pt の得。この分をコスト予算へ入れる必要がある。")
+    print(f"\n  最弱 {lo}% 〜 最強 {hi}%（幅 {hi - lo}pt）"
+          f" → {'OK' if hi - lo <= 20 else 'NG: 特性の価値が揃っていない'}")
+    print_next("TRAIT_ADJUST", nxt)
 
 
 
@@ -390,7 +414,9 @@ def cmd_traits():
 def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike", tag=""):
     """総合値を score_mult 倍した検証用編成。
 
-    総合値 = 実効耐久 × 実効火力 なので、兵力と攻撃力をそれぞれ √score_mult 倍する。
+    総合値 = 実効耐久 × 実効火力 なので攻撃力を √score_mult 倍し、端数は
+    roster.solve_hp で兵力へ吸収させる。**ここを50刻みで丸めてはいけない。**
+    丸めていたときは +1% の要求が量子化で0%になり、換算率そのものを測り損ねていた。
     """
     import math
     import roster
@@ -399,9 +425,13 @@ def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike",
         person = f"感{tag}{i}"
         roster.ROMAJI[person] = f"z{tag}{i}"
         card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", []))
-        f = math.sqrt(score_mult)
-        card["hp"] = max(200, round(card["hp"] * f / 50) * 50)
-        card["atk"] = max(5, round(card["atk"] * f))
+        t = roster.TROOP[troop]
+        base = roster.effective_score(card["hp"], card["atk"], card["dfn"],
+                                      t["interval"], card["acc"], card["crit"],
+                                      roster.evade_of(troop))
+        card["atk"] = max(5, round(card["atk"] * math.sqrt(score_mult)))
+        card["hp"] = roster.solve_hp(base * score_mult, card["atk"],
+                                     card["dfn"], troop)
         CARDS[card["id"]] = card
         cards.append(card)
     return {"units": [{"card": c, "lane": l, "row": r}

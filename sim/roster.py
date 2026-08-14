@@ -47,29 +47,49 @@ BEHAVIOR_PREMIUM = {"inf": 1.00, "cav": 0.98, "arc": 1.05}
 #
 # 能力値はコスト式で釣り合っているが、その上に乗る必殺技と固有特性は無料だった。
 # 実測では必殺技の強さに幅86pt、固有特性に幅31ptがあり、勝敗が「どの効果を引いたか」
-# で決まっていた。効果の価値を能力値へ換算して差し引く。
+# で決まっていた。効果の価値を総合値へ換算して差し引く。
 #
-# 換算率は sim/balance.py sensitivity の実測による。総合値だけを変えた編成を
-# 等倍の編成と戦わせた結果、飽和していない範囲（+2〜+5%）の平均で
-# 総合値1%あたり約8ptだった（+2%→72%、+3%→72%、+5%→80%、+8%→98%で飽和）。
-PT_PER_SCORE_PCT = 8
+# 値は「その効果は総合値の何%ぶんに相当するか」で持つ。**勝率では持たない。**
+# 効果の価値は勝率でしか測れないが、予算は総合値で表されている。両者の関係は
+# 非線形（+2%→72%、+5%→80%、+8%→98% と飽和する）ため、換算率で一発割りする
+# 方式は使えない。代わりに**残差を反復で潰す**。測り直して 50% から外れたぶんを
+# ADJUST_STEP で割って現在値へ足し込み、また測り直す。手順は sim/README.md にある。
+#
+#     新しい補正 = 現在の補正 + (実測勝率 − 50) / ADJUST_STEP
+#
+# ADJUST_STEP は「総合値1%あたり勝率何pt動くか」の見込み。大きいほど慎重に寄る。
+# balance.py sensitivity は 6.5pt/% を返すが、**この値を入れると振動する。**
+# sensitivity は両軍の能力を一様に倍する測り方で、効果を能力へ交換する場面より
+# 勾配が緩い。1種類の補正だけを振って測ると、釣り合いの近くでは 10〜30pt/% あった
+# （legacy を 1.0%〜5.0% で振ると 78%→30%、局所では -33pt/% の区間もある）。
+# 勾配を過小に見積もると行き過ぎて往復するだけなので、**大きめの20に倒す。**
+# 収束は遅くなるが、遅いのは待てばよく、振動は待っても直らない。
+ADJUST_STEP = 20
 
-# 必殺技ひな型の平均勝率（sim/balance.py skills）。総当たりなので50%が平均。
-# urge は測定不能のため中立に置いている。全員が支援技だと攻撃手段がゼロになり、
-# 「1枚だけ混ぜたときの寄与」で測り直す必要がある（§7.5）。
-SKILL_WINRATE = {
-    "burn": 90, "roar": 76, "curse": 75, "rally": 60, "sweep": 54, "snipe": 50,
-    "strike": 46, "guard": 41, "raid": 41, "snare": 39, "hold": 23,
-    "urge": 50,   # 実測4%。測定方法の限界による値なので採用しない
+# 必殺技ひな型の補正（総合値の%）。正 = 強いので素の能力値を下げる。
+# balance.py skills の実測から反復で決める。**必殺技を追加・変更したら測り直す。**
+SKILL_ADJUST = {
+    "curse": 3.69, "burn": 3.68, "roar": 3.09, "rally": 2.27, "snipe": 0.90,
+    "strike": 0.33, "sweep": 0.25, "guard": -0.58, "raid": -0.76,
+    "snare": -0.95, "hold": -2.82,
+    "urge": 0.0,   # UNPRICED。下を見よ
 }
 
-# 固有特性の勝率（sim/balance.py traits）。「特性なし」との対戦なので50%が価値ゼロ。
-# vanguard は総大将かつ前衛のときだけ働く条件付きのため、他と同じ土俵で測れない。
-# §4.2 の測定（前衛配置で +16〜+48pt）から中間を採り、暫定で +20pt 相当とする。
-TRAIT_WINRATE = {
-    "laststand": 85, "legacy": 81, "avenge": 77, "pursuit": 71,
-    "rearguard": 64, "chain": 54,
-    "vanguard": 70,   # 暫定
+# このハーネスでは測れない必殺技。**総当たりから除外する。**
+# urge はゲージ付与だけで攻撃手段を持たないため、全員が urge の編成は敵を倒せない。
+# 実測5%は「弱い」ではなく「測れていない」を意味する。総当たりの平均は50%に固定
+# されるので、5%の1枚が混ざると残り11種の基準点が54%へ持ち上がり、
+# **正しく価格付けされた必殺技まで「まだ強い」と誤判定される**。
+# 「1枚だけ通常編成へ混ぜたときの寄与」で測り直すまで、補正は0のまま据え置く（§7.5）。
+UNPRICED_SKILLS = {"urge"}
+
+# 固有特性の補正（総合値の%）。「特性なし」との対戦で50%を超えたぶんが価値。
+TRAIT_ADJUST = {
+    "laststand": 3.00, "avenge": 3.00, "legacy": 2.90, "pursuit": 2.60,
+    "rearguard": 2.15, "chain": 0.35,
+    # vanguard は総大将かつ前衛のときだけ働く条件付きで、他と同じ土俵で測れない。
+    # §4.2 の測定（前衛配置で +16〜+48pt）の中間から暫定で 2.5% 相当とする。
+    "vanguard": 2.50,
 }
 
 
@@ -79,10 +99,15 @@ def ability_premium(skill_key, traits):
     1.00 より大きい = 効果が強いので素の能力値を下げる
     1.00 より小さい = 効果が弱いので素の能力値を上げる
     """
-    pt = SKILL_WINRATE.get(skill_key, 50) - 50
+    pct = SKILL_ADJUST.get(skill_key, 0.0)
     for t in traits or ():
-        pt += TRAIT_WINRATE.get(t, 50) - 50
-    return 1 + pt / PT_PER_SCORE_PCT / 100
+        pct += TRAIT_ADJUST.get(t, 0.0)
+    return 1 + pct / 100
+
+
+def next_adjust(current, measured):
+    """実測勝率から次の反復の補正量を出す。balance.py skills / traits が使う。"""
+    return round(current + (measured - 50) / ADJUST_STEP, 2)
 
 TROOP = {
     "inf": {"interval": 12, "range": 100, "evade_base": 0, "label": "歩兵",
@@ -280,6 +305,22 @@ def tier_of(cost):
     return "low" if cost <= 3 else ("mid" if cost <= 6 else "high")
 
 
+def solve_hp(target, atk, dfn, troop):
+    """総合値が target になる兵力を解く。
+
+    攻撃力は整数で持つため、1点の刻みが総合値の約1.8%（コスト5で atk 56）にあたる。
+    兵力まで50刻みで丸めると刻みが約3%になり、**それより細かい価格付けが
+    表現できなくなる**。実際、必殺技の補正 +0.18〜+2.52% の7種が同一の
+    hp 3700 / atk 56 に潰れ、価格付けがまるごと効いていなかった。
+    総合値は兵力について線形なので、丸めた攻撃力に対して兵力を解けば刻みは
+    0.3% まで細かくなる。役割の内訳のずれは1%未満に収まる。
+    """
+    t = TROOP[troop]
+    unit = effective_score(1, atk, dfn, t["interval"], t["acc"], t["crit"],
+                           evade_of(troop))
+    return max(200, round(target / unit / 10) * 10)
+
+
 def build_card(entry):
     person, epithet, cost, troop, role, skill_key, skill_name, traits = entry
     t, r = TROOP[troop], ROLE[role]
@@ -291,6 +332,8 @@ def build_card(entry):
     target = (value(cost) / BEHAVIOR_PREMIUM[troop]
               / ability_premium(skill_key, traits))
     f = math.sqrt(target / score1)
+    atk = max(5, round(atk1 * f))          # 端数は兵力側で吸収する（solve_hp）
+    hp = solve_hp(target, atk, dfn, troop)
     card = {
         "id": f"{ROMAJI[person]}_{cost}",
         "person": person,
@@ -299,8 +342,8 @@ def build_card(entry):
         "cost": cost,
         "troop": troop,
         "role": role,
-        "hp": max(200, round(hp1 * f / 50) * 50),
-        "atk": max(5, round(atk1 * f)),
+        "hp": hp,
+        "atk": atk,
         "dfn": dfn,
         "speed": t["speed"],
         "gauge_rate": r["gauge"],
