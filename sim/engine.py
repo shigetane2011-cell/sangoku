@@ -604,7 +604,26 @@ class Battle:
 
     # ---- 必殺技（§7） ----------------------------------------------------
 
+    # 総大将が必殺技を撃つと、対象範囲が一段広がる（§4.2）。
+    # **「誰を総大将にするか」に意味を持たせるための仕組み。**
+    # 補正が兵力+10%・ゲージ+10%しかなかったときは、最安の札を最も安全な枠へ
+    # 置くのが常に正解で、判断が存在しなかった（攻略探索の4世代とも総大将は
+    # コスト1の糜竺）。範囲が広がるなら、どの必殺技を持つ武将を将に据えるかが
+    # 編成の軸になる。もともと全体技を持つ武将は広がらないので、
+    # 単体技・レーン技の武将ほど総大将にする価値が大きい。
+    COMMANDER_SCOPE = {
+        "front_enemy": "lane_enemies", "lane_enemies": "all_enemies",
+        "enemy_back_lane": "all_enemies", "self": "lane_allies",
+        "lane_allies": "all_allies", "lowest_ally": "all_allies",
+    }
+
     def skill_targets(self, u: Unit, selector: str):
+        # **前衛に置いたときだけ広がる。** 後衛のままでも広がると、総大将を
+        # 安全な枠に置いたまま得をするので判断にならない。実測では「一番良い
+        # 必殺技の札を将にする」が常に正解で、勝率が64〜100%まで動いた。
+        # 前衛を条件にすれば、大きな必殺技と引き換えに総大将を晒すことになる。
+        if u.is_commander and u.row == "front":
+            selector = self.COMMANDER_SCOPE.get(selector, selector)
         foes = self.alive(1 - u.side)
         allies = self.alive(u.side)
         if selector == "front_enemy":
