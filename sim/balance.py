@@ -17,6 +17,7 @@ usage:
   python3 sim/balance.py all         すべて
 """
 
+import math
 import sys
 from collections import Counter
 
@@ -294,7 +295,6 @@ def cmd_meta():
     # 総当たりは編成数の二乗で効くので、固定の対戦相手への成績で順位付けする。
     # 上位N編成は**カード枚数から決める**。固定にすると枚数を増やしたとき
     # 偶然0%になる札が増え、下限割れが読めなくなる。60枚なら28、80枚なら42。
-    import math
     n = len(ALL_IDS)
     top_n = max(20, round(math.log(3 / n) / math.log(1 - 6 / n)))
     for key, (label, cap) in REGULATIONS.items():
@@ -309,9 +309,21 @@ def cmd_meta():
         freq = Counter()
         for i in top:
             freq.update(teams[i][1])
-        chance = round(len(ALL_IDS) * (1 - 6 / len(ALL_IDS)) ** len(top))
-        print(f"\n[{label}] {len(teams)}編成から上位{len(top)}編成の採用率"
-              f"（均衡していても偶然 約{chance}枚は0%になる）")
+        # **0回の確率ではなく、閾値以下の確率で数える。** 下限割れは「3%未満」なので
+        # 上位42編成なら1回だけ出た札も含まれる。0回の確率だけで見積もると
+        # 期待値を3枚と誤り、実際の13枚と比べて10枚ぶんの信号を捏造してしまう。
+        thr = (3 * len(top) - 1) // 100
+        q = 6 / len(ALL_IDS)
+        chance = round(len(ALL_IDS) * sum(
+            math.comb(len(top), k) * q ** k * (1 - q) ** (len(top) - k)
+            for k in range(thr + 1)))
+        # そのレギュレーションで実際に使える札の数。上限18の枠にコスト10は
+        # 入れられるが実用にならないので、使えない札が下限割れになるのは正常。
+        usable = sum(1 for c in ALL_IDS if CARDS[c]["cost"] * 6 <= cap * 2)
+        print(f"\n[{label}] {len(teams)}編成から上位{len(top)}編成の採用率")
+        print(f"  偶然でも約{chance}枚は下限割れになる / "
+              f"この上限で実用になる札は約{usable}枚（残り{len(ALL_IDS)-usable}枚は"
+              f"高すぎて使えないので下限割れが正常）")
         over = [c for c in ALL_IDS if freq[c] * 100 // len(top) > 30]
         under = [c for c in ALL_IDS if freq[c] * 100 // len(top) < 3]
         for cid, n in freq.most_common(5):
