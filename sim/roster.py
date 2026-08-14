@@ -57,6 +57,10 @@ BEHAVIOR_PREMIUM = {"inf": 1.00, "cav": 0.98, "arc": 1.05}
 #
 #     新しい補正 = 現在の補正 + (実測勝率 − 50) / ADJUST_STEP
 #
+# SUPPORT_STEP は1枚混ぜ方式（balance.py support）用の刻み。1枚ぶんしか効かないので
+# 勾配が小さく、実測で総合値1%あたり 1.5〜1.9pt。振動を避けて 2.5 に倒す。
+SUPPORT_STEP = 2.5
+
 # ADJUST_STEP は「総合値1%あたり勝率何pt動くか」の見込み。大きいほど慎重に寄る。
 # balance.py sensitivity は 6.5pt/% を返すが、**この値を入れると振動する。**
 # sensitivity は両軍の能力を一様に倍する測り方で、効果を能力へ交換する場面より
@@ -67,15 +71,18 @@ BEHAVIOR_PREMIUM = {"inf": 1.00, "cav": 0.98, "arc": 1.05}
 ADJUST_STEP = 20
 
 # 必殺技ひな型の補正（総合値の%）。正 = 強いので素の能力値を下げる。
-# balance.py skills の実測から反復で決める。**必殺技を追加・変更したら測り直す。**
+# **balance.py support（1枚だけ混ぜる方式）の実測から反復で決める。**
+# balance.py skills（全員同技の総当たり）では測れない。全員が同じ技を持つと
+# 全体効果の補正が上限（±50%）で頭打ちになり、curse と rally が弱く見える。
+# 総当たりで46%/53%だったものが、1枚混ぜでは98%/97%だった。
 SKILL_ADJUST = {
-    "curse": 3.69, "burn": 3.68, "roar": 3.09, "rally": 2.27, "snipe": 0.90,
-    "strike": 0.33, "sweep": 0.25, "guard": -0.58, "raid": -0.76,
-    "snare": -0.95, "hold": -2.82,
-    "urge": 0.0,   # UNPRICED。下を見よ
+    "burn": 10.48, "curse": 6.89, "roar": 5.49, "rally": 4.27, "guard": 2.22,
+    "snipe": 1.30, "sweep": 0.65, "snare": -0.15, "raid": -0.36,
+    "strike": -0.47, "urge": -4.40, "hold": -5.62,
 }
 
-# このハーネスでは測れない必殺技。**総当たりから除外する。**
+# 全員同技の総当たり（balance.py skills）では測れない必殺技。そちらからは除外する。
+# 価格そのものは balance.py support（1枚混ぜ）で測れるので SKILL_ADJUST に値を持つ。
 # urge はゲージ付与だけで攻撃手段を持たないため、全員が urge の編成は敵を倒せない。
 # 実測5%は「弱い」ではなく「測れていない」を意味する。総当たりの平均は50%に固定
 # されるので、5%の1枚が混ざると残り11種の基準点が54%へ持ち上がり、
@@ -139,11 +146,12 @@ SKILLS = {
                             {"type": "mod", "stat": "atk", "value": -18, "duration": 100}]},
     "guard":   {"target": "lane_allies",
                 "effects": [{"type": "mod", "stat": "dfn", "value": 28, "duration": 250}]},
+    # 全体効果の量は対象1人あたりで考える。6人へ届くので単体技の1/3が上限（§7.5）。
     "rally":   {"target": "all_allies",
-                "effects": [{"type": "mod", "stat": "atk", "value": 16, "duration": 220}]},
+                "effects": [{"type": "mod", "stat": "atk", "value": 6, "duration": 220}]},
     "urge":    {"target": "all_allies", "effects": [{"type": "gauge", "seconds": 8}]},
     "curse":   {"target": "all_enemies",
-                "effects": [{"type": "mod", "stat": "acc", "value": -16, "duration": 200}]},
+                "effects": [{"type": "mod", "stat": "acc", "value": -5, "duration": 200}]},
     "burn":    {"target": "lane_enemies",
                 "effects": [{"type": "dot", "power": 38, "duration": 200, "interval": 20}]},
     "snare":   {"target": "lane_enemies",
@@ -350,6 +358,13 @@ def build_card(entry):
         "acc": t["acc"],
         "crit": t["crit"],
     }
+    # 効果量を連動させるための実力比（コスト5を100とする百分率・§7.5）。
+    # 能力補正の%・行動阻害のティック数・ゲージ付与の量にこれを掛ける。
+    # **コストではなく実際の総合値を使う。** 価格付けで能力値を削られたカードは
+    # ここも下がるので、値上げがそのまま効果量へ跳ね返り、価格付けが機能する。
+    achieved = effective_score(hp, atk, dfn, t["interval"], t["acc"], t["crit"],
+                               evade_of(troop))
+    card["power"] = max(20, round(achieved / TARGET_SCORE * 100))
     if traits:
         # 文字列は常在型の組み込み特性、TRIGGERS のキーは誘発型に展開する（§6.6）
         card["traits"] = [dict(TRIGGERS[t]) if t in TRIGGERS else t for t in traits]

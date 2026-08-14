@@ -557,6 +557,25 @@ class Battle:
             return [u]
         raise ValueError(f"unknown selector: {selector}")
 
+    def scaled(self, source: Unit, amount: int) -> int:
+        """効果量を発動者の総合値に連動させる（§7.5）。
+
+        ダメージと継続ダメージは攻撃力に対する%なので元から連動している。連動して
+        いないのは**能力補正の%・行動阻害のティック数・ゲージ付与の秒数**で、
+        この3つは発動者が誰でも同じ量だった。
+
+        連動させないと2つのことが起きる。コスト1の全体デバフがコスト10のそれと
+        同じになる。そして**価格付けが効かなくなる**。価格は能力値を削ることで
+        払わせるが、効果が能力値に紐づいていなければ削っても効果は減らない。
+        実測では curse の補正を +25%（能力値の1/4を放棄）まで上げても、1枚混ぜた
+        ときの寄与が 99% から 92% にしか動かなかった。
+
+        連動の基準は**カードの実際の総合値**（cards.json の power、コスト5を100と
+        する百分率）であってコストではない。価格付けで能力値を削られたカードは
+        power も下がるので、値上げがそのまま効果量へ跳ね返る。
+        """
+        return amount * source.card.get("power", 100) // 100
+
     def apply_effects(self, source: Unit, effects, targets, label: str):
         """効果の並びを対象へ適用する。必殺技と誘発型の固有特性で共通に使う。"""
         for eff in effects:
@@ -568,10 +587,12 @@ class Battle:
                     # 必殺技は原則必中（§6.4）。乱数はクリティカル判定のみ消費する。
                     self.damage(source, t, eff["power"], is_skill=True)
                 elif kind == "mod":
-                    self.add_effect(t, Effect(kind="mod", stat=eff["stat"], value=eff["value"],
+                    self.add_effect(t, Effect(kind="mod", stat=eff["stat"],
+                                              value=self.scaled(source, eff["value"]),
                                               remaining=eff["duration"], name=label))
                 elif kind == "stun":
-                    self.add_effect(t, Effect(kind="stun", remaining=eff["duration"],
+                    self.add_effect(t, Effect(kind="stun",
+                                              remaining=self.scaled(source, eff["duration"]),
                                               name=label))
                 elif kind == "dot":
                     self.add_effect(t, Effect(kind="dot", value=eff["power"],
@@ -581,8 +602,10 @@ class Battle:
                                               source_atk=source.card["atk"], name=label))
                 elif kind == "gauge":
                     # seconds 指定を基本とする。value は旧形式の固定値。
-                    gain = (self.gauge_seconds(t, eff["seconds"]) if "seconds" in eff
-                            else eff.get("value", 0))
+                    # 秒数ではなく換算後のゲージ量を連動させる。秒数は2〜8の小さな
+                    # 整数なので、先に掛けると丸めで大きく損なわれる。
+                    gain = (self.scaled(source, self.gauge_seconds(t, eff["seconds"]))
+                            if "seconds" in eff else eff.get("value", 0))
                     t.gauge = min(GAUGE_MAX, t.gauge + gain)
 
     def cast(self, u: Unit):

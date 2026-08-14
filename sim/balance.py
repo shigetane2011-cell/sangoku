@@ -551,18 +551,12 @@ def cmd_support():
     for wr, k in rows:
         mark = "  ← 価格付けなし" if k in roster.UNPRICED_SKILLS else ""
         print(f"  {k:<10} {wr:>5}% {roster.SKILL_ADJUST.get(k, 0.0):>+7.2f}{mark}")
-    priced = [wr for wr, k in rows if k not in roster.UNPRICED_SKILLS]
-    print(f"\n  価格付け済みの技: {min(priced)}% 〜 {max(priced)}%（幅 {max(priced)-min(priced)}pt）"
-          f" → {'OK' if max(priced) - min(priced) <= 15 else 'NG'}")
-
-    for k in sorted(roster.UNPRICED_SKILLS & set(roster.SKILLS)):
-        print(f"\n  {k} の補正を振って、寄与が50%になる点を探す")
-        saved = roster.SKILL_ADJUST.get(k, 0.0)
-        for adj in (0.0, 2.0, 4.0, 6.0, 8.0):
-            roster.SKILL_ADJUST[k] = adj
-            print(f"    補正 {adj:>+5.1f}% → 寄与 "
-                  f"{winrate(single_skill_team(k), base, seeds=300):>3}%")
-        roster.SKILL_ADJUST[k] = saved
+    lo, hi = min(wr for wr, _ in rows), max(wr for wr, _ in rows)
+    print(f"\n  最弱 {lo}% 〜 最強 {hi}%（幅 {hi - lo}pt）"
+          f" → {'OK' if hi - lo <= 15 else 'NG: 実際の編成では釣り合っていない'}")
+    nxt = {k: round(roster.SKILL_ADJUST.get(k, 0.0) + (wr - 50) / roster.SUPPORT_STEP, 2)
+           for wr, k in rows}
+    print_next("SKILL_ADJUST", nxt)
 
 
 # --- exploit -------------------------------------------------------------
