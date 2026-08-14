@@ -159,17 +159,49 @@ def mono_team(troop, costs=(5, 5, 5, 5, 5, 5), role="bruiser"):
                       for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
 
 
+def mixed_team(troop, roles=("tank", "tank", "bruiser", "bruiser", "dps", "dps")):
+    """役割を混ぜた単一兵種の編成。**三すくみはこれで測る。**
+
+    全員を同じ役割で揃えると、後衛も前衛と同じ硬さになり、騎兵が迂回して後衛を
+    潰す価値が中立になってしまう。実際の編成は後衛に火力役（柔らかい札）が並ぶため、
+    迂回はそこを直撃する。単一役割で測っていたときは孤立の罰 +30% で足りて
+    見えたが、混成で測ると +30% でも +70% でも歩兵→騎兵は 0% のままだった。
+    """
+    import roster
+    cards = []
+    for i, role in enumerate(roles):
+        person = f"混{troop}{role}{i}"
+        roster.ROMAJI[person] = f"x{troop}{role}{i}"
+        card = roster.build_card((person, "検証", 5, troop, role, "strike", "検証", []))
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
 def cmd_troops():
     print("=== 兵種三すくみ ===")
-    print("  コスト・役割を固定した合成カードで、兵種以外の条件を揃えて比較する。")
     label = {"inf": "歩兵", "cav": "騎兵", "arc": "弓兵"}
+    print("  [役割を混ぜた編成 — こちらが本番の指標]")
+    print("  耐久2・均衡2・火力2。実際の編成と同じく後衛に火力役が並ぶ。")
+    mixed = {t: mixed_team(t) for t in ("inf", "cav", "arc")}
+    for a, b in (("inf", "cav"), ("cav", "arc"), ("arc", "inf")):
+        wr = winrate(mixed[a], mixed[b], seeds=200)
+        mark = "OK" if 55 <= wr <= 80 else ("NG(弱すぎ)" if wr < 55 else "NG(強すぎ)")
+        print(f"    {label[a]}→{label[b]}  {wr:>3}%  {mark}")
+
+    print("\n  [役割を揃えた編成 — 参考。役割が相性へどれだけ効くかを見る]")
+    print("  揃えると後衛も前衛と同じ硬さになり、迂回の価値が中立になるので")
+    print("  本番の指標にはできない。帯外でも直ちに問題とは限らない。")
     for role in ("bruiser", "tank", "dps"):
         mono = {t: mono_team(t, role=role) for t in ("inf", "cav", "arc")}
-        print(f"\n  [役割: {role}]")
+        cells = []
         for a, b in (("inf", "cav"), ("cav", "arc"), ("arc", "inf")):
-            wr = winrate(mono[a], mono[b], seeds=200)
-            mark = "OK" if 55 <= wr <= 80 else ("NG(弱すぎ)" if wr < 55 else "NG(強すぎ)")
-            print(f"    {label[a]}→{label[b]}  {wr:>3}%  {mark}")
+            cells.append(f"{label[a]}→{label[b]} {winrate(mono[a], mono[b], seeds=200):>3}%")
+        print(f"    {ROLE_LABEL[role]:<4} " + "  ".join(cells))
+
+
+ROLE_LABEL = {"tank": "耐久", "bruiser": "均衡", "dps": "火力"}
 
 
 # --- swap ----------------------------------------------------------------

@@ -93,14 +93,18 @@ VANGUARD_ALLY_ATK = 8         # 味方全体の攻撃力 +8%
 # 守り手は集中し続けるので殴り合いで一方的に負け、騎兵→弓兵が 89% から 5% へ落ちた。
 # 迂回を時間にすると、レーンの騎兵はまとめて回り込むので分散せず、
 # かつ前衛の人数に比例して連続的に高くつく。二値にも分散にもならない。
-DETOUR_PER_BLOCKER = 40 * 10
+DETOUR_PER_BLOCKER = 95 * 10
 
 # 迂回した騎兵は敵中に孤立し、被ダメージが増える。
 # これがないと迂回はあらゆる相手に得なので、**騎兵が万能になる**。
 # 実測では歩兵→騎兵が 55% から 0% へ落ちた。歩兵の後衛は前衛と同じ硬さなので、
 # 本来なら回り込む価値は薄いはずだが、罰がないため回り込み得になっていた。
 # 罰を置くと「潰す価値のある後衛（弓兵）がいるときだけ回り込む」が正しくなる。
-FLANKED_TAKEN = 130           # 迂回後の騎兵が受けるダメージ +30%
+FLANKED_TAKEN = 210           # 迂回後の騎兵が受けるダメージ +110%
+# +110% は大きく見えるが、**役割を混ぜた編成で測らないとこの値には辿り着けない。**
+# 単一役割の検証では後衛も前衛と同じ硬さなので迂回の価値が中立になり、+30% で
+# 足りているように見えていた。実際の編成は後衛に火力役（柔らかい札）が並ぶため、
+# 迂回はそこを直撃する。混成編成で測ると +30% でも +70% でも歩兵→騎兵は 0% のまま。
 
 # 接敵抑制（§5.3）。近接兵に MELEE_GRIP まで寄られた弓兵は威力が落ちる。
 #
@@ -343,6 +347,10 @@ class Battle:
     def interval(self, u: Unit) -> int:
         return self.base(u, "interval")
 
+    def toughness(self, u: Unit) -> int:
+        """落としにくさの目安。迂回する価値があるかの判断に使う（§5.2）。"""
+        return u.max_hp * (100 + u.card["dfn"]) // 100
+
     def exposed(self, u: Unit) -> bool:
         """迂回した騎兵が敵中に孤立しているか（§5.2）。
 
@@ -449,8 +457,15 @@ class Battle:
         if u.troop != "cav" or u.flanked or self.field.get("no_detour"):
             return False
         front = [e for e in enemies if e.row == "front"]
-        if not front or not any(e.row == "back" for e in enemies):
+        back = [e for e in enemies if e.row == "back"]
+        if not front or not back:
             return False          # 盾がない、または後衛がいないなら回り込む必要がない
+        # 後衛に「狙う価値のある柔らかい札」がいるときだけ回り込む。
+        # 無条件に回り込ませると、前衛と同じ硬さの後衛のために攻撃時間を捨てる。
+        # 実測では全員同じ役割の編成に対し騎兵の勝率が0%になっていた。
+        if self.toughness(min(back, key=self.toughness)) >= \
+                self.toughness(min(front, key=self.toughness)):
+            return False
         if min(abs(e.pos - u.pos) for e in front) > self.reach(u):
             return False          # まだ接触していない。通常どおり前進する
         if not u.detour:
