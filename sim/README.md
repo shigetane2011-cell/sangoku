@@ -29,6 +29,8 @@ python3 balance.py cost      # コストの加算性
 python3 balance.py skills    # 必殺技のひな型ごとの強さ
 python3 balance.py traits    # 誘発型の固有特性ごとの強さ
 python3 balance.py formations # 陣形×構成の総当たり
+python3 balance.py support   # 1枚だけ混ぜたときの寄与（必殺技の価格付けはこれで決める）
+python3 balance.py exploit   # 攻略探索（最強編成を探し、収束するか循環するか）
 python3 balance.py sensitivity # 総合値の差と勝率の差の換算率
 python3 balance.py all       # すべて
 python3 budget.py            # 能力値がコスト式どおりかの検算
@@ -53,11 +55,13 @@ python3 roster.py --write    # ロスターから cards.json を再生成
    役割を揃えた編成は後衛も前衛と同じ硬さになり、騎兵の迂回の価値が中立になるため、
    問題を隠してしまう。
 6. `python3 balance.py check` で戦闘時間と必殺技の発動回数を確認する。
-7. **必殺技や固有特性を変えた場合は** `balance.py skills` / `balance.py traits` を回し、
+7. **必殺技や固有特性を変えた場合は** `balance.py support` / `balance.py traits` を回し、
    出力された次の補正値を `roster.py` の `SKILL_ADJUST` / `TRAIT_ADJUST` へ貼って
-   2 からやり直す。幅が20pt以下になるまで繰り返す（下の「反復のしかた」を見よ）。
+   2 からやり直す。幅が15pt以下になるまで繰り返す（下の「反復のしかた」を見よ）。
    効果の価値が予算に反映されないと、能力値だけ揃えても意味がない。
-8. `python3 balance.py meta` で §4.6 の採用率を測る。
+8. `python3 balance.py meta` で §4.6 の採用率を、`balance.py exploit` で攻略が
+   収束していないかを測る。**この2つが実カードでの最終確認になる。**
+   合成カードで帯内に入っていても、実カードで歪みが出ることが繰り返し起きている。
 
 ## コストと強さの関係
 
@@ -139,11 +143,6 @@ hp 3700 / atk 56 に潰れて価格付けがまるごと効いていなかった
 
 ### 測れていないもの
 
-- `urge`（ゲージ付与）は補正0に据え置き、`UNPRICED_SKILLS` として**総当たりから除外する。**
-  攻撃手段を持たないため全員 urge の編成は敵を倒せず、実測5%は「弱い」ではなく
-  「測れていない」を意味する。総当たりの平均は50%に固定されるので、5%の1枚が混ざると
-  残り11種の基準点が54%へ持ち上がり、正しく価格付けされた必殺技まで「まだ強い」と
-  誤判定される。「1枚だけ通常編成へ混ぜたときの寄与」で測り直す必要がある。
 - `vanguard` は総大将かつ前衛のときだけ働く条件付きで、他と同じ土俵で測れない。暫定値。
 - 特性の実測は6人全員が同じ特性を持つ編成で行うため、効果が重なる場面の値になる。
   1〜2枚だけ積む実際の編成より過小評価になりうる（実測の平均は50%をやや下回っている）。
@@ -195,7 +194,7 @@ hp 3700 / atk 56 に潰れて価格付けがまるごと効いていなかった
   "id": "choryo_7", "person": "張遼", "name": "張遼〔逍遥津〕", "tier": "high",
   "cost": 7, "troop": "cav", "role": "bruiser",
   "hp": 3750, "atk": 62, "dfn": 46, "speed": 12,
-  "gauge_rate": 100, "acc": 90, "crit": 14,
+  "gauge_rate": 100, "acc": 90, "crit": 14, "power": 118,
   "skill": {"name": "突撃", "target": "front_enemy",
             "effects": [{"type": "damage", "power": 190}]}
 }
@@ -208,6 +207,9 @@ hp 3700 / atk 56 に潰れて価格付けがまるごと効いていなかった
 - `troop` は `inf`（歩兵）/ `cav`（騎兵）/ `arc`（弓兵）。攻撃間隔・射程・回避の
   兵種標準値は `troop_defaults` にまとめてある。
 - `gauge_rate` は100が標準（1.0倍）。
+- `power` は実力比（コスト5を100とする）。能力補正の%・行動阻害のティック数・
+  ゲージ付与の量に掛かる。**コストではなく実際の総合値から出す**ので、価格付けで
+  能力値を削られたカードは効果量も下がる。これがないと値上げが効かない。
 - `speed` は1秒あたりの前進量（レーン奥行きは100単位）。
 
 必殺技の `target` と `effects[].type` に指定できる値は `engine.py` の
