@@ -197,18 +197,28 @@ BATTLEFIELDS = {
 # 陣形（§4.1）。6枠へ自由に配置させるのではなく、名前のついた型から選ばせる。
 # プレイヤーの操作は「選ぶだけ」で済み、組み合わせが有限なので釣り合わせられる。
 # 自由配置だと数百通りになり、balance.py で測りきれない。
-# 前衛の人数が迂回の値段を決めるので、そこが型ごとの個性になる。
+#
+# **配置に加えて固有の効果を持たせる（v0.5 末で追加）。** 配置だけだと魚鱗が
+# 構造的に弱い。前4後2で中央に4人集めても、3レーン制では余った戦力を戦わせる
+# 場所がないまま、1人ずつの両翼が食われる。配置だけで直そうとすると
+# 「どの陣形も2人ずつ均等に配る」へ収束し、陣形そのものが意味を失う。
+# 効果を1つずつ持たせれば、陣形ごとに調整レバーができ、
+# 「魚鱗は突撃陣形」と一言で説明できるようにもなる。BATTLEFIELDS と同じ形式。
 FORMATIONS = {
     "kakuyoku": {"label": "鶴翼", "note": "前3後3。横に広く、どのレーンにも盾がある",
+                 "effect": "隣レーンへの支援移動が速い", "support_speed": 60,
                  "slots": [("front", 0), ("front", 1), ("front", 2),
                            ("back", 0), ("back", 1), ("back", 2)]},
     "gyorin":   {"label": "魚鱗", "note": "前4後2。中央を厚くして押し込む",
+                 "effect": "前衛の与ダメージ +12%", "front_deal": 112,
                  "slots": [("front", 1), ("front", 1), ("front", 0), ("front", 2),
                            ("back", 1), ("back", 1)]},
     "hoen":     {"label": "方円", "note": "前5後1。守りを固め、中央に1人だけ隠す",
+                 "effect": "後衛の被ダメージ −25%", "back_taken": 75,
                  "slots": [("front", 0), ("front", 0), ("front", 1),
                            ("front", 2), ("front", 2), ("back", 1)]},
     "gankou":   {"label": "雁行", "note": "前2後4。盾を削って射手を並べる",
+                 "effect": "弓兵の射程 +20%", "arc_range": 120,
                  "slots": [("front", 0), ("front", 2),
                            ("back", 0), ("back", 1), ("back", 1), ("back", 2)]},
 }
@@ -313,6 +323,8 @@ class Battle:
         self.units: list[Unit] = []
         self.defaults = TROOP_TABLE
         self.firing = False           # 誘発の連鎖を防ぐためのフラグ
+        # 側ごとの陣形効果（§4.1）。指定がなければ空＝効果なし。
+        self.form = [FORMATIONS.get(t.get("formation") or "", {}) for t in teams]
         for side, team in enumerate(teams):
             for idx, entry in enumerate(team["units"]):
                 self.units.append(self._make_unit(entry, side, idx == team["commander"]))
@@ -411,6 +423,8 @@ class Battle:
             r = r * self.field["arc_range"] // 100
         if "all_range" in self.field:
             r = r * self.field["all_range"] // 100
+        if u.troop == "arc":
+            r = r * self.form[u.side].get("arc_range", 100) // 100
         return r
 
     def interval(self, u: Unit) -> int:
@@ -485,6 +499,11 @@ class Battle:
             base = base * (100 - INF_RANGED_GUARD) // 100
         if "front_taken" in self.field and target.row == "front":
             base = base * self.field["front_taken"] // 100
+        # 陣形の効果（§4.1）
+        if attacker.row == "front":
+            base = base * self.form[attacker.side].get("front_deal", 100) // 100
+        if target.row == "back":
+            base = base * self.form[target.side].get("back_taken", 100) // 100
         dmg = base * DEFENSE_K // (DEFENSE_K + dfn)
         crit = False
         if roll_crit and self.rng.pct() < attacker.card["crit"]:
@@ -909,7 +928,7 @@ class Battle:
             return
         candidates.sort()
         u.transfer_to = candidates[0][2]
-        u.transfer = 25 * 10
+        u.transfer = 25 * 10 * self.form[u.side].get('support_speed', 100) // 100
 
     def judge(self):
         """総大将撤退を最優先し、同一ティックでの同時成立は引き分け（§8.2・確定）。"""
@@ -990,7 +1009,7 @@ def make_team(card_ids, placement=None, commander=0, formation=None):
     units = []
     for cid, (row, lane) in zip(card_ids, placement):
         units.append({"card": CARDS[cid], "lane": lane, "row": row})
-    return {"units": units, "commander": commander}
+    return {"units": units, "commander": commander, "formation": formation}
 
 
 def simulate(team_a, team_b, seed: int, battlefield: str = "clear", log: bool = False):

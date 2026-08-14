@@ -13,6 +13,7 @@ usage:
   python3 sim/balance.py formations  陣形×構成の総当たり
   python3 sim/balance.py support     1枚だけ混ぜたときの寄与（支援技の価格付け）
   python3 sim/balance.py exploit     攻略探索（最強編成を探し、収束するか循環するか）
+  python3 sim/balance.py bo3         BO3のマッチ勝率（1戦の勝率が3戦でどう化けるか）
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -764,6 +765,102 @@ def cmd_exploit():
         print("    全世代に残った札: なし → OK: 固定コアがない")
 
 
+# --- bo3 -----------------------------------------------------------------
+
+def bo3_match(a, b, seeds=60):
+    """3レギュレーションを戦い、2勝した側を勝ちとする。a から見たマッチ勝率。"""
+    wins = 0
+    for i in range(seeds):
+        won = 0
+        for key in ("low", "mid", "high"):
+            r = Battle([a[key], b[key]], seed=i * 7919 + 13 + hash(key) % 97).run()
+            won += 1 if r["winner"] == 0 else 0
+        wins += 1 if won >= 2 else 0
+    return wins * 100 // seeds
+
+
+def bo3_pool(rng, weights=(1, 1, 1)):
+    """人物が重ならない3部隊を組む（§4.3）。weights で帯ごとの力の入れ方を変える。
+
+    weights が (2,2,1) なら低コスト戦を捨てる配分になる。**BO3 は2勝すればよいので
+    1帯を捨てる戦略が成立しうる**が、各レギュレーションのコスト上限は独立なので
+    帯をまたいで予算は移せない。移せるのは「良い札をどの帯へ回すか」だけである。
+    """
+    used, teams = set(), {}
+    order = sorted(REGULATIONS, key=lambda k: -weights[list(REGULATIONS).index(k)])
+    for key in order:
+        cap = REGULATIONS[key][1]
+        ids = []
+        for _ in range(6):
+            left = 6 - len(ids) - 1
+            spent = sum(CARDS[c]["cost"] for c in ids)
+            pool = sorted((c for c in ALL_IDS
+                           if c not in ids and CARDS[c]["person"] not in used),
+                          key=lambda c: (CARDS[c]["cost"], c))
+            costs = [CARDS[c]["cost"] for c in pool]
+            cands = [c for i, c in enumerate(pool)
+                     if spent + costs[i] + sum((costs[:i] + costs[i + 1:])[:left]) <= cap]
+            if not cands:
+                return None
+            ids.append(cands[rng.below(len(cands))])
+        for _ in range(12):
+            slot = rng.below(6)
+            spent = sum(CARDS[c]["cost"] for c in ids) - CARDS[ids[slot]]["cost"]
+            up = [c for c in ALL_IDS if c not in ids
+                  and CARDS[c]["person"] not in used
+                  and CARDS[c]["cost"] > CARDS[ids[slot]]["cost"]
+                  and spent + CARDS[c]["cost"] <= cap]
+            if up:
+                ids[slot] = up[rng.below(len(up))]
+        used.update(CARDS[c]["person"] for c in ids)
+        teams[key] = make_team(ids, commander=rng.below(6), formation="kakuyoku")
+    return teams
+
+
+def cmd_bo3():
+    """1戦あたりの勝率が、3戦のマッチ勝率へどう化けるかを見る。
+
+    **ここまでの指標はすべて1戦あたりで測っている。** BO3 をランク戦に採るなら、
+    許容できる幅はマッチ単位で決まる。1戦で許した差が3戦で膨らむ。
+    """
+    print("=== BO3（3レギュレーション・2勝で決着）===")
+    print("  1戦あたりの勝率 → マッチ勝率の換算（3戦とも同じ勝率のとき）\n")
+    print(f"  {'1戦':>6} {'マッチ':>8}   {'判定'}")
+    for p in (52, 55, 60, 65, 70, 80):
+        q = p / 100
+        m = round((3 * q * q - 2 * q ** 3) * 100)
+        mark = "OK" if m <= 60 else ("要注意" if m <= 75 else "NG: マッチでは大差")
+        print(f"  {p:>5}% {m:>7}%   {mark}")
+    print("\n  **1戦で60%を許すとマッチでは65%になる。** いまの指標の目標帯"
+          "（三すくみ55-80%）は\n  マッチ単位では 57-90% にあたる。")
+
+    print("\n  3戦が同じ勝率とは限らない。帯ごとに強さが違う場合:")
+    for label, ps in (("均等 60/60/60", (60, 60, 60)),
+                      ("やや偏り 70/60/50", (70, 60, 50)),
+                      ("2帯集中 85/85/20", (85, 85, 20)),
+                      ("1帯を捨てる 90/90/10", (90, 90, 10))):
+        a, b, c = (x / 100 for x in ps)
+        m = round((a*b + a*c + b*c - 2*a*b*c) * 100)
+        print(f"    {label:<20} → マッチ {m}%")
+    print("  → 2勝でよいので**1帯を捨てる配分が有利になりうる**。ただし各帯の")
+    print("     コスト上限は独立なので、帯をまたいで予算は移せない。移せるのは")
+    print("     良い札をどの帯へ回すかだけ。実測で確かめる。\n")
+
+    rng = Rng(4649)
+    panel = [t for t in (bo3_pool(rng) for _ in range(4)) if t]
+    print(f"  人物が重ならない3部隊を組み、対戦相手{len(panel)}組と戦わせる")
+    for label, w in (("均等", (1, 1, 1)), ("中高に寄せる", (1, 2, 2)),
+                     ("高へ寄せる", (1, 1, 3))):
+        t = bo3_pool(Rng(sum(w) * 977 + 31), w)
+        if not t:
+            continue
+        per = {k: sum(winrate(t[k], o[k], seeds=40) for o in panel) // len(panel)
+               for k in REGULATIONS}
+        m = sum(bo3_match(t, o, seeds=40) for o in panel) // len(panel)
+        print(f"    {label:<12} 1戦 低{per['low']:>3}% 中{per['mid']:>3}% "
+              f"高{per['high']:>3}%  →  マッチ {m:>3}%")
+
+
 # --- sensitivity ---------------------------------------------------------
 
 def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike", tag=""):
@@ -821,7 +918,7 @@ def main():
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
              "skills": cmd_skills, "traits": cmd_traits,
              "formations": cmd_formations, "exploit": cmd_exploit,
-             "support": cmd_support,
+             "support": cmd_support, "bo3": cmd_bo3,
              "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
