@@ -308,6 +308,14 @@ def cmd_meta():
         print(f"  上限超過(>30%) {len(over)}枚 / 下限割れ(<3%) {len(under)}枚")
         if under:
             print(f"    下限割れ: {', '.join(CARDS[c]['name'] for c in under[:8])}")
+        # 下限割れが何に偏っているかを出す。名前を8枚並べても傾向は読めない。
+        # 特定の兵種・役割に偏っていれば、それは個々の武将ではなく価格付けの問題。
+        for key, label2 in (("troop", "兵種"), ("role", "役割")):
+            pool = Counter(CARDS[c][key] for c in ALL_IDS)
+            hit = Counter(CARDS[c][key] for c in under)
+            cells = " ".join(f"{k}{hit[k]:>2}/{pool[k]:<2}({hit[k]*100//pool[k]:>3}%)"
+                             for k in sorted(pool))
+            print(f"    下限割れの{label2}別: {cells}")
 
 
 # --- commander -----------------------------------------------------------
