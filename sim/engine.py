@@ -214,7 +214,7 @@ FORMATIONS = {
                  "slots": [("front", 1), ("front", 1), ("front", 0), ("front", 2),
                            ("back", 1), ("back", 1)]},
     "hoen":     {"label": "方円", "note": "前5後1。守りを固め、中央に1人だけ隠す",
-                 "effect": "後衛の被ダメージ −25%", "back_taken": 75,
+                 "effect": "前衛の被ダメージ −12%", "front_taken2": 88,
                  "slots": [("front", 0), ("front", 0), ("front", 1),
                            ("front", 2), ("front", 2), ("back", 1)]},
     "gankou":   {"label": "雁行", "note": "前2後4。盾を削って射手を並べる",
@@ -504,6 +504,8 @@ class Battle:
             base = base * self.form[attacker.side].get("front_deal", 100) // 100
         if target.row == "back":
             base = base * self.form[target.side].get("back_taken", 100) // 100
+        if target.row == "front":
+            base = base * self.form[target.side].get("front_taken2", 100) // 100
         dmg = base * DEFENSE_K // (DEFENSE_K + dfn)
         crit = False
         if roll_crit and self.rng.pct() < attacker.card["crit"]:
