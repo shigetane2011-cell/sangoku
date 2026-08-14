@@ -58,8 +58,11 @@ GAUGE_INHERIT_PCT = 100
 # 決着促進（v0.3 で追加を提案）。上限時間まで粘る展開が多すぎると、
 # 部隊戦の1/3がタイマー決着になり実況の締まりが悪くなるため、
 # 一定時刻から与ダメージを逓増させて上限前に決着させる。
-SUDDEN_START = 500            # 50秒から発動
-SUDDEN_MAX = 300              # 90秒時点で 3.0倍
+SUDDEN_START = 350            # 35秒から発動
+SUDDEN_MAX = 500              # 90秒時点で 5.0倍
+# v0.5 で 50秒開始・3.0倍から強めた。迂回と後退射撃を入れて交戦が始まるのが遅くなり、
+# 時間切れ決着が 12% から 48% へ増えたため。強めても 37% までしか戻らない。
+# 主因は弓兵の後退射撃で、決着促進では対症療法にしかならない（§13）。
 
 ACC_MIN = 20                  # 状態効果適用後の最終命中率の下限（§6.5）
 ACC_MAX = 100
@@ -75,29 +78,29 @@ COMMANDER_GAUGE_BONUS = 110   # 総大将の必殺技ゲージ上昇率 +10%（�
 VANGUARD_HP_BONUS = 125       # 自身の最大兵力 +25%
 VANGUARD_ALLY_ATK = 8         # 味方全体の攻撃力 +8%
 
-# 突破（§5.2）。レーン単位で判定し、突破力が前衛の抑えを上回ると
-# **そのレーンの近接兵は全員**が後衛を狙う。
+# 迂回（§5.2）。**騎兵は前衛を回り込んで後衛を狙う。回り込むあいだは攻撃できない。**
 #
-# 全員一斉でなければならない。一部だけ抜ける方式を先に試して失敗した。
-# 前衛1人につき1人ずつ抜ける形にすると、2人で攻めるとき1人が前衛・1人が後衛へ
-# 分かれてしまい、**攻め手だけが火力を分散する**。守り手は残兵力の低い敵へ
-# 集中し続けるので、殴り合いでは集中している側が一方的に勝つ。
-# 実測では騎兵→弓兵の勝率が 89% から 5% へ落ちた。突破は攻め手の利点であって、
-# 火力分散の罰であってはならない。
+# 回り込む距離は敵前衛1人につき DETOUR_PER_BLOCKER。移動速度で割った時間だけ
+# 攻撃が止まるので、前衛が厚いほど高くつき、足が速いほど安く済む。
+# 兵種の役割はこれで分かれる。
+#   歩兵 = 前衛を殴って盾を割る    騎兵 = 迂回して後衛を潰す    弓兵 = 射程で後衛を撃つ
 #
-# 騎兵の突破力は歩兵の1.5倍。前衛1人が抑えられるのは突破力6まで。
-#   騎兵2 (6) 対 前衛1 (6) → 抑えられる
-#   騎兵3 (9) 対 前衛1 (6) → 突破する
-#   騎兵2 (6) 対 前衛0 (0) → 突破する
-# 弓兵は元から前衛越しに撃てるため突破力を持たない。
-#
-# **この6という値は未確定である。** 5にすると騎兵2人で前衛1人を抜けるようになり、
-# 型同士の総当たりで騎兵突撃が平均91%の無敵になる。6にすると抜けなくなり、
-# 今度は盾＋弓が99%の無敵に戻る。**その中間が存在しない。**
-# 突破をレーン単位の全か無かにした結果、この1点が勝敗をまるごと決めている。
-# 段階的な突破（盾を抜けにくさの度合いとして扱う）への作り替えが要る（§13）。
-BREAK_POWER = {"cav": 3, "inf": 2, "arc": 0}
-BLOCK_POWER = 6
+# **時間で表すことが要点である。** 先に「突破できる／できない」の二値で作って失敗した。
+# 通れるかどうかを人数比で決めると、抑えの値が5か6かだけで無敵の型が
+# 騎兵突撃（91%）と盾＋弓（99%）のあいだで入れ替わり、**中間が存在しなかった**。
+# さらにその前に「前衛1人につき1人ずつ抜ける」方式も試して失敗している。
+# 2人で攻めるとき1人が前衛・1人が後衛へ分かれ、**攻め手だけが火力を分散する**。
+# 守り手は集中し続けるので殴り合いで一方的に負け、騎兵→弓兵が 89% から 5% へ落ちた。
+# 迂回を時間にすると、レーンの騎兵はまとめて回り込むので分散せず、
+# かつ前衛の人数に比例して連続的に高くつく。二値にも分散にもならない。
+DETOUR_PER_BLOCKER = 40 * 10
+
+# 迂回した騎兵は敵中に孤立し、被ダメージが増える。
+# これがないと迂回はあらゆる相手に得なので、**騎兵が万能になる**。
+# 実測では歩兵→騎兵が 55% から 0% へ落ちた。歩兵の後衛は前衛と同じ硬さなので、
+# 本来なら回り込む価値は薄いはずだが、罰がないため回り込み得になっていた。
+# 罰を置くと「潰す価値のある後衛（弓兵）がいるときだけ回り込む」が正しくなる。
+FLANKED_TAKEN = 130           # 迂回後の騎兵が受けるダメージ +30%
 
 # 接敵抑制（§5.3）。近接兵に MELEE_GRIP まで寄られた弓兵は威力が落ちる。
 #
@@ -127,12 +130,34 @@ BEATS = {"cav": "arc", "arc": "inf", "inf": "cav"}
 SLOTS = [("front", 0), ("front", 1), ("front", 2),
          ("back", 0), ("back", 1), ("back", 2)]
 
+# 戦場条件（§5.4）。迂回のしやすさが地形の主要な効き目になる。
+# 開けた地では騎兵が回り込みやすく、狭い地ではそもそも回り込めない。
 BATTLEFIELDS = {
-    "plain":  {"label": "平原", "cav_speed": 115},
-    "narrow": {"label": "隘路", "no_lane_support": True, "front_taken": 90},
-    "rain":   {"label": "雨天", "arc_acc": -15, "arc_range": 80},
+    "plain":  {"label": "平原", "cav_speed": 115, "detour": 85},
+    "narrow": {"label": "隘路", "no_lane_support": True, "front_taken": 90,
+               "no_detour": True},
+    "rain":   {"label": "雨天", "arc_acc": -15, "arc_range": 80, "detour": 115},
     "fog":    {"label": "濃霧", "all_range": 70},
     "clear":  {"label": "平時"},
+}
+
+# 陣形（§4.1）。6枠へ自由に配置させるのではなく、名前のついた型から選ばせる。
+# プレイヤーの操作は「選ぶだけ」で済み、組み合わせが有限なので釣り合わせられる。
+# 自由配置だと数百通りになり、balance.py で測りきれない。
+# 前衛の人数が迂回の値段を決めるので、そこが型ごとの個性になる。
+FORMATIONS = {
+    "kakuyoku": {"label": "鶴翼", "note": "前3後3。横に広く、どのレーンにも盾がある",
+                 "slots": [("front", 0), ("front", 1), ("front", 2),
+                           ("back", 0), ("back", 1), ("back", 2)]},
+    "gyorin":   {"label": "魚鱗", "note": "前4後2。中央を厚くして押し込む",
+                 "slots": [("front", 1), ("front", 1), ("front", 0), ("front", 2),
+                           ("back", 1), ("back", 1)]},
+    "hoen":     {"label": "方円", "note": "前5後1。守りを固め、中央に1人だけ隠す",
+                 "slots": [("front", 0), ("front", 0), ("front", 1),
+                           ("front", 2), ("front", 2), ("back", 1)]},
+    "gankou":   {"label": "雁行", "note": "前2後4。盾を削って射手を並べる",
+                 "slots": [("front", 0), ("front", 2),
+                           ("back", 0), ("back", 1), ("back", 1), ("back", 2)]},
 }
 
 
@@ -189,6 +214,9 @@ class Unit:
     effects: list = field(default_factory=list)
     retreated: bool = False
     transfer: int = 0         # 隣レーンへの支援移動の残り距離
+    detour: int = 0           # 迂回の残り距離（§5.2）
+    flanking: bool = False    # このティックは迂回中。攻撃できない
+    flanked: bool = False     # 回り込み済み。後衛を狙える
     # 統計
     dealt: int = 0
     taken: int = 0
@@ -227,7 +255,6 @@ class Battle:
         self.tick = 0
         self.events: list = []
         self.log = log
-        self._breach: dict = {}   # 突破判定のティック内キャッシュ（§5.2）
         # 先攻側をシードから決定論的に決める（§8.1）
         self.first = self.rng.below(2)
         self.units: list[Unit] = []
@@ -316,6 +343,15 @@ class Battle:
     def interval(self, u: Unit) -> int:
         return self.base(u, "interval")
 
+    def exposed(self, u: Unit) -> bool:
+        """迂回した騎兵が敵中に孤立しているか（§5.2）。
+
+        **敵前衛が残っているあいだだけ**。盾を割ってしまえば背後も何もないので、
+        罰を残し続けるのは筋が通らないし、騎兵が回り込む価値も無くなる。
+        """
+        return u.flanked and any(e.row == "front"
+                                 for e in self.alive(1 - u.side, u.lane))
+
     def suppressed(self, u: Unit) -> bool:
         """弓兵が近接兵に組みつかれているか（§5.3）。組みつかれると威力が落ちる。"""
         if u.troop != "arc":
@@ -362,6 +398,8 @@ class Battle:
             base = base * TROOP_ADVANTAGE // 100
         if self.suppressed(attacker):
             base = base * (100 - ARC_SUPPRESS) // 100
+        if self.exposed(target):
+            base = base * FLANKED_TAKEN // 100
         dfn = target.card["dfn"] * (100 + target.mod("dfn")) // 100
         dfn = max(0, dfn)
         if target.troop == "inf" and attacker.troop == "arc":
@@ -401,42 +439,49 @@ class Battle:
 
     # ---- 突破（§5.2） ----------------------------------------------------
 
-    def broke_through(self, u: Unit) -> bool:
-        """自レーンの近接兵が敵前衛を突破しているか（§5.2）。
+    def flank_step(self, u: Unit, enemies: list) -> bool:
+        """騎兵の迂回を1ティック進める（§5.2）。迂回中なら True。
 
-        レーン単位の全か無かで判定する。突破したレーンの近接兵は全員が後衛を狙う。
-        これがないと「前衛を薄くして弓兵を増やす」編成を咎める手段が無く、
-        メタが「盾＋弓」で止まる（実測で天敵なしの99%だった）。
+        敵前衛と接触した時点から回り込みを始める。**回り込みが終わるまで攻撃できず、
+        その失われた攻撃時間が迂回の値段になる。** 距離は敵前衛の人数に比例し、
+        自分の移動速度で割った時間がかかるので、前衛が厚いほど高く、足が速いほど安い。
         """
-        if u.troop == "arc":
-            return False          # 弓兵は元から前衛越しに撃てる
-        key = (u.side, u.lane)
-        if key not in self._breach:
-            blockers = sum(1 for e in self.alive(1 - u.side, u.lane)
-                           if e.row == "front")
-            power = sum(BREAK_POWER[a.troop] for a in self.alive(u.side, u.lane))
-            self._breach[key] = power > blockers * BLOCK_POWER
-        return self._breach[key]
+        if u.troop != "cav" or u.flanked or self.field.get("no_detour"):
+            return False
+        front = [e for e in enemies if e.row == "front"]
+        if not front or not any(e.row == "back" for e in enemies):
+            return False          # 盾がない、または後衛がいないなら回り込む必要がない
+        if min(abs(e.pos - u.pos) for e in front) > self.reach(u):
+            return False          # まだ接触していない。通常どおり前進する
+        if not u.detour:
+            cost = len(front) * DETOUR_PER_BLOCKER
+            u.detour = max(1, cost * self.field.get("detour", 100) // 100)
+        u.detour -= self.speed(u)
+        if u.detour <= 0:
+            u.detour = 0
+            u.flanked = True
+            self.emit(f"{u.card['name']}が前衛を迂回した")
+            return False
+        return True
 
     # ---- 標的選択（§5.2） ------------------------------------------------
 
     def reachable(self, u: Unit, enemies: list) -> list:
         """u が狙える敵を返す。**前衛は後衛の盾になる。**
 
-        近接兵は、そのレーンに敵前衛が生きているあいだ後衛へ届かない。突破した
-        レーンでは逆に後衛だけを狙う（前衛の脇を抜けていく）。弓兵は前衛越しに
-        撃てるので制限を受けない。
+        近接兵は、そのレーンに敵前衛が生きているあいだ後衛へ届かない。回り込みを
+        終えた騎兵だけが後衛を狙える。弓兵は射程が届くので制限を受けない。
 
-        この「盾」がないと突破は成立しない。盾のない状態で「後衛を狙う権利」だけを
+        この「盾」がないと迂回は成立しない。盾のない状態で「後衛を狙う権利」だけを
         与えたところ、騎兵は弓兵の射程内をより深くまで歩かされるだけになり、
-        勝率が 89% から 5% へ落ちた。突破は盾を前提にして初めて利点になる。
+        勝率が 89% から 5% へ落ちた。迂回は盾を前提にして初めて利点になる。
         """
         if u.troop == "arc":
             return enemies
         front = [e for e in enemies if e.row == "front"]
         if not front:
             return enemies
-        if self.broke_through(u):
+        if u.flanked:
             return [e for e in enemies if e.row == "back"] or enemies
         return front
 
@@ -605,7 +650,6 @@ class Battle:
 
     def step(self):
         self.tick += 1
-        self._breach.clear()      # 突破判定は撤退と移動で変わるのでティックごとに引き直す
         actors = self.order()
 
         # 1. 状態効果の経過処理
@@ -630,8 +674,13 @@ class Battle:
         for u in actors:
             if u.retreated or u.stunned():
                 continue
+            u.flanking = False
             if not self.alive(1 - u.side, u.lane):
                 self.lane_support(u)
+                continue
+            # 騎兵の迂回。回り込んでいるあいだは前進も攻撃もしない（§5.2）
+            if self.flank_step(u, self.alive(1 - u.side, u.lane)):
+                u.flanking = True
                 continue
             # 弓兵は近接に寄られたら下がりながら撃つ（§5.3）。開始位置が下限なので、
             # 後衛に置いた弓兵ほど下がる余地が大きい。移動速度は歩兵8・騎兵12に対し
@@ -655,7 +704,7 @@ class Battle:
 
         # 4-8. 攻撃可否・標的選択・命中・クリティカル・ダメージ
         for u in actors:
-            if u.retreated or u.stunned() or self.tick < u.next_attack:
+            if u.retreated or u.stunned() or u.flanking or self.tick < u.next_attack:
                 continue
             target = self.pick_target(u)
             if target is None:
@@ -802,8 +851,10 @@ DATA, CARDS = load_cards()
 TROOP_TABLE = DATA["troop_defaults"]
 
 
-def make_team(card_ids, placement=None, commander=0):
-    """card_ids の順に 前衛左・中・右 → 後衛左・中・右 へ配置する。"""
+def make_team(card_ids, placement=None, commander=0, formation=None):
+    """card_ids を配置する。formation を指定すると §4.1 の陣形の枠順に従う。"""
+    if formation is not None:
+        placement = FORMATIONS[formation]["slots"]
     placement = placement or SLOTS
     units = []
     for cid, (row, lane) in zip(card_ids, placement):

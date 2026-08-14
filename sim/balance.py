@@ -10,6 +10,7 @@ usage:
   python3 sim/balance.py cost        コストの加算性（1点の価値がどこでも同じか）
   python3 sim/balance.py skills      必殺技のひな型ごとの強さ
   python3 sim/balance.py traits      誘発型の固有特性ごとの強さ
+  python3 sim/balance.py formations  陣形×構成の総当たり
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -409,6 +410,73 @@ def cmd_traits():
 
 
 
+# --- formations ----------------------------------------------------------
+
+def formation_team(formation, mix, cost=5):
+    """陣形と兵種構成を指定した検証用編成。
+
+    mix は前衛から順に割り当てる (兵種, 役割) の並び。陣形の枠順は
+    engine.FORMATIONS が持つ。総大将は最も安全な枠（最後尾）へ置く。
+    """
+    import roster
+    from engine import FORMATIONS
+    slots = FORMATIONS[formation]["slots"]
+    cards = []
+    for i, (troop, role) in enumerate(mix):
+        person = f"陣{formation}{troop}{role}{i}"
+        roster.ROMAJI[person] = f"f{formation}{troop}{role}{i}"
+        c = roster.build_card((person, "検証", cost, troop, role, "strike", "検証", []))
+        c["skill"] = {"name": "なし", "target": "self", "effects": []}
+        CARDS[c["id"]] = c
+        cards.append(c)
+    units = [{"card": c, "lane": l, "row": r} for c, (r, l) in zip(cards, slots)]
+    fcount = {L: sum(1 for u in units if u["lane"] == L and u["row"] == "front")
+              for L in range(3)}
+    cmd = min(range(len(units)),
+              key=lambda i: (units[i]["row"] == "front", -fcount[units[i]["lane"]], i))
+    return {"units": units, "commander": cmd}
+
+
+def cmd_formations():
+    """陣形×兵種構成の総当たり。狙いは「どれかが無敵にならない」こと。
+
+    自由配置ではなく名前のついた陣形から選ばせるので、組み合わせが有限になり
+    ここで釣り合わせられる（§4.1）。
+    """
+    from engine import FORMATIONS
+    print("=== 陣形×構成の総当たり ===")
+    print("  コスト5×6人・必殺技と固有特性なし。総大将は各型の最も安全な枠。")
+    print("  **同じ6枚を陣形だけ変えて置く。** 陣形ごとに構成を変えると、"
+          "陣形の差か構成の差か分からなくなる。\n")
+    COMPOSITIONS = {
+        "std": ("標準", [("inf", "tank")] * 2 + [("cav", "dps")] * 2
+                + [("arc", "dps")] * 2),
+        "cav": ("騎馬", [("cav", "dps")] * 6),
+        "bow": ("盾弓", [("inf", "tank")] * 3 + [("arc", "dps")] * 3),
+    }
+    builds = {(f, c): formation_team(f, COMPOSITIONS[c][1])
+              for f in FORMATIONS for c in COMPOSITIONS}
+    keys = list(builds)
+    grid, sc = {}, {k: [] for k in keys}
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            wr = winrate(builds[a], builds[b], seeds=120)
+            grid[(a, b)] = wr; grid[(b, a)] = 100 - wr
+            sc[a].append(wr); sc[b].append(100 - wr)
+    name = lambda k: f"{FORMATIONS[k[0]]['label']}・{COMPOSITIONS[k[1]][0]}"
+    print(f"  {'型':<12}" + "".join(f"{name(k)[:6]:>8}" for k in keys) + f"{'平均':>7}")
+    for a in keys:
+        print(f"  {name(a):<12}" + "".join(f"{grid.get((a,b),'—'):>8}" for b in keys)
+              + f"{sum(sc[a])//len(sc[a]):>6}%")
+    avgs = {k: sum(sc[k]) / len(sc[k]) for k in keys}
+    lo, hi = min(avgs.values()), max(avgs.values())
+    unbeaten = [name(k) for k in keys if all(grid[(k, b)] >= 45 for b in keys if b != k)]
+    print(f"\n  最弱 {lo:.0f}% 〜 最強 {hi:.0f}%（幅 {hi-lo:.0f}pt）"
+          f" → {'OK' if hi - lo <= 30 else 'NG: 陣形の強さが揃っていない'}")
+    print(f"  天敵のない型: {'、'.join(unbeaten) if unbeaten else 'なし（すべての型に天敵がある）'}"
+          f" → {'NG' if unbeaten else 'OK'}")
+
+
 # --- sensitivity ---------------------------------------------------------
 
 def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike", tag=""):
@@ -465,7 +533,7 @@ def main():
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
              "skills": cmd_skills, "traits": cmd_traits,
-             "sensitivity": cmd_sensitivity}
+             "formations": cmd_formations, "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()
