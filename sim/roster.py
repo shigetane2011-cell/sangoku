@@ -43,6 +43,47 @@ REF_ACC = 90            # 回避の価値を測る基準命中率
 # 6対6の膠着戦では接敵と隣レーン支援の時間短縮にしかならず見返りが薄い。
 BEHAVIOR_PREMIUM = {"inf": 1.00, "cav": 0.98, "arc": 1.05}
 
+# --- 必殺技と固有特性の価値をコストへ織り込む（§7.5 案A）-------------------
+#
+# 能力値はコスト式で釣り合っているが、その上に乗る必殺技と固有特性は無料だった。
+# 実測では必殺技の強さに幅86pt、固有特性に幅31ptがあり、勝敗が「どの効果を引いたか」
+# で決まっていた。効果の価値を能力値へ換算して差し引く。
+#
+# 換算率は sim/balance.py sensitivity の実測による。総合値だけを変えた編成を
+# 等倍の編成と戦わせた結果、飽和していない範囲（+2〜+5%）の平均で
+# 総合値1%あたり約8ptだった（+2%→72%、+3%→72%、+5%→80%、+8%→98%で飽和）。
+PT_PER_SCORE_PCT = 8
+
+# 必殺技ひな型の平均勝率（sim/balance.py skills）。総当たりなので50%が平均。
+# urge は測定不能のため中立に置いている。全員が支援技だと攻撃手段がゼロになり、
+# 「1枚だけ混ぜたときの寄与」で測り直す必要がある（§7.5）。
+SKILL_WINRATE = {
+    "burn": 90, "roar": 76, "curse": 75, "rally": 60, "sweep": 54, "snipe": 50,
+    "strike": 46, "guard": 41, "raid": 41, "snare": 39, "hold": 23,
+    "urge": 50,   # 実測4%。測定方法の限界による値なので採用しない
+}
+
+# 固有特性の勝率（sim/balance.py traits）。「特性なし」との対戦なので50%が価値ゼロ。
+# vanguard は総大将かつ前衛のときだけ働く条件付きのため、他と同じ土俵で測れない。
+# §4.2 の測定（前衛配置で +16〜+48pt）から中間を採り、暫定で +20pt 相当とする。
+TRAIT_WINRATE = {
+    "laststand": 85, "legacy": 81, "avenge": 77, "pursuit": 71,
+    "rearguard": 64, "chain": 54,
+    "vanguard": 70,   # 暫定
+}
+
+
+def ability_premium(skill_key, traits):
+    """必殺技と固有特性の価値を、総合値の倍率へ換算する。
+
+    1.00 より大きい = 効果が強いので素の能力値を下げる
+    1.00 より小さい = 効果が弱いので素の能力値を上げる
+    """
+    pt = SKILL_WINRATE.get(skill_key, 50) - 50
+    for t in traits or ():
+        pt += TRAIT_WINRATE.get(t, 50) - 50
+    return 1 + pt / PT_PER_SCORE_PCT / 100
+
 TROOP = {
     "inf": {"interval": 12, "range": 100, "evade_base": 0, "label": "歩兵",
             "speed": 8, "dfn": 52, "acc": 88, "crit": 9},
@@ -247,7 +288,8 @@ def build_card(entry):
     hp1, atk1 = 1000 * r["hp"], 20 * r["atk"]
     score1 = effective_score(hp1, atk1, dfn, t["interval"], t["acc"], t["crit"],
                              evade_of(troop))
-    target = value(cost) / BEHAVIOR_PREMIUM[troop]
+    target = (value(cost) / BEHAVIOR_PREMIUM[troop]
+              / ability_premium(skill_key, traits))
     f = math.sqrt(target / score1)
     card = {
         "id": f"{ROMAJI[person]}_{cost}",

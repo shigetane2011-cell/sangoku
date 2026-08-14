@@ -28,6 +28,7 @@ python3 balance.py meta      # 採用率
 python3 balance.py cost      # コストの加算性
 python3 balance.py skills    # 必殺技のひな型ごとの強さ
 python3 balance.py traits    # 誘発型の固有特性ごとの強さ
+python3 balance.py sensitivity # 総合値の差と勝率の差の換算率
 python3 balance.py all       # すべて
 python3 budget.py            # 能力値がコスト式どおりかの検算
 python3 roster.py --write    # ロスターから cards.json を再生成
@@ -49,7 +50,10 @@ python3 roster.py --write    # ロスターから cards.json を再生成
 4. `python3 balance.py cost` でコストの加算性を確認する。
 5. `python3 balance.py troops` で三すくみの向きを確認する。
 6. `python3 balance.py check` で戦闘時間と必殺技の発動回数を確認する。
-7. `python3 balance.py meta` で §4.6 の採用率を測る。
+7. **必殺技や固有特性を変えた場合は** `balance.py skills` / `balance.py traits` を回し、
+   `roster.py` の `SKILL_WINRATE` / `TRAIT_WINRATE` を実測値へ更新して 2 からやり直す。
+   効果の価値が予算に反映されないと、能力値だけ揃えても意味がない。
+8. `python3 balance.py meta` で §4.6 の採用率を測る。
 
 ## コストと強さの関係
 
@@ -69,6 +73,30 @@ python3 roster.py --write    # ロスターから cards.json を再生成
 
 アイテムにコストを持たせる場合も同じ式に乗せる。アイテムのコストは「コスト比例分」に
 だけ加算し、枠の基礎価値は武将1体につき1回しか計上しない。
+
+## 必殺技と固有特性の価格付け
+
+能力値だけを釣り合わせても、その上に乗る必殺技と固有特性が無料だと意味がない。実測では
+必殺技の強さに幅86pt、固有特性に幅31ptがあり、勝敗が「どの効果を引いたか」で決まっていた。
+
+```
+目標総合値 = value(コスト) ÷ BEHAVIOR_PREMIUM[兵種] ÷ ability_premium(必殺技, 特性)
+
+  ability_premium = 1 + (必殺技の勝率 − 50 + Σ 特性の勝率 − 50) ÷ PT_PER_SCORE_PCT ÷ 100
+```
+
+`PT_PER_SCORE_PCT`（現在8）は「総合値1%あたり勝率何pt動くか」の換算率で、
+`balance.py sensitivity` の実測による。効果の価値は勝率でしか測れず、予算は総合値で
+表されているため、この換算がないと両者をつなげない。
+
+`SKILL_WINRATE` と `TRAIT_WINRATE` は `balance.py skills` / `balance.py traits` の実測値を
+そのまま置いている。**必殺技や特性を追加・変更したら、この2つを測り直して更新する。**
+
+測れていないもの:
+
+- `urge`（ゲージ付与）は中立（50）に置いている。全員が支援技だと攻撃手段がゼロになるため、
+  実測の4%は測定方法の限界による値であり採用できない。
+- `vanguard` は総大将かつ前衛のときだけ働く条件付きで、他と同じ土俵で測れない。暫定値。
 
 ## 実装上の約束
 
@@ -98,6 +126,8 @@ python3 roster.py --write    # ロスターから cards.json を再生成
   必殺技と固有特性がまるごと失われるため、能力値では釣り合わせられない不利が生じる。
 - 消耗係数の下限を0.6から0.5へ下げた。コストの加算性を直接動かすレバーだった。
 - 誘発型の固有特性を実装した。連鎖は禁じている（決定論と実況の可読性のため）。
+- 必殺技と固有特性の価値をコスト予算へ織り込んだ。能力値だけを釣り合わせても、
+  その上に乗る効果が無料だと勝敗が効果の引きで決まってしまう。
 
 ## カードデータの見方
 

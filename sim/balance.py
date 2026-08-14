@@ -10,6 +10,7 @@ usage:
   python3 sim/balance.py cost        コストの加算性（1点の価値がどこでも同じか）
   python3 sim/balance.py skills      必殺技のひな型ごとの強さ
   python3 sim/balance.py traits      誘発型の固有特性ごとの強さ
+  python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
 
@@ -383,11 +384,58 @@ def cmd_traits():
     print(f"  → 特性を持つだけで {lo - 50:+d}〜{hi - 50:+d}pt の得。この分をコスト予算へ入れる必要がある。")
 
 
+
+# --- sensitivity ---------------------------------------------------------
+
+def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike", tag=""):
+    """総合値を score_mult 倍した検証用編成。
+
+    総合値 = 実効耐久 × 実効火力 なので、兵力と攻撃力をそれぞれ √score_mult 倍する。
+    """
+    import math
+    import roster
+    cards = []
+    for i in range(6):
+        person = f"感{tag}{i}"
+        roster.ROMAJI[person] = f"z{tag}{i}"
+        card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", []))
+        f = math.sqrt(score_mult)
+        card["hp"] = max(200, round(card["hp"] * f / 50) * 50)
+        card["atk"] = max(5, round(card["atk"] * f))
+        CARDS[card["id"]] = card
+        cards.append(card)
+    return {"units": [{"card": c, "lane": l, "row": r}
+                      for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
+
+
+def cmd_sensitivity():
+    """総合値の差が勝率の差へどう換算されるかを測る。
+
+    必殺技や固有特性の価値は勝率でしか測れないが、コスト予算（§4.6）は総合値で
+    表されている。両者をつなぐ換算率がないと、能力の価値を予算へ入れられない。
+    """
+    print("=== 総合値の差と勝率の関係 ===")
+    print("  総合値だけを変えた編成を、等倍の編成と戦わせる。\n")
+    base = scaled_team(1.0, tag="base")
+    print(f"  {'総合値':>8} {'勝率':>6} {'1%あたり':>9}")
+    rows = []
+    for pct in (1, 2, 3, 5, 8, 12):
+        wr = winrate(scaled_team(1 + pct / 100, tag=f"p{pct}"), base, seeds=300)
+        rows.append((pct, wr))
+        print(f"  {pct:>+7}% {wr:>5}% {(wr - 50) / pct:>8.1f}pt")
+    usable = [(p, w) for p, w in rows if w < 95]
+    if usable:
+        avg = sum((w - 50) / p for p, w in usable) / len(usable)
+        print(f"\n  換算率: 総合値1%あたり 約{avg:.1f}pt（飽和していない範囲の平均）")
+        print(f"  → 勝率で +{avg * 5:.0f}pt ぶんの能力は、総合値5%ぶんに相当する。")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     table = {"check": cmd_check, "troops": cmd_troops, "swap": cmd_swap,
              "meta": cmd_meta, "commander": cmd_commander, "cost": cmd_cost,
-             "skills": cmd_skills, "traits": cmd_traits}
+             "skills": cmd_skills, "traits": cmd_traits,
+             "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()

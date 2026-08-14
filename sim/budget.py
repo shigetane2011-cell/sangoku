@@ -20,9 +20,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from roster import BEHAVIOR_PREMIUM, TROOP, effective_score, evade_of, value  # noqa: E402
+from roster import (BEHAVIOR_PREMIUM, ROSTER, TROOP, ability_premium,  # noqa: E402
+                    effective_score, evade_of, value)
 
 TOLERANCE = 8      # 目標値からのずれの許容幅（%）
+
+# 人物名 → (必殺技ひな型, 特性キー)。cards.json には展開後の形しか残らないため、
+# 検算には ROSTER 側の定義が要る。
+ABILITY = {e[0]: (e[5], e[7]) for e in ROSTER}
 
 
 def load():
@@ -46,7 +51,9 @@ def main():
     rows = []
     for c in data["cards"]:
         s = score(c, intervals[c["troop"]])
-        target = value(c["cost"]) / BEHAVIOR_PREMIUM[c["troop"]]
+        skill_key, traits = ABILITY[c["person"]]
+        target = (value(c["cost"]) / BEHAVIOR_PREMIUM[c["troop"]]
+                  / ability_premium(skill_key, traits))
         rows.append((c, s, round((s / target - 1) * 100)))
 
     worst = max(rows, key=lambda r: abs(r[2]))
