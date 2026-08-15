@@ -5,6 +5,7 @@ usage:
   python3 sim/model.py ladder    素の状態から1つずつ機能を戻し、どれが壊すか
   python3 sim/model.py lanes     レーン数だけを振る
   python3 sim/model.py rules     ダメージの配り方 × レーン数 × 威力の総当たり
+  python3 sim/model.py width     レーンを廃した1本の戦線。接敵幅を振る
 
 ----------------------------------------------------------------------------
 結論（rules の実測。威力/コストを 0.3〜0.01 で振っても符号が変わらないもの）
@@ -240,6 +241,84 @@ def cmd_lanes():
         print(f"    レーン配分 {str(totals):<16} 残存コスト差 {m:+7.2f}%")
 
 
+def resolve_line(costs_a, costs_b, *, width=2, lethality=0.1, focus=True,
+                 overkill="flow", max_cycles=10000):
+    """レーンを廃した1本の戦線。**同時に接敵できるのは各軍 width 人まで。**
+
+    レーンという離散の仕切りを持たない。並び順が縦深で、先頭から width 人が
+    戦線に立ち、倒れると次が繰り上がる。三国志の会戦の形であり、同時に
+    「集中を制限する」ことでもあるので、コストの加法性がどう動くかを見る。
+
+    width=6 は全員が同時に殴り合う＝二乗則がそのまま効く形。
+    width=1 は一騎討ちの列＝完全な線形則。そのあいだを掃く。
+    """
+    def make(costs):
+        return [{"hp": float(c), "max_hp": float(c), "atk": float(c) * lethality,
+                 "cost": float(c)} for c in costs]
+
+    sides = [make(costs_a), make(costs_b)]
+    for _ in range(max_cycles):
+        live = [[u for u in s if u["hp"] > 0] for s in sides]
+        if not live[0] or not live[1]:
+            break
+        front = [ls[:width] for ls in live]      # 先頭から width 人が戦線に立つ
+        dealt = {}
+        for side in (0, 1):
+            foes = front[1 - side]
+            if not foes:
+                continue
+            order = sorted(foes, key=lambda e: (e["hp"], id(e))) if focus else foes
+            for u in front[side]:
+                pool = u["atk"]
+                if not focus:
+                    for e in order:
+                        dealt[id(e)] = dealt.get(id(e), 0.0) + pool / len(order)
+                    continue
+                if overkill == "waste":
+                    dealt[id(order[0])] = dealt.get(id(order[0]), 0.0) + pool
+                    continue
+                for e in order:
+                    if pool <= 0:
+                        break
+                    left = e["hp"] - dealt.get(id(e), 0.0)
+                    if left <= 0:
+                        continue
+                    hit = min(pool, left)
+                    dealt[id(e)] = dealt.get(id(e), 0.0) + hit
+                    pool -= hit
+        for s in sides:
+            for u in s:
+                u["hp"] -= dealt.get(id(u), 0.0)
+    left = [sum(u["cost"] * u["hp"] / u["max_hp"] for u in s if u["hp"] > 0)
+            for s in sides]
+    return (left[0] - left[1]) * 100 / sum(costs_a)
+
+
+def cmd_width():
+    """接敵幅を振って、コストの加法性がどこで戻るかを見る。
+
+    **完全に通分できていれば全部 0.00%。** 総コストは常に30で固定。
+    レーンを廃したので、比べるのは「並び順のどこへコストを寄せるか」になる。
+    """
+    cases = (("先頭2枠 7/3", [7, 3, 5, 5, 5, 5]),
+             ("先頭2枠 9/1", [9, 1, 5, 5, 5, 5]),
+             ("先頭に寄せる 9/9/9/1/1/1", [9, 9, 9, 1, 1, 1]),
+             ("後方に寄せる 1/1/1/9/9/9", [1, 1, 1, 9, 9, 9]),
+             ("2体×15", [15, 15]), ("30体×1", [1] * 30))
+    print("=== 接敵幅（レーンなし・1本の戦線）===")
+    print("  攻撃力・兵力はコストに厳密比例。総コストは常に30。相手は 6体×5。")
+    print("  **通分できていれば全部 0.00%。** 威力/コスト=0.01（実ゲームの動作点）\n")
+    for width in (1, 2, 3, 4, 6):
+        out = [f"{n} {resolve_line(c, EVEN, width=width, lethality=0.01):+7.2f}%"
+               for n, c in cases]
+        print(f"  接敵幅 {width}")
+        print("    " + "  ".join(out[:3]))
+        print("    " + "  ".join(out[3:]))
+    print()
+    print("  参考: 幅6は全員が同時に殴り合う＝いまのレーン内と同じ二乗則の形。")
+    print("  幅1は一騎討ちの列＝線形則。")
+
+
 def cmd_rules():
     """ダメージの配り方 × レーン数 × 威力。**符号が安定しているものだけ読む。**"""
     cases = (("7/3", [7, 3, 5, 5, 5, 5]), ("9/1", [9, 1, 5, 5, 5, 5]),
@@ -265,7 +344,8 @@ def cmd_rules():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "ladder"
-    table = {"ladder": cmd_ladder, "lanes": cmd_lanes, "rules": cmd_rules}
+    table = {"ladder": cmd_ladder, "lanes": cmd_lanes, "rules": cmd_rules,
+             "width": cmd_width}
     if cmd not in table:
         sys.exit(__doc__)
     table[cmd]()
