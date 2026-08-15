@@ -230,9 +230,53 @@ def cmd_card():
         print()
 
 
+# --- 戦力は足し算か -------------------------------------------------------
+
+def cmd_additive():
+    """総コストを変えずに配分だけ動かし、強さが変わるかを見る。
+
+    **完全に均衡していれば全部 50% になる。** 6枠・総コスト固定なので、
+    配分を変えても強さが同じなら「戦力はコストの足し算」である。
+    そのとき初めて LoL 型の値段付け（ステータスに単価を定義して合計する）が
+    成り立つ。ずれるなら、値段は勝率を説明できない。
+
+    Lanchester の二乗則は本来「数」の話だが、この game は常に6対6なので
+    数では効かない。効くとすれば**質の集中**である。だからこれを測る。
+    """
+    seeds = 600
+    print("=== 戦力は足し算か（総コストを固定して配分だけ動かす）===")
+    print(f"  {seeds}戦・2σ={noise_2sigma(seeds):.1f}pt")
+    print("  **完全に均衡していれば全部 50%。** 総コストが同じなのだから、")
+    print("  戦力がコストの足し算なら配分を変えても強さは変わらない。")
+    print("  ずれるなら、コストは強さの値段になっていない。\n")
+    pairs = {"同じ枠どうし（前衛の歩兵2枠）": (0, 1),
+             "前衛の歩兵 ← 後衛の弓兵": (0, 5)}
+    for _key, (label, cap) in REGULATIONS.items():
+        base = neutral_costs(cap)
+        ref = neutral_cards(base, tag="b")
+        z = rate(team_of(ref), team_of(ref), seeds)
+        print(f"  [{label}] 基準の配分 {base}  零点 {z:.1f}%")
+        for pname, (a, b) in pairs.items():
+            tmax = min(10 - base[a], base[b] - 1)
+            if tmax < 1:
+                continue
+            out = []
+            for t in range(1, tmax + 1):
+                costs = list(base)
+                costs[a] += t
+                costs[b] -= t
+                cards = neutral_cards(costs, tag=f"t{a}{b}{t}")
+                w = rate(team_of(cards), team_of(ref), seeds)
+                flag = "" if abs(w - z) <= noise_2sigma(seeds) else "*"
+                out.append(f"{costs[a]}/{costs[b]} {w:5.1f}%{flag}")
+            print(f"    {pname:<24} " + "  ".join(out))
+        print()
+    print("  * = 偶然のばらつき(2σ)を超えたずれ。足し算が成立していない印。")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "zero"
-    table = {"zero": cmd_zero, "card": cmd_card}
+    table = {"zero": cmd_zero, "card": cmd_card, "additive": cmd_additive}
     if cmd not in table:
         sys.exit(__doc__)
     table[cmd]()
