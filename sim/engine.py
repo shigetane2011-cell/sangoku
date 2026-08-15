@@ -191,6 +191,22 @@ ARC_SUPPRESS = 8              # 接敵中の弓兵の与ダメージ −8%
 KITE_TRIGGER = 20 * 10
 KITE_SPEED_PCT = 50
 
+# 斜射（§5.2）。**自レーンの敵が全滅した弓兵は、移動せずに隣レーンを撃てる。**
+#
+# 隣レーン支援移動（規則5）は、レーンが完全に空になったときだけ働き、そこから
+# 2.5秒かけて歩く。ところが決着の62〜81%は総大将撤退で、レーンが空になる前に
+# 終わる。実測では1戦あたり0.7回しか起きず、リプレイに入れた対戦では80戦とも
+# 0回だった。**鶴翼の固有効果「支援移動が速い」はこの機構を修飾しているため、
+# 60%・100%・20% と3倍以上振っても勝率が1ptも動かない**（完全な死に効果）。
+#
+# 弓兵だけが撃てるのは、射程で届くという理屈が立つのが弓兵だけだからである。
+# 近接は従来どおり歩いて移動する。斜めに撃つぶん威力は落とす。
+# 罰則は実測で決めた。弓兵の一方的な強化になるので、小さすぎると三すくみが壊れる。
+#   罰則25% → 68/49/73（騎兵→弓兵が帯を割る）  45% → 68/57/69  65% → 68/66/65
+# **100%（威力ゼロ）にしても「斜射なし」には戻らない。** 撃てる敵がいる限り
+# 弓兵はその場に留まるので、0ダメージで棒立ちになり 68/82/50 とかえって歪む。
+CROSS_LANE_PENALTY = 65       # 斜射の与ダメージ −65%
+
 # 対抗能力（§6.6）。指定勢力への与ダメージ補正。
 #
 # **自己強化ではなく対抗能力にする。** 「AとBを組むと両方強い」は正のフィードバックで、
@@ -253,16 +269,31 @@ BATTLEFIELDS = {
 # 効果を1つずつ持たせれば、陣形ごとに調整レバーができ、
 # 「魚鱗は突撃陣形」と一言で説明できるようにもなる。BATTLEFIELDS と同じ形式。
 #
-# **レーンあたりの人数は2で揃える（LANE_CAP）。** 効果量をいくら動かしても
-# 陣形の相性が 0%/100% から動かなかった原因はここだった。旧・魚鱗だけが
-# 1/4/1 で、中央の4人は3レーン制では戦う場所がなく、1人しかいない両翼が
-# 2対1で食われる。局所的な数の差は二乗で効く（ランチェスター）ので、
-# 9コストぶんの札の差より配り方の差のほうが大きくなっていた。
-# 2/2/2 に揃えると総当たりの幅が 55pt → 30pt、陣形別の幅が 24pt → 17pt へ縮む。
-# **陣形の個性は前衛と後衛の割り振り（3/3・4/2・5/1・2/4）が担う。**
-# レーンごとの前衛の枚数が変わるので、迂回の値段（§5.2）は陣形ごとに違ったまま。
+# **レーンあたりの人数は2で揃える（LANE_CAP）。**
+#
+# 旧・魚鱗だけが 1/4/1 で、中央の4人は3レーン制では戦う場所がなく、1人しかない
+# 両翼が2対1で食われる。局所的な数の差は二乗で効く（ランチェスター）ため、
+# 配り方の差が札の質より大きくなりうる。2/2/2 に揃えるとその歪みは無くなる。
+# 陣形の個性は前衛と後衛の割り振り（3/3・4/2・5/1・2/4）が担い、レーンごとの
+# 前衛の枚数は変わるので迂回の値段（§5.2）は陣形ごとに違ったまま。
+#
+# **訂正: 「総当たりの幅が 55pt → 30pt へ縮む」と記録していたが誤りだった。**
+# その測定は balance.formation_team が formation キーを返しておらず、
+# 陣形の固有効果が一切かかっていない条件で行われていた。効果を適用して測り直すと
+# 1/4/1 と 2/2/2 で結果が変わらない（どちらも 幅100pt・極端8/18）。
+# 上限そのものは設計として残すが、**margin を詰める効果は確認できていない**。
 LANE_CAP = 2
 FORMATIONS = {
+    # 支援移動は1戦あたり0.7回しか起きないが、効果そのものは働いている
+    # （係数を 20↔100 で振ると方円との相性が 49%↔56% と動く）。
+    # **一度「死に効果」と誤判定した。** 原因は balance.formation_team が
+    # formation キーを返しておらず、総当たりで効果が一切かかっていなかったこと。
+    # 効果ではなく測定側が死んでいた（§13 の事例13）。
+    #
+    # 代わりに「迂回されにくい（回り込み距離 +30%）」を試したが**強すぎた**。
+    # 対魚鱗が 6%→81%、対雁行が 44%→99%。回り込み可否は DETOUR_MAX_TICKS の
+    # 閾値で二値的に切り替わるため、係数を少し動かすだけで挙動が反転する。
+    # §5.2 が「突破を二値にすると中間が存在しない」として避けた形そのもの。
     "kakuyoku": {"label": "鶴翼", "note": "前3後3。横に広く、どのレーンにも盾がある",
                  "effect": "隣レーンへの支援移動が速い", "support_speed": 60,
                  "slots": [("front", 0), ("front", 1), ("front", 2),
@@ -602,6 +633,8 @@ class Battle:
             base = base * TROOP_ADVANTAGE // 100
         if self.suppressed(attacker):
             base = base * (100 - ARC_SUPPRESS) // 100
+        if attacker.lane != target.lane:                    # 斜射（§5.2）
+            base = base * (100 - CROSS_LANE_PENALTY) // 100
         # 対抗能力（§6.6）。相手の勢力が標的と一致したときだけ乗る。
         # 無所属（群雄）は後ろ盾がないので、どの勢力の対抗能力でも刺さる。
         if self.counters(attacker.card, target.card):
@@ -678,6 +711,11 @@ class Battle:
         if not u.detour:
             cost = len(front) * DETOUR_PER_BLOCKER
             cost = max(1, cost * self.field.get("detour", 100) // 100)
+            # 守る側の陣形で回り込みの値段を変えることもできるが、**採らなかった**。
+            # 回り込み可否が下の DETOUR_MAX_TICKS で二値的に切り替わるため、
+            # 係数を少し動かすだけで挙動が反転する（鶴翼に +30% を与えたら
+            # 対魚鱗が 6%→81% へ跳ねた）。陣形の効果は連続的に効くものにする。
+            cost = max(1, cost * self.form[1 - u.side].get("detour_cost", 100) // 100)
             if cost > DETOUR_MAX_TICKS * self.speed(u):
                 return False      # 回り込みが高すぎる。正面から殴る
             u.detour = cost
@@ -710,8 +748,19 @@ class Battle:
             return [e for e in enemies if e.row == "back"] or enemies
         return front
 
+    def cross_lane_foes(self, u: Unit):
+        """自レーンが空の弓兵が撃てる隣レーンの敵（§5.2 斜射）。"""
+        if u.troop != "arc" or self.alive(1 - u.side, u.lane):
+            return []
+        out = []
+        for lane in (u.lane - 1, u.lane + 1):
+            if 0 <= lane <= 2:
+                out += self.alive(1 - u.side, lane)
+        return out
+
     def pick_target(self, u: Unit):
-        enemies = self.reachable(u, self.alive(1 - u.side, u.lane))
+        cross = self.cross_lane_foes(u)
+        enemies = self.reachable(u, self.alive(1 - u.side, u.lane) or cross)
         if not enemies:
             return None
         reach = self.reach(u)
@@ -968,7 +1017,9 @@ class Battle:
                 continue
             u.flanking = False
             if not self.alive(1 - u.side, u.lane):
-                self.lane_support(u)
+                # 斜射できる弓兵はその場に留まって撃つ（§5.2）
+                if not self.cross_lane_foes(u):
+                    self.lane_support(u)
                 continue
             # 騎兵の迂回。回り込んでいるあいだは前進も攻撃もしない（§5.2）
             if self.flank_step(u, self.alive(1 - u.side, u.lane)):

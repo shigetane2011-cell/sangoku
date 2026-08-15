@@ -680,7 +680,11 @@ def formation_team(formation, mix, cost=5):
               for L in range(3)}
     cmd = min(range(len(units)),
               key=lambda i: (units[i]["row"] == "front", -fcount[units[i]["lane"]], i))
-    return {"units": units, "commander": cmd}
+    # **formation を返し忘れると陣形の固有効果が一切かからない。**
+    # engine.Battle は teams[i]["formation"] を見て効果表を引くので、
+    # ここが無いと枠の配置だけを測ることになる。実際その状態で
+    # 「効果量を差し替えても総当たりの数字が動かない」と読んでいた。
+    return {"units": units, "commander": cmd, "formation": formation}
 
 
 COMPOSITIONS = {
