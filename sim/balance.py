@@ -1204,18 +1204,34 @@ def cmd_skillprice():
                                         - roster.SKILL_ADJUST.get(k, 0.0)))
     print(f"  最大の残差: {worst}")
 
-    print("\n  ゲージ消費量を変えたときの発動回数と価格（strike を例に）")
-    print(f"  {'消費':>5}{'時間だけの計算':>15}{'実測':>9}{'価格':>9}")
-    for cost in (50, 75, 100, 125, 150, 200):
-        naive = roster.BATTLE_TICKS / (roster.GAUGE_FILL_TICKS * cost / 100)
-        real = roster.casts_for(cost)
-        v = roster.skill_value(roster.SKILLS["strike"], cost)
-        mark = "  ← 撃てない" if real < 0.5 else ""
-        print(f"  {cost:>4}%{naive:>13.2f}回{real:>8.2f}回"
-              f"{slope*v/attacks*100+base:>8.2f}{mark}")
-    print("  **時間だけの計算では合わない。** 軽い技はゲージが与被ダメージからも")
-    print("  入るので計算より多く撃て、重い技は満タン前に戦闘が終わるので撃てない。")
-    print("  **使える消費の範囲は約50〜125%しかない。**")
+    print("\n  発動回数を決める3つのパラメータ（strike を例に）")
+    print("  **個別に価格を付けない。** どれも発動回数にしか効かず、その価値は")
+    print("  技の中身と掛け算になるので、発動回数へ畳んでから技の価格に入れる。\n")
+    print(f"  {'条件':<22}{'時間だけの計算':>15}{'実測に合わせた式':>18}{'価格':>9}")
+    cases = [("消費50%", dict(gauge_cost=50)),
+             ("消費75%", dict(gauge_cost=75)),
+             ("消費100%（標準）", dict()),
+             ("消費150%", dict(gauge_cost=150)),
+             ("消費200%", dict(gauge_cost=200)),
+             ("獲得速度130%", dict(gauge_rate=130)),
+             ("獲得速度70%", dict(gauge_rate=70)),
+             ("初期ゲージ50%", dict(gauge_start=50)),
+             ("消費150%+速度150%", dict(gauge_cost=150, gauge_rate=150))]
+    for label, kw in cases:
+        cost = kw.get("gauge_cost", 100)
+        rate = kw.get("gauge_rate", 100)
+        naive = ((roster.BATTLE_TICKS + kw.get("gauge_start", 0)
+                  * roster.GAUGE_TICKS_PER_PCT * 100 / rate)
+                 / (cost * roster.GAUGE_TICKS_PER_PCT * 100 / rate))
+        real = roster.casts_for(cost, rate, kw.get("gauge_start", 0))
+        v = roster.skill_value(roster.SKILLS["strike"], cost, rate,
+                               kw.get("gauge_start", 0))
+        print(f"  {label:<22}{naive:>13.2f}回{real:>16.2f}回"
+              f"{slope*v/attacks*100+base:>8.2f}")
+    print("\n  **計算より多く撃てる。** ゲージは時間経過だけでなく与被ダメージと")
+    print("  撃破からも入るためで、軽い技ほど上乗せが効く（1.39倍→1.05倍）。")
+    print("  重い技も成立する。消費150%は速度150%か初期ゲージ50%と組み合わせれば")
+    print("  標準と同じ1.2回前後まで戻せる。")
 
 
 def cmd_amplify():

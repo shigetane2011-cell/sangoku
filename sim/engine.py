@@ -33,10 +33,13 @@ GAUGE_MAX = 10000             # 必殺技ゲージ最大 100
 # rally / guard / curse / snare が下位に固まっていた。
 #
 # 消費を下げれば発動回数が増え、持続時間という設計軸が初めて機能する。
-#   消費 50% → 2.48回 / 100% → 1.24回 / 150% → 0.83回 / 200% → 0.62回
+# 実測（1体あたり・1戦）: 消費50%→3.45回 / 100%→1.63回 / 150%→0.93回 /
+# 200%→0.65回 / 300%→0.50回。重い技も撃てるので、消費は設計軸として使える。
 #
 # 発動時は**満タンに戻さず消費ぶんだけ引く**。余剰を持ち越さないと、軽い技ほど
-# 端数を捨てて損をする。
+# 端数を捨てて損をする。あわせて**ゲージ付与の上限も消費量に合わせる**
+# （gauge_ceiling）。ここを満タン固定のままにすると、消費100超の技だけが
+# 撃破ゲージと引き継ぎを受け取れず、200%で0.07回しか撃てなくなる。
 GAUGE_COST_DEFAULT = 100
 GAUGE_PER_SEC = 200           # 時間経過によるゲージ上昇 2.0/秒（§7.2・v0.3 実測で改訂）
 KILL_GAUGE_SECONDS = 3        # 敵撤退時のゲージ加算。固定値ではなく「自然増加の何秒ぶん」
@@ -394,8 +397,21 @@ class Battle:
         self.trigger_events = {t["trigger"] for u in self.units
                                for t in self.triggers_of(u.card)}
         self.apply_vanguard()
+        self.apply_start_gauge()
         self.apply_surplus(teams)
         self.result = None
+
+    def apply_start_gauge(self):
+        """カードごとの初期ゲージ（§7.2）。満タンを100とした%で持つ。
+
+        余剰コストによる初期ゲージ（§4.5）とは別で、こちらは武将の個性である。
+        「開幕から動ける将」を能力値ではなく発動タイミングで表す。
+        価格は消費量・獲得速度とまとめて発動回数へ織り込む（roster.casts_for）。
+        """
+        for u in self.units:
+            pct = u.card.get("gauge_start", 0)
+            if pct:
+                u.gauge = min(GAUGE_MAX, u.gauge + GAUGE_MAX * pct // 100)
 
     def apply_surplus(self, teams):
         """余剰コストを初期必殺技ゲージへ変換する（§4.5）。
@@ -819,7 +835,7 @@ class Battle:
                     # 整数なので、先に掛けると丸めで大きく損なわれる。
                     gain = (self.scaled(source, self.gauge_seconds(t, eff["seconds"]))
                             if "seconds" in eff else eff.get("value", 0))
-                    t.gauge = min(GAUGE_MAX, t.gauge + gain)
+                    t.gauge = min(self.gauge_ceiling(t), t.gauge + gain)
                 elif kind == "heal":
                     # 回復量は**発動者の攻撃力に対する%**で持つ（§4.6「補正はすべて
                     # 率で定義する」）。固定量だと兵力の低い安い札ほど相対的に大きく
@@ -830,6 +846,16 @@ class Battle:
                     if healed > 0:
                         t.hp += healed
                         self.emit(f"{t.card['name']}の兵力が{healed}回復")
+
+    def gauge_ceiling(self, u: Unit) -> int:
+        """ゲージ付与の上限。**満タン(100)ではなく、その武将の消費量まで貯まる。**
+
+        消費を可変にした以上、上限を100で固定すると消費100超の技だけが
+        撃破ゲージとゲージ引き継ぎを受け取れなくなる。実測でも、名目の
+        所要時間が同じはずの「消費150」と「獲得速度70」で発動回数が
+        0.50回 対 1.17回 に割れていた。
+        """
+        return max(GAUGE_MAX, self.gauge_cost(u))
 
     def gauge_cost(self, u: Unit) -> int:
         """この武将が必殺技を撃つのに要るゲージ量（§7.1）。"""
@@ -1016,7 +1042,7 @@ class Battle:
                     if allies:
                         share = u.gauge * GAUGE_INHERIT_PCT // 100 // len(allies)
                         for a in allies:
-                            a.gauge = min(GAUGE_MAX, a.gauge + share)
+                            a.gauge = min(self.gauge_ceiling(a), a.gauge + share)
                     u.gauge = 0
                 # 撤退を誘発条件とする固有特性（§6.6）
                 self.fire("ally_retreat", u.side, source=u, subject=u)

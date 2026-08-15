@@ -181,50 +181,67 @@ SKILL_PRICE_SCALE = 0.990
 SKILL_PRICE_BASE = -9.24
 
 
-# 消費ゲージごとの実測発動回数（1戦・1体あたり）。**時間だけの計算では合わない。**
+# 発動回数の実測表。**時間だけの計算では合わない。**
 #
-#   消費   時間だけの計算   実測    比
-#    50%      2.48回      3.45回  1.39
-#    75%      1.65        2.28    1.38
-#   100%      1.24        1.63    1.32
-#   150%      0.83        0.50    0.61
-#   200%      0.62        0.07    0.12
+# 消費・ゲージ獲得速度・初期ゲージの3つは、どれも「1回撃つのに要るティック数」に
+# しか効かない。したがって素の計算値（naive）1本へまとめられる。
 #
-# ずれる理由は2つ。**軽い技は計算より多く撃てる**。ゲージは時間経過だけでなく
-# 与被ダメージと撃破からも入るので、実効の獲得速度が約1.35倍あるためである。
-# **重い技は計算よりはるかに撃てない**。戦闘が62秒で終わるので、満タンに
-# 到達する前に決着してしまう。連続値ではなく「間に合うか間に合わないか」になる。
+#   naive = (戦闘時間 + 初期ゲージぶんの前倒し) ÷ 1回ぶんの所要ティック
 #
-# **したがって使える消費の範囲は約50〜125%しかない。** 150%を超える技は
-# 設計しても撃てない。重い技を成立させるには戦闘時間かゲージ獲得速度の側を
-# 変える必要がある（§7.1）。
-# 値はロスター実測の 1.24回/戦（balance.py check）へ正規化してある。
-GAUGE_CASTS = {50: 2.62, 75: 1.73, 100: 1.24, 125: 0.85, 150: 0.38, 200: 0.05}
+#   消費   naive   実測    比
+#    50%    2.48   3.45   1.39
+#    75%    1.65   2.28   1.38
+#   100%    1.24   1.63   1.31
+#   125%    0.99   1.24   1.25
+#   150%    0.83   0.93   1.12
+#   200%    0.62   0.65   1.05
+#   300%    0.41   0.50   1.22
+#
+# **計算より多く撃てる。** ゲージは時間経過だけでなく与被ダメージと撃破からも
+# 入るためで、軽い技ほど上乗せが効く（1.39倍→1.05倍）。
+#
+# 表の値はロスター実測の 1.24回/戦（balance.py check）へ正規化してある。
+#
+# **注意: この表は一度作り直している。** 最初に測ったときは消費150%で0.50回・
+# 200%で0.07回しか出ず、「使える消費は50〜125%しかない」と結論しかけた。
+# 原因はゲージ付与の上限を満タン(100)で固定していたことで、消費100超の技だけが
+# 撃破ゲージとゲージ引き継ぎを受け取れていなかった（engine.gauge_ceiling）。
+# 上限を武将ごとの消費量に合わせたら 0.93回 / 0.65回 になった。
+# **可変にしたパラメータの上限が固定のまま残っていないかを必ず見ること。**
+NAIVE_TO_CASTS = {0.41: 0.38, 0.62: 0.49, 0.83: 0.71, 0.99: 0.94,
+                  1.24: 1.24, 1.65: 1.73, 2.48: 2.62}
+GAUGE_TICKS_PER_PCT = GAUGE_FILL_TICKS / 100      # ゲージ1%ぶんのティック数
 
 
-def casts_for(gauge_cost):
-    """消費ゲージから1戦あたりの発動回数を出す（実測表を線形補間）。"""
-    keys = sorted(GAUGE_CASTS)
-    if gauge_cost <= keys[0]:
-        return GAUGE_CASTS[keys[0]] * keys[0] / max(1, gauge_cost)
-    if gauge_cost >= keys[-1]:
-        return GAUGE_CASTS[keys[-1]]
+def casts_for(gauge_cost=100, gauge_rate=100, gauge_start=0):
+    """1戦あたりの必殺技の発動回数。消費・獲得速度・初期ゲージから出す。"""
+    per_pct = GAUGE_TICKS_PER_PCT * 100 / max(1, gauge_rate)
+    period = max(1e-9, gauge_cost * per_pct)      # 1回ぶんの所要ティック
+    naive = (BATTLE_TICKS + gauge_start * per_pct) / period
+    keys = sorted(NAIVE_TO_CASTS)
+    if naive <= keys[0]:
+        return NAIVE_TO_CASTS[keys[0]] * naive / keys[0]
+    if naive >= keys[-1]:
+        return NAIVE_TO_CASTS[keys[-1]] * naive / keys[-1]
     for a, b in zip(keys, keys[1:]):
-        if a <= gauge_cost <= b:
-            f = (gauge_cost - a) / (b - a)
-            return GAUGE_CASTS[a] + (GAUGE_CASTS[b] - GAUGE_CASTS[a]) * f
-    return GAUGE_CASTS[100]
+        if a <= naive <= b:
+            f = (naive - a) / (b - a)
+            return NAIVE_TO_CASTS[a] + (NAIVE_TO_CASTS[b] - NAIVE_TO_CASTS[a]) * f
+    return NAIVE_TO_CASTS[1.24]
 
 
-def skill_value(skill, gauge_cost=None):
+def skill_value(skill, gauge_cost=None, gauge_rate=100, gauge_start=0):
     """必殺技1つの価値を「通常攻撃 何発ぶん（1戦あたり）」で返す。
 
-    gauge_cost はゲージ満タンを100とした消費量。軽い技ほど何度も撃てる。
+    **消費・獲得速度・初期ゲージは個別に価格を付けない。** 3つとも発動回数に
+    しか効かず、その価値は必殺技の中身と掛け算になるためである。加算的な予算
+    （ability_premium）に別項目として足すと、強い技を持つ札ほど過小評価になる。
+    まとめて発動回数へ畳んでから、技の価格として1つ計上する。
     """
     if gauge_cost is None:
         gauge_cost = skill.get("gauge", 100)
-    fill = GAUGE_FILL_TICKS * gauge_cost / 100
-    casts = casts_for(gauge_cost)
+    fill = GAUGE_FILL_TICKS * gauge_cost / 100 * 100 / max(1, gauge_rate)
+    casts = casts_for(gauge_cost, gauge_rate, gauge_start)
     remain = max(0.0, BATTLE_TICKS - fill)     # 1回目の発動後に残る時間
     n = TARGET_COUNT[skill["target"]]
     per_cast = 0.0
@@ -249,11 +266,11 @@ def skill_value(skill, gauge_cost=None):
     return per_cast * casts
 
 
-def skill_price(skill, gauge_cost=None):
+def skill_price(skill, gauge_cost=None, gauge_rate=100, gauge_start=0):
     """必殺技の価格（総合値の%）。正 = 強いので素の能力値を下げる。"""
     attacks = BATTLE_TICKS / REF_INTERVAL
-    return (SKILL_PRICE_SCALE * skill_value(skill, gauge_cost) / attacks * 100
-            + SKILL_PRICE_BASE)
+    v = skill_value(skill, gauge_cost, gauge_rate, gauge_start)
+    return SKILL_PRICE_SCALE * v / attacks * 100 + SKILL_PRICE_BASE
 
 
 # 全員同技の総当たり（balance.py skills）では測れない必殺技。そちらからは除外する。
@@ -613,7 +630,10 @@ def solve_hp(target, atk, dfn, troop):
 
 
 def build_card(entry):
-    person, epithet, cost, troop, role, skill_key, skill_name, traits = entry
+    # 9番目は任意の上書き辞書（gauge / gauge_rate / gauge_start など）。
+    # 武将ごとの個性をゲージの側で表すために使う。**能力値は上書きさせない。**
+    person, epithet, cost, troop, role, skill_key, skill_name, traits = entry[:8]
+    over = entry[8] if len(entry) > 8 else {}
     t, r = TROOP[troop], ROLE[role]
     faction = FACTION_OF.get(person, NEUTRAL_FACTION)
     dfn = max(10, round(t["dfn"] * r["dfn"]))
@@ -650,6 +670,11 @@ def build_card(entry):
     achieved = effective_score(hp, atk, dfn, t["interval"], t["acc"], t["crit"],
                                evade_of(troop))
     card["power"] = max(20, round(achieved / TARGET_SCORE * 100))
+    # ゲージ系の上書き。**能力値ではなく発動回数を動かす**ので、価格は
+    # 必殺技の側へ織り込む（skill_price が発動回数として受け取る）。
+    for key in ("gauge_rate", "gauge_start"):
+        if key in over:
+            card[key] = over[key]
     if traits:
         # 文字列は常在型の組み込み特性、TRIGGERS のキーは誘発型に展開する（§6.6）
         card["traits"] = [dict(TRIGGERS[t]) if t in TRIGGERS else t for t in traits]
