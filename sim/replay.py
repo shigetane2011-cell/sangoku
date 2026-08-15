@@ -134,32 +134,50 @@ PAGE = """<title>作戦盤</title>
           display: flex; gap: 14px; flex-wrap: wrap; }
   .meta b { color: var(--text); font-weight: 600; }
 
-  /* --- 盤面 ---------------------------------------------------------- */
+  /* --- 盤面 ----------------------------------------------------------
+     **1体につき1本の軌道を与える。** 同じレーンの武将が同じ位置に来ると
+     重なって読めなくなるため、縦に分ける。レーンは背景の帯でまとめる。
+     兵種は形で区別する（歩兵=角・騎兵=菱・弓兵=丸）。 */
   .board { margin-top: 18px; background: var(--panel); border: 1px solid var(--line);
-           border-radius: 3px; padding: 14px 16px 10px; box-shadow: var(--shadow); }
-  .lane { position: relative; height: 62px; border-bottom: 1px solid var(--grid); }
+           border-radius: 3px; padding: 6px 0 4px; box-shadow: var(--shadow);
+           overflow: hidden; }
+  .lane { padding: 5px 0; border-bottom: 1px solid var(--grid); }
   .lane:last-child { border-bottom: 0; }
-  .lane-tag { position: absolute; left: 0; top: 4px; font-size: 10px;
-              letter-spacing: .18em; color: var(--faint); }
-  .home { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); }
-  .chip { position: absolute; top: 50%; transform: translate(-50%, -50%);
-          width: 74px; text-align: center; transition: left .12s linear; }
-  .chip .nm { font-size: 11px; font-weight: 600; white-space: nowrap;
-              overflow: hidden; text-overflow: ellipsis;
-              padding: 1px 3px; border-radius: 2px; }
-  .s0 .nm { color: var(--blue); background: var(--blue-soft); }
-  .s1 .nm { color: var(--red); background: var(--red-soft); }
-  .chip .bars { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
-  .bar { height: 3px; background: var(--grid); border-radius: 2px; overflow: hidden; }
-  .bar i { display: block; height: 100%; }
-  .s0 .hp i { background: var(--blue); } .s1 .hp i { background: var(--red); }
-  .gg i { background: var(--gold); }
-  .chip.dead { opacity: .22; }
-  .chip.dead .nm { text-decoration: line-through; }
-  .chip.flank .nm { outline: 1px dashed var(--gold); }
-  .chip.stun { filter: grayscale(1); }
-  .chip.cast .nm { box-shadow: 0 0 0 2px var(--gold); }
-  .chip .cmdr { font-size: 9px; color: var(--gold); letter-spacing: .1em; }
+  .lane.alt { background: linear-gradient(var(--grid), var(--grid)); }
+  .lane-tag { font-size: 10px; letter-spacing: .18em; color: var(--faint);
+              padding: 0 0 2px 14px; }
+  .track { position: relative; height: 26px; }
+  .gutter { position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+            width: 116px; font-size: 11px; font-weight: 600; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; }
+  .gutter em { font-style: normal; color: var(--faint); font-size: 10px;
+               margin-left: 4px; }
+  .rail { position: absolute; left: 138px; right: 14px; top: 0; bottom: 0; }
+  .home { position: absolute; top: 3px; bottom: 3px; width: 1px; background: var(--grid); }
+  .mk { position: absolute; top: 50%; width: 20px; height: 20px;
+        transform: translate(-50%, -50%); transition: left .12s linear;
+        display: grid; place-items: center; }
+  .mk .sh { position: absolute; inset: 0; border: 1.5px solid currentColor;
+            background: linear-gradient(to top, currentColor var(--hp,100%),
+                                        transparent var(--hp,100%)); }
+  .mk.inf .sh { border-radius: 3px; }
+  .mk.cav .sh { border-radius: 3px; transform: rotate(45deg) scale(.82); }
+  .mk.arc .sh { border-radius: 50%; }
+  .mk .g { position: relative; font-size: 11px; font-weight: 700; line-height: 1;
+           color: var(--panel); }
+  .mk.s0 { color: var(--blue); }
+  .mk.s1 { color: var(--red); }
+  .mk.low .g { color: var(--text); }
+  .mk .gg { position: absolute; left: -2px; right: -2px; bottom: -6px; height: 2px;
+            background: var(--grid); }
+  .mk .gg i { display: block; height: 100%; background: var(--gold); }
+  .mk.dead { opacity: .2; }
+  .mk.dead .sh { background: none; }
+  .mk.flank .sh { border-style: dashed; }
+  .mk.stun { filter: grayscale(1) brightness(.8); }
+  .mk.cast { box-shadow: 0 0 0 3px var(--gold); border-radius: 50%; }
+  .cmdr-dot { position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+              font-size: 8px; color: var(--gold); font-weight: 700; }
 
   /* --- 操作 ---------------------------------------------------------- */
   .ctl { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
@@ -236,31 +254,43 @@ const span = M.xmax - M.xmin;
 const tickOf = i => i * M.sample;
 const secOf = i => (tickOf(i) / 10).toFixed(1);
 
-// 盤面: 3レーンの軌道。左が自軍(青)の本陣、右が敵軍(朱)の本陣。
+// 盤面。**1体につき1本の軌道**を与えるので、重なることがない。
+// レーン内の並びは 青の前衛→青の後衛→朱の後衛→朱の前衛。向かい合う形になる。
+const GLYPH = { inf: '歩', cav: '騎', arc: '弓' };
 const board = document.getElementById('board');
-const chips = [];
+const marks = [];
 for (let L = 0; L < 3; L++) {
   const lane = document.createElement('div');
-  lane.className = 'lane';
-  lane.innerHTML = '<span class="lane-tag">レーン' + (L + 1) + '</span>';
-  for (const p of [0, 1]) {
-    const h = document.createElement('div');
-    h.className = 'home';
-    h.style.left = ((p ? M.xmax - 150 : 150 - M.xmin) / span * 100) + '%';
-    lane.appendChild(h);
+  lane.className = 'lane' + (L % 2 ? ' alt' : '');
+  lane.innerHTML = '<div class="lane-tag">レーン' + (L + 1) + '</div>';
+  const order = U.map((u, i) => [u, i]).filter(([u]) => u.lane === L)
+    .sort((a, b) => (a[0].side - b[0].side)
+      || ((a[0].side ? 1 : -1) * ((a[0].row === 'back' ? 1 : 0) - (b[0].row === 'back' ? 1 : 0))));
+  for (const [u, i] of order) {
+    const tr = document.createElement('div');
+    tr.className = 'track';
+    tr.innerHTML = '<div class="gutter" style="color:var(--' + (u.side ? 'red' : 'blue')
+      + ')">' + u.name.replace(/〔.*/, '')
+      + '<em>' + (u.row === 'front' ? '前' : '後') + '・' + u.cost + '</em></div>'
+      + '<div class="rail"></div>';
+    const rail = tr.querySelector('.rail');
+    for (const p of [0, 1]) {
+      const h = document.createElement('div');
+      h.className = 'home';
+      h.style.left = ((p ? M.xmax - 150 : 150 - M.xmin) / span * 100) + '%';
+      rail.appendChild(h);
+    }
+    const mk = document.createElement('div');
+    mk.className = 'mk s' + u.side + ' ' + u.troop;
+    mk.innerHTML = '<div class="sh"></div><div class="g">' + GLYPH[u.troop] + '</div>'
+      + '<div class="gg"><i></i></div>'
+      + (u.cmdr ? '<div class="cmdr-dot">将</div>' : '');
+    mk.title = u.name + '　' + u.skill + '（消費' + u.gcost + '%）';
+    rail.appendChild(mk);
+    lane.appendChild(tr);
+    marks[i] = mk;
   }
   board.appendChild(lane);
-  U.forEach((u, i) => {
-    if (u.lane !== L) return;
-    const c = document.createElement('div');
-    c.className = 'chip s' + u.side;
-    c.innerHTML = '<div class="nm">' + u.name.replace(/〔.*/, '') + '</div>'
-      + '<div class="bars"><div class="bar hp"><i></i></div>'
-      + '<div class="bar gg"><i></i></div></div>'
-      + (u.cmdr ? '<div class="cmdr">将</div>' : '');
-    lane.appendChild(c);
-    chips[i] = c;
-  });
 }
 
 // 兵力とゲージの一覧。両軍を分けて並べる。
@@ -299,10 +329,12 @@ document.getElementById('meta').innerHTML =
       : (M.winner === 0 ? '青の勝ち' : '朱の勝ち')) + '（' + M.reason + '）</b></span>';
 
 document.getElementById('note').innerHTML =
-  '同じ<b>編成・配置・戦場・シード</b>なら何度でも同じ戦闘になる（§8.4）。'
+  '形は兵種（角＝<b>歩兵</b>／菱＝<b>騎兵</b>／丸＝<b>弓兵</b>）。'
+  + '塗りの高さが<b>残兵力</b>、下の金の帯が<b>必殺技ゲージ</b>で、消費量は武将ごとに違う。'
   + '破線の縁は騎兵の<b>迂回中</b>（回り込むあいだは攻撃できない）、'
-  + '灰色は<b>行動阻害</b>、金の枠は<b>必殺技の発動</b>。'
-  + '細い金の帯は必殺技ゲージで、消費量は武将ごとに違う。';
+  + '灰色は<b>行動阻害</b>、金の輪は<b>必殺技の発動</b>。'
+  + '1体につき1本の軌道を与えているので、重なって見えなくなることはない。'
+  + '同じ<b>編成・配置・戦場・シード</b>なら何度でも同じ戦闘になる（§8.4）。';
 
 const scrub = document.getElementById('scrub');
 scrub.max = F.length - 1;
@@ -311,16 +343,16 @@ function draw(k) {
   const f = F[k];
   U.forEach((u, i) => {
     const [pos, hp, gauge, flags] = f[i];
-    const x = (pos - M.xmin) / span * 100;
-    const c = chips[i];
-    c.style.left = x + '%';
-    c.className = 'chip s' + u.side + (flags & 1 ? ' dead' : '')
-      + (flags & 2 ? ' flank' : '') + (flags & 4 ? ' stun' : '')
-      + (flags & 8 ? ' cast' : '');
     const hpPct = Math.max(0, hp / u.maxhp * 100);
     const ggPct = gauge / M.gaugeMax * 100;
-    c.querySelector('.hp i').style.width = hpPct + '%';
-    c.querySelector('.gg i').style.width = ggPct + '%';
+    const mk = marks[i];
+    mk.style.left = ((pos - M.xmin) / span * 100) + '%';
+    mk.style.setProperty('--hp', hpPct + '%');
+    mk.className = 'mk s' + u.side + ' ' + u.troop
+      + (hpPct < 55 ? ' low' : '')
+      + (flags & 1 ? ' dead' : '') + (flags & 2 ? ' flank' : '')
+      + (flags & 4 ? ' stun' : '') + (flags & 8 ? ' cast' : '');
+    mk.querySelector('.gg i').style.width = ggPct + '%';
     const r = rows[i];
     r.classList.toggle('gone', !!(flags & 1));
     r.querySelector('.hp i').style.width = hpPct + '%';
