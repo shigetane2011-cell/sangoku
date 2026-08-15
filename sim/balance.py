@@ -174,7 +174,7 @@ def mono_team(troop, costs=(5, 5, 5, 5, 5, 5), role="bruiser"):
     import roster
     cards = []
     for i, c in enumerate(costs):
-        entry = (f"検証{troop}{i}", "検証", c, troop, role, "strike", "検証", [])
+        entry = (f"検証{troop}{i}", "検証", c, troop, role, "strike", [])
         roster.ROMAJI[entry[0]] = f"t{troop}{i}"
         card = roster.build_card(entry)
         CARDS[card["id"]] = card
@@ -196,7 +196,7 @@ def mixed_team(troop, roles=("tank", "tank", "bruiser", "bruiser", "dps", "dps")
     for i, role in enumerate(roles):
         person = f"混{troop}{role}{i}"
         roster.ROMAJI[person] = f"x{troop}{role}{i}"
-        card = roster.build_card((person, "検証", 5, troop, role, "strike", "検証", []))
+        card = roster.build_card((person, "検証", 5, troop, role, "strike", []))
         CARDS[card["id"]] = card
         cards.append(card)
     return {"units": [{"card": c, "lane": l, "row": r}
@@ -410,7 +410,7 @@ def skill_team(skill_key, cost=5, troop="inf", role="bruiser"):
     for i in range(6):
         person = f"技{skill_key}{i}"
         roster.ROMAJI[person] = f"s{skill_key}{i}"
-        card = roster.build_card((person, "検証", cost, troop, role, skill_key, skill_key, []))
+        card = roster.build_card((person, "検証", cost, troop, role, skill_key, []))
         CARDS[card["id"]] = card
         cards.append(card)
     return {"units": [{"card": c, "lane": l, "row": r}
@@ -481,7 +481,7 @@ def trait_team(trait_key=None, cost=5, troop="inf", role="bruiser", skill="strik
         # 前衛は 0,1,2 / 後衛は 1,2,0 の順に配り、レーンごとに2勢力を混ぜる
         roster.FACTION_OF[person] = order[(i % 3 + i // 3 + rot) % 3]
         traits = [trait_key] if trait_key else []
-        card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", traits))
+        card = roster.build_card((person, "検証", cost, troop, role, skill, traits))
         CARDS[card["id"]] = card
         cards.append(card)
     return {"units": [{"card": c, "lane": l, "row": r}
@@ -548,7 +548,7 @@ def faction_team(factions, counters=None, cost=5, tag=""):
         roster.ROMAJI[person] = f"y{tag}{i}"
         roster.FACTION_OF[person] = f
         c = roster.build_card((person, "検証", cost, "inf", "bruiser", "strike",
-                               "検証", [ct] if ct else []))
+                               [ct] if ct else []))
         c["skill"] = {"name": "なし", "target": "self", "effects": []}
         CARDS[c["id"]] = c
         cards.append(c)
@@ -671,7 +671,7 @@ def formation_team(formation, mix, cost=5):
     for i, (troop, role) in enumerate(mix):
         person = f"陣{formation}{troop}{role}{i}"
         roster.ROMAJI[person] = f"f{formation}{troop}{role}{i}"
-        c = roster.build_card((person, "検証", cost, troop, role, "strike", "検証", []))
+        c = roster.build_card((person, "検証", cost, troop, role, "strike", []))
         c["skill"] = {"name": "なし", "target": "self", "effects": []}
         CARDS[c["id"]] = c
         cards.append(c)
@@ -789,7 +789,7 @@ def single_skill_team(skill_key, cost=5, troop="inf", role="bruiser"):
         key = skill_key if i == 4 else "strike"     # 4番=後衛中央に置く
         person = f"支{skill_key}{i}"
         roster.ROMAJI[person] = f"g{skill_key}{i}"
-        card = roster.build_card((person, "検証", cost, troop, role, key, key, []))
+        card = roster.build_card((person, "検証", cost, troop, role, key, []))
         CARDS[card["id"]] = card
         cards.append(card)
     return {"units": [{"card": c, "lane": l, "row": r}
@@ -1145,7 +1145,7 @@ def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike",
     for i in range(6):
         person = f"感{tag}{i}"
         roster.ROMAJI[person] = f"z{tag}{i}"
-        card = roster.build_card((person, "検証", cost, troop, role, skill, "検証", []))
+        card = roster.build_card((person, "検証", cost, troop, role, skill, []))
         t = roster.TROOP[troop]
         base = roster.effective_score(card["hp"], card["atk"], card["dfn"],
                                       t["interval"], card["acc"], card["crit"],
@@ -1354,7 +1354,7 @@ def vanilla(cost, troop="inf", cid=None):
     import roster
     person = cid or f"検証{troop}{cost}"
     roster.ROMAJI[person] = (cid or f"v{troop}{cost}")
-    card = roster.build_card((person, "検証", cost, troop, "bruiser", "strike", "検証", []))
+    card = roster.build_card((person, "検証", cost, troop, "bruiser", "strike", []))
     card["skill"] = {"name": "なし", "target": "self", "effects": []}
     return card
 

@@ -177,8 +177,8 @@ DAMAGE_KINDS = {"damage"}
 
 # 「通常攻撃 何発ぶんか」を総合値の%へ直す係数。実測の SKILL_ADJUST へ
 # 最小二乗で合わせて決める（balance.py skillprice が出す）。
-SKILL_PRICE_SCALE = 0.990
-SKILL_PRICE_BASE = -9.24
+SKILL_PRICE_SCALE = 0.637
+SKILL_PRICE_BASE = -8.32
 
 
 # 発動回数の実測表。**時間だけの計算では合わない。**
@@ -210,6 +210,12 @@ SKILL_PRICE_BASE = -9.24
 # **可変にしたパラメータの上限が固定のまま残っていないかを必ず見ること。**
 NAIVE_TO_CASTS = {0.41: 0.38, 0.62: 0.49, 0.83: 0.71, 0.99: 0.94,
                   1.24: 1.24, 1.65: 1.73, 2.48: 2.62}
+
+# 与被ダメージ・撃破から入るゲージのぶん、1回目の発動は名目より早い。
+# **持続効果の「残り時間」もこれで計算する。** 名目のままだと、消費125%以上の
+# 技は残り時間が0になり、持続効果の価値がまるごと消える（周瑜の火計が価値0に
+# なっていた）。実測の比 1.31〜1.39 の下側を採る。
+GAUGE_SOURCE_BOOST = 1.31
 GAUGE_TICKS_PER_PCT = GAUGE_FILL_TICKS / 100      # ゲージ1%ぶんのティック数
 
 
@@ -240,7 +246,9 @@ def skill_value(skill, gauge_cost=None, gauge_rate=100, gauge_start=0):
     """
     if gauge_cost is None:
         gauge_cost = skill.get("gauge", 100)
-    fill = GAUGE_FILL_TICKS * gauge_cost / 100 * 100 / max(1, gauge_rate)
+    fill = (GAUGE_FILL_TICKS * gauge_cost / 100 * 100 / max(1, gauge_rate)
+            / GAUGE_SOURCE_BOOST)
+    fill = max(0.0, fill - gauge_start * GAUGE_TICKS_PER_PCT * 100 / max(1, gauge_rate))
     casts = casts_for(gauge_cost, gauge_rate, gauge_start)
     remain = max(0.0, BATTLE_TICKS - fill)     # 1回目の発動後に残る時間
     n = TARGET_COUNT[skill["target"]]
@@ -284,16 +292,27 @@ UNPRICED_SKILLS = {"urge"}
 
 # 固有特性の補正（総合値の%）。「特性なし」との対戦で50%を超えたぶんが価値。
 TRAIT_ADJUST = {
-    "laststand": 3.80, "legacy": 2.25, "pursuit": 2.15, "avenge": 1.50,
-    "rearguard": 1.60, "chain": -0.20,
+    "laststand": 4.20, "legacy": 2.05, "pursuit": 1.70, "avenge": 1.35,
+    "rearguard": 1.55, "chain": -0.05,
     # 陣頭。条件を「前衛に置く」へ緩めたことで初めて実測できるようになった。
     # 暫定の2.50%は大幅に安すぎた（1枚だけ前衛に置いて対戦すると94%）。
-    "vanguard": 9.95,
+    "vanguard": 9.20,
     # 対抗能力。効果量を +25% から +10% へ下げたので、価格も 25分の10 へ置き直して
     # から反復した（engine.COUNTER_BONUS）。反復の刻み（ADJUST_STEP=20）は慎重に
     # 倒してあるため、0から反復すると何往復も要る。効果量から見積もれる場合は
     # 初期値を計算で置く。
-    "vs_shu": 2.64, "vs_wei": 2.41, "vs_go": 2.33,
+    "vs_shu": 2.54, "vs_wei": 2.31, "vs_go": 2.23,
+    "diehard": 1.85,
+    "relief": 1.25,
+    "double": 1.10,
+    "cheer": 0.75,
+    "bloodpath": 0.70,
+    "sustain": 0.60,
+    "order": 0.55,
+    "disrupt": 0.10,
+    "banner": 0.00,
+    "banner": 0.00,
+    "banner": 0.00,
 }
 
 
@@ -313,13 +332,20 @@ TRAIT_ADJUST = {
 FACTION_ADJUST = {"gun": -1.35}
 
 
-def ability_premium(skill_key, traits, faction=None):
+def ability_premium(skill, traits, faction=None, gauge_rate=100, gauge_start=0):
     """必殺技・固有特性・勢力の価値を、総合値の倍率へ換算する。
 
     1.00 より大きい = 効果が強いので素の能力値を下げる
     1.00 より小さい = 効果が弱いので素の能力値を上げる
+
+    `skill` は技の定義そのもの（辞書）を受け取り、価格は式で出す。
+    **80枚それぞれに固有の技を持たせるため、キーの表引きはやめた。**
+    ひな型ごとの反復では1反復で80回の測定になり、回らない。
     """
-    pct = SKILL_ADJUST.get(skill_key, 0.0)
+    if isinstance(skill, dict):
+        pct = skill_price(skill, gauge_rate=gauge_rate, gauge_start=gauge_start)
+    else:
+        pct = SKILL_ADJUST.get(skill, 0.0)   # ひな型キー（検証ハーネス用）
     for t in traits or ():
         pct += TRAIT_ADJUST.get(t, 0.0)
     pct += FACTION_ADJUST.get(faction, 0.0)
@@ -348,7 +374,50 @@ ROLE = {
     "support": {"hp": 1.1, "atk": 1 / 1.1, "dfn": 0.95, "gauge": 130, "label": "支援"},
 }
 
-# 必殺技のひな型。役割と兵種から選ぶ。名前はカードごとに差し替える。
+# --- 必殺技を1枚ずつ書くための補助 -----------------------------------------
+#
+# 80枚それぞれに固有の技を持たせる。価格は skill_price が式で出すので、
+# ここでは**人物像に合う機構と数値**だけを決めればよい。
+#
+#   S(名前, 対象, [効果...], gauge=消費%)
+#   D(威力)          即時ダメージ（通常攻撃の%）
+#   DOT(威力, 持続, 間隔)  継続ダメージ
+#   HEAL(威力)       回復（発動者の攻撃力の%）
+#   MOD(能力, 増減%, 持続)  能力補正
+#   STUN(持続)       行動阻害
+#   GAUGE(秒数)      ゲージ付与（自然増加の何秒ぶん）
+
+
+def S(name, target, effects, gauge=100):
+    return {"name": name, "target": target, "effects": effects, "gauge": gauge}
+
+
+def D(power):
+    return {"type": "damage", "power": power}
+
+
+def DOT(power, duration=120, interval=20):
+    return {"type": "dot", "power": power, "duration": duration, "interval": interval}
+
+
+def HEAL(power):
+    return {"type": "heal", "power": power}
+
+
+def MOD(stat, value, duration=120):
+    return {"type": "mod", "stat": stat, "value": value, "duration": duration}
+
+
+def STUN(duration):
+    return {"type": "stun", "duration": duration}
+
+
+def GAUGE(seconds):
+    return {"type": "gauge", "seconds": seconds}
+
+
+# 検証ハーネス用の必殺技ひな型（balance.py skills / support / skillprice が使う）。
+# **ロスターの武将はこれを使わない。** 各自が固有の技を持つ。
 SKILLS = {
     "strike":  {"target": "front_enemy", "effects": [{"type": "damage", "power": 190}]},
     "sweep":   {"target": "lane_enemies", "effects": [{"type": "damage", "power": 120}]},
@@ -396,100 +465,238 @@ TRIGGERS = {
     # 倒すほど加速する。突破役の押し込みを伸ばす。
     "pursuit":  {"name": "執念", "trigger": "enemy_retreat", "target": "self", "limit": 3,
                  "effects": [{"type": "mod", "stat": "atk", "value": 12, "duration": 200}]},
+    # --- 80枚へ1つずつ配るために追加（v0.5 末）。誘発条件は既存の4種を使い回す。
+    # 新しい誘発条件を足すとエンジン側の実装と決定論の検証が増えるため、
+    # **条件は増やさず、効果と対象で個性を作る。**
+    # 味方の死を部隊全体の士気へ変える。撤退が「損」だけで終わらないようにする。
+    "banner":   {"name": "弔旗", "trigger": "ally_retreat", "target": "all_allies", "limit": 2,
+                 "effects": [{"type": "mod", "stat": "atk", "value": 6, "duration": 200}]},
+    # 削られてから硬くなる。前衛を長持ちさせる方向の背水。
+    "diehard":  {"name": "死守", "trigger": "self_low_hp", "threshold": 40,
+                 "target": "self", "limit": 1,
+                 "effects": [{"type": "mod", "stat": "dfn", "value": 40, "duration": 900}]},
+    # 追い詰められて活路を開く。速さで抜ける型を支える。
+    "bloodpath": {"name": "血路", "trigger": "self_low_hp", "threshold": 35,
+                  "target": "self", "limit": 1,
+                  "effects": [{"type": "mod", "stat": "speed", "value": 40, "duration": 900},
+                              {"type": "mod", "stat": "acc", "value": 10, "duration": 900}]},
+    # 倒すたびに立て直す。長く戦い続ける将の表現。回復（heal）を使う。
+    "sustain":  {"name": "継戦", "trigger": "enemy_retreat", "target": "self", "limit": 3,
+                 "effects": [{"type": "heal", "power": 90}]},
+    # 味方の必殺技に合わせて自レーンが押す。前線の連携。
+    "cheer":    {"name": "鼓舞", "trigger": "ally_skill", "target": "lane_allies", "limit": 4,
+                 "effects": [{"type": "mod", "stat": "atk", "value": 8, "duration": 120}]},
+    # 撃破を部隊全体のゲージへ変える。攻めが次の攻めを呼ぶ。
+    "order":    {"name": "号令", "trigger": "enemy_retreat", "target": "all_allies", "limit": 2,
+                 "effects": [{"type": "gauge", "seconds": 3}]},
+    # 瀕死から身を守る。落ちにくさで貢献する将。
+    "double":   {"name": "影武者", "trigger": "self_low_hp", "threshold": 30,
+                 "target": "self", "limit": 1,
+                 "effects": [{"type": "heal", "power": 220}]},
+    # 味方の必殺技に合わせて敵の手元を狂わせる。妨害役の連携。
+    "disrupt":  {"name": "連環", "trigger": "ally_skill", "target": "all_enemies", "limit": 3,
+                 "effects": [{"type": "mod", "stat": "acc", "value": -4, "duration": 120}]},
+    # 味方が落ちた場に踏みとどまり、その場で回復する。後衛を支える。
+    "relief":   {"name": "救護", "trigger": "ally_retreat", "target": "lowest_ally", "limit": 2,
+                 "effects": [{"type": "heal", "power": 130}]},
 }
 
 # (人物, 字号, コスト, 兵種, 役割, 必殺技ひな型, 必殺技名, 特性)
 ROSTER = [
-    # --- コスト10 ---
-    ("呂布", "飛将", 10, "cav", "burst", "strike", "無双乱舞", ["vanguard"]),
-    ("諸葛亮", "臥龍", 10, "arc", "support", "curse", "東南の風", []),
-    ("曹操", "魏王", 10, "cav", "support", "rally", "唯才是挙", ["vanguard"]),
-    ("関羽", "漢寿亭侯", 10, "cav", "bruiser", "sweep", "青龍偃月", ["vs_go"]),
-    ("周瑜", "赤壁", 10, "arc", "dps", "burn", "火計", ["vs_wei"]),
-    ("司馬懿", "冢虎", 10, "arc", "support", "snare", "堅忍", ["vs_shu"]),
-    ("孫策", "小覇王", 10, "cav", "dps", "strike", "江東の疾風", ["vanguard"]),
-    ("張飛", "当陽橋", 10, "inf", "tank", "roar", "一喝", ["vanguard"]),
-    # --- コスト9 ---
-    ("趙雲", "長坂坡", 9, "cav", "dps", "raid", "単騎突入", []),
-    ("夏侯惇", "独眼", 9, "inf", "tank", "guard", "抜矢啖睛", ["vanguard"]),
-    ("陸遜", "夷陵", 9, "arc", "support", "burn", "連環の計", ["vs_shu"]),
-    ("馬超", "錦馬超", 9, "cav", "dps", "raid", "西涼の驍将", ["pursuit"]),
-    ("張遼", "逍遥津", 9, "cav", "bruiser", "strike", "突撃", ["vs_go", "laststand"]),
-    ("太史慈", "神射", 9, "arc", "dps", "snipe", "神射", ["laststand"]),
-    ("劉備", "徳将", 9, "inf", "tank", "rally", "仁徳", ["vanguard"]),
-    ("董卓", "暴虐", 9, "inf", "tank", "roar", "暴威", []),
-    # --- コスト8 ---
-    ("黄忠", "定軍山", 8, "arc", "burst", "snipe", "百歩穿楊", []),
-    ("甘寧", "錦帆賊", 8, "cav", "burst", "raid", "百騎劫営", ["vs_wei"]),
-    ("徐晃", "長駆", 8, "inf", "bruiser", "strike", "長駆直入", []),
-    ("姜維", "幼麟", 8, "cav", "bruiser", "sweep", "九伐中原", ["vs_wei", "legacy"]),
-    ("呂蒙", "白衣", 8, "arc", "support", "raid", "白衣渡江", []),
-    ("張郃", "巧変", 8, "inf", "bruiser", "strike", "巧変", ["vs_shu"]),
-    ("許褚", "虎痴", 8, "inf", "tank", "guard", "虎痴", ["vanguard"]),
-    ("孫権", "碧眼", 8, "arc", "support", "rally", "江東の主", []),
-    # --- コスト7 ---
-    ("龐統", "鳳雛", 7, "arc", "support", "urge", "鳳雛の献策", []),
-    ("魏延", "子午", 7, "cav", "dps", "snipe", "子午の奇襲", ["pursuit"]),
-    ("郭嘉", "鬼才", 7, "arc", "support", "curse", "十勝十敗", ["chain"]),
-    ("于禁", "毅重", 7, "inf", "tank", "guard", "毅重", []),
-    ("凌統", "断金", 7, "inf", "dps", "strike", "断金の交", ["avenge"]),
-    ("典韋", "古之悪来", 7, "inf", "tank", "roar", "悪来", ["vanguard"]),
-    ("魯粛", "塌上策", 7, "arc", "support", "rally", "塌上の策", ["chain"]),
-    ("顔良", "河北の驍", 7, "cav", "burst", "strike", "河北の驍将", []),
-    # --- コスト6 ---
-    ("荀彧", "王佐", 6, "arc", "support", "rally", "王佐の才", ["chain"]),
-    ("法正", "翼侯", 6, "arc", "support", "urge", "献策", ["chain"]),
-    ("夏侯淵", "神速", 6, "cav", "dps", "raid", "神速", []),
-    ("程普", "老練", 6, "inf", "tank", "guard", "老練", []),
-    ("黄蓋", "苦肉", 6, "inf", "tank", "roar", "苦肉の計", ["vanguard"]),
-    ("鄧艾", "陰平", 6, "inf", "bruiser", "strike", "陰平越え", ["vs_shu"]),
-    ("関平", "麒麟児", 6, "cav", "dps", "strike", "麒麟児", []),
-    ("文醜", "河北の勇", 6, "cav", "bruiser", "sweep", "河北の勇", []),
-    # --- コスト5 ---
-    ("楽進", "先登", 5, "inf", "bruiser", "hold", "先登", []),
-    ("李典", "慎重", 5, "arc", "dps", "sweep", "斉射", []),
-    ("賈詡", "毒士", 5, "arc", "support", "curse", "離間の計", []),
-    ("王平", "無当", 5, "inf", "bruiser", "hold", "無当飛軍", ["vs_wei", "legacy"]),
-    ("韓当", "老弓", 5, "arc", "dps", "sweep", "連射", []),
-    ("朱然", "江陵", 5, "inf", "tank", "hold", "江陵の守", ["rearguard"]),
-    ("馬謖", "幼常", 5, "arc", "bruiser", "snare", "街亭", []),
-    ("鍾会", "士季", 5, "cav", "bruiser", "sweep", "士季の計", []),
-    # --- コスト4 ---
-    ("曹仁", "堅守", 4, "inf", "tank", "guard", "鉄壁", ["vs_go"]),
-    ("郭淮", "雍涼", 4, "cav", "bruiser", "strike", "雍涼の備", []),
-    ("荀攸", "謀主", 4, "arc", "dps", "snare", "謀主", []),
-    ("陳宮", "公台", 4, "arc", "support", "curse", "公台の策", []),
-    ("高順", "陥陣", 4, "inf", "dps", "strike", "陥陣営", ["vanguard"]),
-    ("周泰", "身代", 4, "inf", "tank", "guard", "身代わり", ["avenge"]),
-    ("徐盛", "疑城", 4, "arc", "bruiser", "sweep", "疑城の計", []),
-    ("張任", "落鳳", 4, "cav", "dps", "snipe", "落鳳坡", []),
-    # --- コスト3 ---
-    ("陳到", "白毦", 3, "inf", "tank", "guard", "白毦兵", ["vanguard"]),
-    ("傅僉", "守将", 3, "inf", "tank", "guard", "堅守", []),
-    ("廖化", "老将", 3, "cav", "dps", "hold", "殿軍", ["legacy"]),
-    ("馬岱", "追撃", 3, "cav", "dps", "snipe", "追撃", []),
-    ("曹洪", "救主", 3, "cav", "bruiser", "strike", "救主", []),
-    ("満寵", "剛毅", 3, "arc", "dps", "snipe", "剛毅", ["vs_go"]),
-    ("諸葛瑾", "子瑜", 3, "arc", "support", "rally", "子瑜の弁", []),
-    ("厳顔", "老当", 3, "inf", "bruiser", "sweep", "老当益壮", []),
-    # --- コスト2 ---
-    ("潘璋", "急襲", 2, "cav", "dps", "raid", "急襲", ["pursuit"]),
-    ("丁奉", "雪中", 2, "arc", "burst", "snipe", "雪中奮短兵", []),
-    ("呉懿", "外戚", 2, "cav", "bruiser", "hold", "堅陣", []),
-    ("張嶷", "越巂", 2, "inf", "tank", "guard", "越巂の鎮", ["rearguard"]),
-    ("李厳", "正方", 2, "cav", "bruiser", "urge", "督運", []),
-    ("楽綝", "揚州", 2, "cav", "dps", "strike", "揚州の驍", []),
-    ("董襲", "断纜", 2, "inf", "dps", "strike", "断纜", ["laststand"]),
-    ("張昭", "文淵", 2, "arc", "support", "rally", "江東の柱石", []),
-    # --- コスト1 ---
-    ("樊建", "伝令", 1, "arc", "support", "urge", "伝令", ["chain"]),
-    ("宗預", "使者", 1, "arc", "support", "rally", "結盟", []),
-    ("全琮", "護軍", 1, "cav", "bruiser", "strike", "護軍", []),
-    ("孫乾", "従事", 1, "inf", "support", "guard", "従事", []),
-    ("簡雍", "憲和", 1, "inf", "support", "urge", "弁舌", []),
-    ("糜竺", "子仲", 1, "inf", "bruiser", "guard", "糧道", []),
-    ("呂範", "子衡", 1, "arc", "bruiser", "hold", "子衡の備", []),
-    ("田豫", "国譲", 1, "cav", "bruiser", "hold", "国譲の守", []),
+    # 人物 / 字号 / コスト / 兵種 / 役割 / 必殺技 / 固有特性(1つ) / ゲージ上書き
+    #
+    # **必殺技は全員が固有。** 価格は skill_price が式で出すので、ここでは
+    # 人物像に合う機構と数値だけを決める（§7.5）。消費ゲージ・獲得速度・
+    # 初期ゲージは発動回数を通じて価格へ入る。
+    #
+    # **固有特性は1人1つ。対抗能力（勢力特効）もこの枠に数える**（§6.6）。
+    # 持続は概ね100〜150ティックに収める。1回目の発動が50秒付近で戦闘が62秒
+    # なので、それより長くしても捨てるだけである。
+
+    # --- コスト10 ---------------------------------------------------------
+    ("曹操", "魏王", 10, "cav", "support",
+     S("唯才是挙", "all_allies", [MOD("atk", 9, 150)], gauge=125), ["order"]),
+    ("司馬懿", "冢虎", 10, "arc", "support",
+     S("堅忍", "all_enemies", [MOD("acc", -7, 150), MOD("speed", -25, 150)]), ["vs_shu"]),
+    ("関羽", "漢寿亭侯", 10, "cav", "bruiser",
+     S("青龍偃月", "front_enemy", [D(330)], gauge=150), ["vs_go"]),
+    ("諸葛亮", "臥龍", 10, "arc", "support",
+     S("東南の風", "lane_enemies", [DOT(46, 140), MOD("acc", -6, 140)], gauge=125),
+     ["disrupt"]),
+    ("張飛", "当陽橋", 10, "inf", "tank",
+     S("一喝", "lane_enemies", [STUN(26), MOD("atk", -14, 140)]), ["vanguard"]),
+    ("呂布", "飛将", 10, "cav", "burst",
+     S("無双乱舞", "lane_enemies", [D(300)], gauge=175), ["laststand"],
+     {"gauge_start": 25}),
+    ("孫策", "小覇王", 10, "cav", "dps",
+     S("江東の疾風", "front_enemy", [D(150), MOD("atk", 10, 120)], gauge=75),
+     ["pursuit"], {"gauge_start": 20}),
+    ("周瑜", "赤壁", 10, "arc", "dps",
+     S("火計", "lane_enemies", [DOT(54, 140)], gauge=125), ["vs_wei"]),
+
+    # --- コスト9 ----------------------------------------------------------
+    ("張遼", "逍遥津", 9, "cav", "bruiser",
+     S("突撃", "front_enemy", [D(160), MOD("speed", 30, 120)], gauge=75), ["vs_go"],
+     {"gauge_start": 20}),
+    ("夏侯惇", "独眼", 9, "inf", "tank",
+     S("抜矢啖睛", "self", [HEAL(260), MOD("atk", 20, 140)]), ["diehard"]),
+    ("馬超", "錦馬超", 9, "cav", "dps",
+     S("西涼の驍将", "enemy_back_lane", [D(250)]), ["bloodpath"]),
+    ("趙雲", "長坂坡", 9, "cav", "dps",
+     S("単騎突入", "enemy_back_lane", [D(215), MOD("dfn", 25, 120)]), ["sustain"]),
+    ("劉備", "徳将", 9, "inf", "tank",
+     S("仁徳", "all_allies", [HEAL(105)], gauge=125), ["vanguard"]),
+    ("董卓", "暴虐", 9, "inf", "tank",
+     S("暴威", "lane_enemies", [STUN(22), MOD("dfn", -18, 140)]), ["banner"]),
+    ("陸遜", "夷陵", 9, "arc", "support",
+     S("連環の計", "lane_enemies", [DOT(34, 140), MOD("speed", -30, 140)]), ["vs_shu"]),
+    ("太史慈", "神射", 9, "arc", "dps",
+     S("神射", "enemy_lowest", [D(300)], gauge=125), ["laststand"]),
+
+    # --- コスト8 ----------------------------------------------------------
+    ("許褚", "虎痴", 8, "inf", "tank",
+     S("虎痴", "lane_allies", [MOD("dfn", 34, 150)]), ["vanguard"]),
+    ("徐晃", "長駆", 8, "inf", "bruiser",
+     S("長駆直入", "front_enemy", [D(200), MOD("speed", 25, 120)]), ["cheer"]),
+    ("張郃", "巧変", 8, "inf", "bruiser",
+     S("巧変", "front_enemy", [D(150), MOD("dfn", 20, 120)], gauge=75), ["vs_shu"]),
+    ("黄忠", "定軍山", 8, "arc", "burst",
+     S("百歩穿楊", "enemy_lowest", [D(320)], gauge=150), ["pursuit"]),
+    ("姜維", "幼麟", 8, "cav", "bruiser",
+     S("九伐中原", "lane_enemies", [D(150)]), ["vs_wei"]),
+    ("甘寧", "錦帆賊", 8, "cav", "burst",
+     S("百騎劫営", "enemy_back_lane", [D(175)], gauge=75), ["vs_wei"],
+     {"gauge_start": 20}),
+    ("孫権", "碧眼", 8, "arc", "support",
+     S("江東の主", "all_allies", [MOD("atk", 7, 150)], gauge=100), ["order"]),
+    ("呂蒙", "白衣", 8, "arc", "support",
+     S("白衣渡江", "enemy_back_lane", [D(180), MOD("acc", -10, 130)]), ["disrupt"]),
+
+    # --- コスト7 ----------------------------------------------------------
+    ("郭嘉", "鬼才", 7, "arc", "support",
+     S("十勝十敗", "all_enemies", [MOD("acc", -6, 140)], gauge=75), ["chain"]),
+    ("典韋", "古之悪来", 7, "inf", "tank",
+     S("悪来", "lane_enemies", [STUN(24)]), ["vanguard"]),
+    ("于禁", "毅重", 7, "inf", "tank",
+     S("毅重", "lane_allies", [MOD("dfn", 30, 150)]), ["rearguard"]),
+    ("龐統", "鳳雛", 7, "arc", "support",
+     S("鳳雛の献策", "all_allies", [GAUGE(6)], gauge=50), ["chain"]),
+    ("魏延", "子午", 7, "cav", "dps",
+     S("子午の奇襲", "enemy_back_lane", [D(230)], gauge=125), ["bloodpath"]),
+    ("顔良", "河北の驍", 7, "cav", "burst",
+     S("河北の驍将", "front_enemy", [D(290)], gauge=150), ["laststand"]),
+    ("魯粛", "塌上策", 7, "arc", "support",
+     S("塌上の策", "all_allies", [MOD("atk", 5, 140)], gauge=75), ["chain"]),
+    ("凌統", "断金", 7, "inf", "dps",
+     S("断金の交", "front_enemy", [D(170)], gauge=75), ["avenge"]),
+
+    # --- コスト6 ----------------------------------------------------------
+    ("鄧艾", "陰平", 6, "inf", "bruiser",
+     S("陰平越え", "enemy_back_lane", [D(200)]), ["vs_shu"]),
+    ("荀彧", "王佐", 6, "arc", "support",
+     S("王佐の才", "all_allies", [GAUGE(5)], gauge=50), ["chain"]),
+    ("夏侯淵", "神速", 6, "cav", "dps",
+     S("神速", "front_enemy", [D(115)], gauge=50), ["pursuit"], {"gauge_start": 30}),
+    ("関平", "麒麟児", 6, "cav", "dps",
+     S("麒麟児", "front_enemy", [D(190)]), ["cheer"]),
+    ("法正", "翼侯", 6, "arc", "support",
+     S("献策", "lane_allies", [MOD("atk", 16, 140)]), ["disrupt"]),
+    ("文醜", "河北の勇", 6, "cav", "bruiser",
+     S("河北の勇", "lane_enemies", [D(140)]), ["legacy"]),
+    ("黄蓋", "苦肉", 6, "inf", "tank",
+     S("苦肉の計", "lane_enemies", [DOT(40, 130)]), ["vanguard"]),
+    ("程普", "老練", 6, "inf", "tank",
+     S("老練", "lane_allies", [MOD("dfn", 28, 150)]), ["rearguard"]),
+
+    # --- コスト5 ----------------------------------------------------------
+    ("鍾会", "士季", 5, "cav", "bruiser",
+     S("士季の計", "lane_enemies", [D(130)]), ["disrupt"]),
+    ("賈詡", "毒士", 5, "arc", "support",
+     S("離間の計", "all_enemies", [MOD("atk", -6, 140)]), ["chain"]),
+    ("楽進", "先登", 5, "inf", "bruiser",
+     S("先登", "front_enemy", [STUN(30)]), ["vanguard"]),
+    ("李典", "慎重", 5, "arc", "dps",
+     S("斉射", "lane_enemies", [D(125)]), ["rearguard"]),
+    ("馬謖", "幼常", 5, "arc", "bruiser",
+     S("街亭", "lane_enemies", [DOT(26, 130), MOD("speed", -25, 130)]), ["legacy"]),
+    ("王平", "無当", 5, "inf", "bruiser",
+     S("無当飛軍", "front_enemy", [STUN(26)]), ["vs_wei"]),
+    ("韓当", "老弓", 5, "arc", "dps",
+     S("連射", "lane_enemies", [D(95)], gauge=75), ["sustain"]),
+    ("朱然", "江陵", 5, "inf", "tank",
+     S("江陵の守", "lane_allies", [MOD("dfn", 26, 150)]), ["rearguard"]),
+
+    # --- コスト4 ----------------------------------------------------------
+    ("郭淮", "雍涼", 4, "cav", "bruiser",
+     S("雍涼の備", "front_enemy", [D(175)]), ["diehard"]),
+    ("荀攸", "謀主", 4, "arc", "dps",
+     S("謀主", "lane_enemies", [DOT(24, 130)]), ["chain"]),
+    ("曹仁", "堅守", 4, "inf", "tank",
+     S("鉄壁", "lane_allies", [MOD("dfn", 24, 150)]), ["vs_go"]),
+    ("高順", "陥陣", 4, "inf", "dps",
+     S("陥陣営", "front_enemy", [D(185)]), ["vanguard"]),
+    ("陳宮", "公台", 4, "arc", "support",
+     S("公台の策", "all_enemies", [MOD("acc", -5, 140)]), ["legacy"]),
+    ("張任", "落鳳", 4, "cav", "dps",
+     S("落鳳坡", "enemy_lowest", [D(215)]), ["pursuit"]),
+    ("徐盛", "疑城", 4, "arc", "bruiser",
+     S("疑城の計", "all_enemies", [MOD("atk", -5, 140)]), ["disrupt"]),
+    ("周泰", "身代", 4, "inf", "tank",
+     S("身代わり", "lowest_ally", [HEAL(230)]), ["double"]),
+
+    # --- コスト3 ----------------------------------------------------------
+    ("満寵", "剛毅", 3, "arc", "dps",
+     S("剛毅", "enemy_lowest", [D(200)]), ["vs_go"]),
+    ("曹洪", "救主", 3, "cav", "bruiser",
+     S("救主", "lowest_ally", [HEAL(200)]), ["relief"]),
+    ("馬岱", "追撃", 3, "cav", "dps",
+     S("追撃", "enemy_lowest", [D(190)]), ["pursuit"]),
+    ("陳到", "白毦", 3, "inf", "tank",
+     S("白毦兵", "lane_allies", [MOD("dfn", 22, 150)]), ["vanguard"]),
+    ("廖化", "老将", 3, "cav", "dps",
+     S("殿軍", "front_enemy", [STUN(24)]), ["legacy"]),
+    ("厳顔", "老当", 3, "inf", "bruiser",
+     S("老当益壮", "lane_enemies", [D(115)]), ["laststand"]),
+    ("傅僉", "守将", 3, "inf", "tank",
+     S("堅守", "lane_allies", [MOD("dfn", 20, 150)]), ["diehard"]),
+    ("諸葛瑾", "子瑜", 3, "arc", "support",
+     S("子瑜の弁", "all_allies", [MOD("atk", 4, 140)], gauge=75), ["banner"]),
+
+    # --- コスト2 ----------------------------------------------------------
+    ("楽綝", "揚州", 2, "cav", "dps",
+     S("揚州の驍", "front_enemy", [D(170)]), ["cheer"]),
+    ("李厳", "正方", 2, "cav", "bruiser",
+     S("督運", "all_allies", [GAUGE(4)], gauge=50), ["chain"]),
+    ("張嶷", "越巂", 2, "inf", "tank",
+     S("越巂の鎮", "lane_allies", [MOD("dfn", 18, 150)]), ["rearguard"]),
+    ("呉懿", "外戚", 2, "cav", "bruiser",
+     S("堅陣", "front_enemy", [STUN(22)]), ["banner"]),
+    ("董襲", "断纜", 2, "inf", "dps",
+     S("断纜", "front_enemy", [D(160)]), ["laststand"]),
+    ("潘璋", "急襲", 2, "cav", "dps",
+     S("急襲", "enemy_back_lane", [D(150)]), ["pursuit"]),
+    ("張昭", "文淵", 2, "arc", "support",
+     S("江東の柱石", "all_allies", [MOD("atk", 4, 140)]), ["relief"]),
+    ("丁奉", "雪中", 2, "arc", "burst",
+     S("雪中奮短兵", "front_enemy", [D(130)], gauge=75), ["bloodpath"]),
+
+    # --- コスト1 ----------------------------------------------------------
+    ("田豫", "国譲", 1, "cav", "bruiser",
+     S("国譲の守", "front_enemy", [STUN(20)]), ["diehard"]),
+    ("糜竺", "子仲", 1, "inf", "bruiser",
+     S("糧道", "all_allies", [GAUGE(3)], gauge=50), ["relief"]),
+    ("簡雍", "憲和", 1, "inf", "support",
+     S("弁舌", "all_enemies", [MOD("acc", -4, 140)]), ["chain"]),
+    ("樊建", "伝令", 1, "arc", "support",
+     S("伝令", "all_allies", [GAUGE(3)], gauge=50), ["chain"]),
+    ("宗預", "使者", 1, "arc", "support",
+     S("結盟", "all_allies", [MOD("atk", 3, 140)]), ["banner"]),
+    ("孫乾", "従事", 1, "inf", "support",
+     S("従事", "lane_allies", [MOD("dfn", 16, 150)]), ["relief"]),
+    ("呂範", "子衡", 1, "arc", "bruiser",
+     S("子衡の備", "front_enemy", [STUN(18)]), ["rearguard"]),
+    ("全琮", "護軍", 1, "cav", "bruiser",
+     S("護軍", "front_enemy", [D(150)]), ["cheer"]),
 ]
 
 # 勢力（§4.4）。対抗能力の軸に使う。
@@ -632,8 +839,10 @@ def solve_hp(target, atk, dfn, troop):
 def build_card(entry):
     # 9番目は任意の上書き辞書（gauge / gauge_rate / gauge_start など）。
     # 武将ごとの個性をゲージの側で表すために使う。**能力値は上書きさせない。**
-    person, epithet, cost, troop, role, skill_key, skill_name, traits = entry[:8]
-    over = entry[8] if len(entry) > 8 else {}
+    person, epithet, cost, troop, role, skill, traits = entry[:7]
+    over = entry[7] if len(entry) > 7 else {}
+    rate = over.get("gauge_rate", ROLE[role]["gauge"])
+    start = over.get("gauge_start", 0)
     t, r = TROOP[troop], ROLE[role]
     faction = FACTION_OF.get(person, NEUTRAL_FACTION)
     dfn = max(10, round(t["dfn"] * r["dfn"]))
@@ -642,7 +851,7 @@ def build_card(entry):
     score1 = effective_score(hp1, atk1, dfn, t["interval"], t["acc"], t["crit"],
                              evade_of(troop))
     target = (value(cost) / BEHAVIOR_PREMIUM[troop]
-              / ability_premium(skill_key, traits, faction))
+              / ability_premium(skill, traits, faction, rate, start))
     f = math.sqrt(target / score1)
     atk = max(5, round(atk1 * f))          # 端数は兵力側で吸収する（solve_hp）
     hp = solve_hp(target, atk, dfn, troop)
@@ -678,7 +887,8 @@ def build_card(entry):
     if traits:
         # 文字列は常在型の組み込み特性、TRIGGERS のキーは誘発型に展開する（§6.6）
         card["traits"] = [dict(TRIGGERS[t]) if t in TRIGGERS else t for t in traits]
-    card["skill"] = {"name": skill_name, **SKILLS[skill_key]}
+    card["skill"] = dict(skill) if isinstance(skill, dict) else {
+        "name": skill, **SKILLS[skill]}
     return card
 
 

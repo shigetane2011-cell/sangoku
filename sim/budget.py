@@ -26,9 +26,9 @@ from roster import FACTION_OF, NEUTRAL_FACTION  # noqa: E402
 
 TOLERANCE = 8      # 目標値からのずれの許容幅（%）
 
-# 人物名 → (必殺技ひな型, 特性キー)。cards.json には展開後の形しか残らないため、
-# 検算には ROSTER 側の定義が要る。
-ABILITY = {e[0]: (e[5], e[7]) for e in ROSTER}
+# 人物名 → (必殺技の定義, 特性, ゲージ上書き)。cards.json には展開後の形しか
+# 残らないため、検算には ROSTER 側の定義が要る。
+ABILITY = {e[0]: (e[5], e[6], e[7] if len(e) > 7 else {}) for e in ROSTER}
 
 
 def load():
@@ -52,10 +52,11 @@ def main():
     rows = []
     for c in data["cards"]:
         s = score(c, intervals[c["troop"]])
-        skill_key, traits = ABILITY[c["person"]]
+        skill, traits, over = ABILITY[c["person"]]
         target = (value(c["cost"]) / BEHAVIOR_PREMIUM[c["troop"]]
-                  / ability_premium(skill_key, traits,
-                                    FACTION_OF.get(c["person"], NEUTRAL_FACTION)))
+                  / ability_premium(skill, traits,
+                                    FACTION_OF.get(c["person"], NEUTRAL_FACTION),
+                                    c["gauge_rate"], over.get("gauge_start", 0)))
         rows.append((c, s, round((s / target - 1) * 100)))
 
     worst = max(rows, key=lambda r: abs(r[2]))
