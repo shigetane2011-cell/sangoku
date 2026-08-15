@@ -34,6 +34,16 @@ TROOP_ADVANTAGE = 104         # 兵種有利のダメージ補正 +4%（§5.3・
 # コスト揃えの単一兵種編成で有利側が100%勝利していた。実測は
 # +3%→47/100/64、+5%→72/100/76、+10%→95/100/95（歩→騎/騎→弓/弓→歩）。
 
+# 突撃（§5.3）。最初の一撃だけ、相手より速いぶんだけ攻撃力が乗る。
+#   補正 = CHARGE_BONUS × (自分の速度 − 相手の速度) ÷ 相手の速度
+# 騎兵12・歩兵8・弓兵7 なので 騎兵→弓兵 +21% / 騎兵→歩兵 +15% / 歩兵→弓兵 +4%。
+# 弓兵は最も遅いので常に0。**固定ダメージにはしない**（§4.6「補正はすべて率で
+# 定義する」）。固定量だと兵力の低い安い札ほど相対的に大きく効き、加算性が壊れる。
+# 30 を採る。実測で 歩兵→騎兵 67%→60% と帯の中央へ寄り、他の2方向は動かない。
+# 60 まで上げると 歩兵→騎兵 52%・弓兵→歩兵 52% で帯を割る。
+CHARGE_BONUS = 30
+CHARGE_TICKS = 100            # 突撃補正の持続 10秒
+
 # 歩兵が弓兵から受けるダメージの軽減（%）。
 # 弓兵→歩兵の優位は、射程による接敵前攻撃だけでなく「弓兵は残兵力率が最も低い敵を
 # 狙えるが、歩兵は前衛しか殴れない」という標的選択の差からも来ている。この非対称は
@@ -322,6 +332,7 @@ class Unit:
     taken: int = 0
     hits: int = 0
     swings: int = 0
+    charged: bool = False     # 突撃補正を既に受けたか（1戦に1度）
     crits: int = 0
     skills: int = 0
     stun_ticks: int = 0
@@ -422,6 +433,34 @@ class Battle:
                                             remaining=MAX_TICKS + 1, name="陣頭"))
 
     # ---- 構築 -------------------------------------------------------------
+
+    def charge(self, attacker: Unit, target: Unit):
+        """突撃（§5.3）。最初の一撃だけ、相手より速いぶんだけ攻撃力が乗る。
+
+        **移動速度は接敵後の与ダメージに一切効いていなかった。** 予算は食うのに
+        見返りが無く、必殺技の価格式でも実効重みが 0.05 と出ていた。騎兵の
+        BEHAVIOR_PREMIUM が 0.98（割引）なのも見返りの薄さを補うためだった。
+        突撃はその穴を埋め、速さを火力へ変換する。
+
+        **「先に接敵した側」ではない。** 近接同士は正面から近づくので距離は
+        両者の速度の和で縮み、同時に射程へ入る。実際に先に攻撃するのは射程45を
+        持つ弓兵で、その判定では騎兵は何も得しない（実測: 騎兵対弓兵は弓兵が
+        2.9秒で先制）。
+
+        **押し込んだ距離でもない。** 距離で測ると、下がりながら撃つ弓兵が
+        あまり動かないぶん、歩兵まで大きく得をした（弓兵→歩兵が 59% → 21%）。
+        速度比で測ると騎兵固有になり、三すくみは3方向とも帯内に残る。
+        """
+        if attacker.charged:
+            return
+        attacker.charged = True
+        mine, theirs = self.speed(attacker), max(1, self.speed(target))
+        if mine <= theirs:
+            return
+        bonus = CHARGE_BONUS * (mine - theirs) // theirs
+        if bonus > 0:
+            self.add_effect(attacker, Effect(kind="mod", stat="atk", value=bonus,
+                                             remaining=CHARGE_TICKS, name="突撃"))
 
     def has_trait(self, card, trait) -> bool:
         return trait in card.get("traits", [])
@@ -906,6 +945,7 @@ class Battle:
             target = self.pick_target(u)
             if target is None:
                 continue
+            self.charge(u, target)
             u.next_attack = self.tick + self.interval(u)
             u.swings += 1
             if self.rng.pct() < self.accuracy(u, target):
