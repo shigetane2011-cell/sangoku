@@ -16,6 +16,7 @@ usage:
   python3 sim/balance.py bo3         BO3のマッチ勝率（1戦の勝率が3戦でどう化けるか）
   python3 sim/balance.py factions    勢力の規模と対抗能力の実効価値
   python3 sim/balance.py amplify     増幅の強さ（総合値の差が勝率へどれだけ拡大されるか）
+  python3 sim/balance.py skillprice  必殺技の価格式が実測と合っているか
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -1158,6 +1159,61 @@ def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike",
                       for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
 
 
+def cmd_skillprice():
+    """必殺技の価格式が実測と合っているかを見る（§7.5）。
+
+    80枚それぞれに固有の必殺技を作ると、反復での価格付けは回らない。
+    **機構ごとに換算係数を一度測り、あとは計算で出す。** その式が実測を
+    どこまで説明できるかがここで分かる。合わない技があれば、そこが穴である。
+    """
+    import roster
+    print("=== 必殺技の価格式 ===")
+    print("  価格 = 発動回数 × Σ(効果量 × 実効重み × min(持続, 残り時間) × 実効対象数)")
+    print(f"  戦闘{roster.BATTLE_TICKS/10:.0f}秒 / ゲージ満タン"
+          f"{roster.GAUGE_FILL_TICKS/10:.0f}秒 → 発動"
+          f"{roster.BATTLE_TICKS/roster.GAUGE_FILL_TICKS:.2f}回")
+    print(f"  1回目の発動時点で残り{(roster.BATTLE_TICKS-roster.GAUGE_FILL_TICKS)/10:.0f}秒"
+          "しかない。持続効果はここで頭打ちになる。\n")
+
+    keys = [k for k in roster.SKILLS]
+    raw = {k: roster.skill_value(roster.SKILLS[k]) for k in keys}
+    attacks = roster.BATTLE_TICKS / roster.REF_INTERVAL
+    xs = [raw[k] / attacks * 100 for k in keys]
+    ys = [roster.SKILL_ADJUST.get(k, 0.0) for k in keys]
+    # 実測へ最小二乗で合わせる（傾きと切片）
+    n = len(xs)
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+    sxx = sum((a - mx) ** 2 for a in xs)
+    slope = sxy / sxx if sxx else 0.0
+    base = my - slope * mx
+    syy = sum((b - my) ** 2 for b in ys)
+    r = sxy / (sxx * syy) ** 0.5 if sxx and syy else 0.0
+
+    print(f"  {'技':<8}{'式(生)':>9}{'式(較正後)':>12}{'実測':>9}{'残差':>8}")
+    rows = sorted(keys, key=lambda k: -(slope * (raw[k] / attacks * 100) + base))
+    for k in rows:
+        fitted = slope * (raw[k] / attacks * 100) + base
+        m = roster.SKILL_ADJUST.get(k, 0.0)
+        print(f"  {k:<8}{raw[k]/attacks*100:>8.1f}%{fitted:>11.2f}{m:>+9.2f}"
+              f"{fitted - m:>+8.2f}")
+    print(f"\n  相関 r = {r:.2f}   傾き {slope:.3f} / 切片 {base:+.2f}")
+    print(f"  roster.py へ貼る値: SKILL_PRICE_SCALE = {slope:.3f}"
+          f" / SKILL_PRICE_BASE = {base:.2f}")
+    worst = max(keys, key=lambda k: abs(slope * (raw[k] / attacks * 100) + base
+                                        - roster.SKILL_ADJUST.get(k, 0.0)))
+    print(f"  最大の残差: {worst}")
+
+    print("\n  ゲージ消費量を変えたときの価格（strike を例に）")
+    print(f"  {'消費':>5}{'発動回数':>10}{'価格':>9}")
+    for cost in (50, 75, 100, 150, 200):
+        casts = roster.BATTLE_TICKS / (roster.GAUGE_FILL_TICKS * cost / 100)
+        v = roster.skill_value(roster.SKILLS["strike"], cost)
+        print(f"  {cost:>4}%{casts:>9.2f}回{slope*v/attacks*100+base:>8.2f}")
+    print("  **軽い技ほど何度も撃てる。** いまは全技が消費100で固定されており、")
+    print("  この軸がまるごと使われていない。持続効果が半分捨てられるのも同じ理由。")
+
+
 def cmd_amplify():
     """増幅の強さを測る（§4.6）。総合値の差が勝率へどれだけ拡大されるか。
 
@@ -1255,7 +1311,8 @@ def main():
              "skills": cmd_skills, "traits": cmd_traits,
              "formations": cmd_formations, "exploit": cmd_exploit,
              "support": cmd_support, "bo3": cmd_bo3, "factions": cmd_factions,
-             "amplify": cmd_amplify, "sensitivity": cmd_sensitivity}
+             "amplify": cmd_amplify, "skillprice": cmd_skillprice,
+             "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()

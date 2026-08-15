@@ -805,6 +805,16 @@ class Battle:
                     gain = (self.scaled(source, self.gauge_seconds(t, eff["seconds"]))
                             if "seconds" in eff else eff.get("value", 0))
                     t.gauge = min(GAUGE_MAX, t.gauge + gain)
+                elif kind == "heal":
+                    # 回復量は**発動者の攻撃力に対する%**で持つ（§4.6「補正はすべて
+                    # 率で定義する」）。固定量だと兵力の低い安い札ほど相対的に大きく
+                    # 効き、コストの加算性が壊れる。ダメージと同じ土俵に乗せることで
+                    # 価格式（roster.skill_price）でも同じ単位で扱える。
+                    amount = self.scaled(source, source.card["atk"] * eff["power"] // 100)
+                    healed = min(amount, t.max_hp - t.hp)
+                    if healed > 0:
+                        t.hp += healed
+                        self.emit(f"{t.card['name']}の兵力が{healed}回復")
 
     def cast(self, u: Unit):
         skill = u.card["skill"]

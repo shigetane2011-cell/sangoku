@@ -90,6 +90,135 @@ SKILL_ADJUST = {
     "snipe": -5.83, "snare": -6.65, "urge": -12.57,
 }
 
+# --- 必殺技の価格を式で出す（§7.5）---------------------------------------
+#
+# 80枚それぞれに固有の必殺技を作ると、反復での価格付けは回らない。1反復で80回の
+# 測定になるためである。**機構ごとに換算係数を一度測り、あとは計算で出す。**
+#
+#     価格 = 発動回数 × Σ(効果量 × 実効重み × min(持続, 残り時間) × 実効対象数)
+#     発動回数 = 戦闘時間 ÷ (消費ゲージ ÷ ゲージ獲得速度)
+#
+# 素の式（効果量 × 対象数）では実測との相関が r=0.26 しかなく、成立していなかった。
+# 抜けていた換算係数は3つである。
+#
+# 1. **能力補正の「%」は効果の「%」ではない。** 防御は除算方式 K/(K+dfn) なので
+#    +28% でも被ダメージは −7.9% にしかならない。速度は移動にしか効かないので
+#    接敵後の与ダメージには無価値（突撃の分だけ少し戻る）。
+# 2. **持続時間は戦闘の残り時間で頭打ちになる。** ゲージは50秒で満タン、戦闘は
+#    62秒なので、1回目の発動時点で残り約12秒しかない。250ティックの効果は
+#    半分以上が捨てられている。
+# 3. **範囲は対象数に比例しない。** 総ダメージを揃えて測ると、1列は単体の
+#    実効54%、全体は30%しかない。撃破は敵の出力を丸ごと消すので複利で効くが、
+#    分散ダメージは出力を消さないためである。
+#
+# この3つを入れると相関は r=0.26 → 0.69 まで上がる。
+#
+# **ただし残差は最大 5.9%（総合値）残っており、単独で価格を決めるには粗い。**
+# 反復の測定誤差が 2σ で 3.5pt 前後なので、まだ誤差の外である。用途は
+# 「新しい技の初期値を計算で置き、あとは反復で詰める」ことと、80枚ぶんを
+# 一括で見積もって外れ値を探すことである。反復の置き換えにはならない。
+#
+# 残差の大きい順に snare / urge / strike / guard で、いずれも穴の在り処を指す。
+#   snare  速度デバフの価値がまだ過大。接敵後は移動しないので実質ゼロに近い
+#   urge   ゲージ付与を「通常攻撃1発ぶん」と雑に置いている
+#   strike / guard  単体・自レーンへの効果を過小評価している
+STAT_WEIGHT = {
+    "atk": 1.00,      # 毎発の威力にそのまま乗る
+    "dfn": 0.33,      # 除算方式 K/(K+dfn) で減衰する（+28% → 被ダメージ −7.9%）
+    "acc": 1.00,      # 命中率に比例して手数が減る
+    "speed": 0.10,    # 接敵後は効かない。突撃（§5.3）のぶんだけ価値がある
+}
+
+# 実効対象数。総ダメージを揃えて実測した「単体換算」から出す（balance.py support）。
+#   単体 240%×1 = 単体換算240%（100%）  1列 120%×2 = 130%（54%）
+#   全体  40%×6 = 単体換算 71%（30%）
+# **2体目はほとんど価値がない。** 1列は単体の1.08倍にしかならない。レーンの
+# 2体目は後衛で、前衛が生きているあいだ集中の対象にならないためである。
+EFFECTIVE_TARGETS = {1: 1.00, 2: 1.08, 3: 1.35, 6: 1.79}
+
+# バフ・デバフは対象数がそのまま効く。味方6人の攻撃力を上げれば6人ぶん働く。
+# **ダメージだけが集中の影響を受ける**ので、係数を分ける。
+BUFF_TARGETS = {1: 1.00, 2: 2.00, 3: 3.00, 6: 6.00}
+
+# 回復1点はダメージ何点ぶんか。**回復は敵の出力を削らない**ので、分散ダメージが
+# 弱いのと同じ理由で弱い。撃破は敵の火力を丸ごと消すが、回復は自軍の火力を
+# 増やしはしない。実測では 回復150% が strike(190%) に18%、300%で32%、
+# 500%で39%、800%で60%。釣り合うのは威力640%あたりで、190/640 ≒ 0.30。
+HEAL_WEIGHT = 0.30
+
+
+def effective_targets(n, is_damage):
+    table = EFFECTIVE_TARGETS if is_damage else BUFF_TARGETS
+    if n in table:
+        return table[n]
+    keys = sorted(table)
+    lo = max(k for k in keys if k <= n) if any(k <= n for k in keys) else keys[0]
+    hi = min(k for k in keys if k >= n) if any(k >= n for k in keys) else keys[-1]
+    if lo == hi:
+        return table[lo]
+    f = (n - lo) / (hi - lo)
+    return table[lo] + (table[hi] - table[lo]) * f
+
+
+# 価格式が使う戦闘の実測値。engine を import せずに済むよう写しで持つ。
+BATTLE_TICKS = 620          # 決着の中央値（balance.py check）
+GAUGE_FILL_TICKS = 500      # ゲージ満タンまで = engine.GAUGE_MAX / GAUGE_PER_SEC
+REF_INTERVAL = 12           # 換算の基準にする攻撃間隔（歩兵）
+
+TARGET_COUNT = {
+    "front_enemy": 1, "enemy_lowest": 1, "self": 1, "lowest_ally": 1,
+    "lane_enemies": 2, "lane_allies": 2, "enemy_back_lane": 1,
+    "all_enemies": 6, "all_allies": 6,
+}
+# 集中の影響を受けるのは**即時ダメージだけ**。継続ダメージ（dot）は前衛が落ちた
+# 後も効き続けるので取りこぼしが少ない。dot も集中扱いにすると相関が
+# 0.69 → 0.62 へ下がる。ただし12種での判別なので強い証拠ではない。
+DAMAGE_KINDS = {"damage"}
+
+# 「通常攻撃 何発ぶんか」を総合値の%へ直す係数。実測の SKILL_ADJUST へ
+# 最小二乗で合わせて決める（balance.py skillprice が出す）。
+SKILL_PRICE_SCALE = 0.990
+SKILL_PRICE_BASE = -9.24
+
+
+def skill_value(skill, gauge_cost=100):
+    """必殺技1つの価値を「通常攻撃 何発ぶん（1戦あたり）」で返す。
+
+    gauge_cost はゲージ満タンを100とした消費量。軽い技ほど何度も撃てる。
+    """
+    fill = GAUGE_FILL_TICKS * gauge_cost / 100
+    casts = BATTLE_TICKS / fill
+    remain = max(0.0, BATTLE_TICKS - fill)     # 1回目の発動後に残る時間
+    n = TARGET_COUNT[skill["target"]]
+    per_cast = 0.0
+    for e in skill["effects"]:
+        kind = e["type"]
+        eff_n = effective_targets(n, kind in DAMAGE_KINDS)
+        if kind == "damage":
+            per_cast += e["power"] / 100 * eff_n
+        elif kind == "dot":
+            ticks = min(e["duration"], remain) / e["interval"]
+            per_cast += e["power"] / 100 * ticks * eff_n
+        elif kind == "mod":
+            swings = min(e["duration"], remain) / REF_INTERVAL
+            per_cast += (abs(e["value"]) / 100 * STAT_WEIGHT.get(e["stat"], 1.0)
+                         * swings * eff_n)
+        elif kind == "stun":
+            per_cast += min(e["duration"], remain) / REF_INTERVAL * eff_n
+        elif kind == "gauge":
+            per_cast += e["seconds"] * 10 / fill * eff_n
+        elif kind == "heal":
+            per_cast += e["power"] / 100 * HEAL_WEIGHT * eff_n
+    return per_cast * casts
+
+
+def skill_price(skill, gauge_cost=100):
+    """必殺技の価格（総合値の%）。正 = 強いので素の能力値を下げる。"""
+    attacks = BATTLE_TICKS / REF_INTERVAL
+    return (SKILL_PRICE_SCALE * skill_value(skill, gauge_cost) / attacks * 100
+            + SKILL_PRICE_BASE)
+
+
 # 全員同技の総当たり（balance.py skills）では測れない必殺技。そちらからは除外する。
 # 価格そのものは balance.py support（1枚混ぜ）で測れるので SKILL_ADJUST に値を持つ。
 # urge はゲージ付与だけで攻撃手段を持たないため、全員が urge の編成は敵を倒せない。
