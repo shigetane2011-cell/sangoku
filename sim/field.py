@@ -409,6 +409,13 @@ class Formation:
     """
     n_front: int
     frontage: float = BASE_FRONTAGE
+    # 後衛を前衛の何m後ろに置くか。**陣形の「深さ」はここでしか表せない。**
+    # これを固定にしていると、どの陣形でも前後の位置関係が同じになり、
+    # ZOC・射程・迂回のどれも噛む相手を持たない（実測で確認）。
+    rear_gap: float = REAR_Y - FRONT_Y
+
+    def rear_y(self) -> float:
+        return FRONT_Y + self.rear_gap
 
     def card_width(self) -> float:
         return self.frontage / max(self.n_front, 1)
@@ -515,7 +522,13 @@ class Unit:
 
 def _stations(form: Formation, n_cards: int, side: int
               ) -> List[Tuple[float, float]]:
-    """side = +1 を基準に置き、side = -1 は 180度回転（x,y ともに符号反転）。"""
+    """side = +1 を基準に置き、side = -1 は 180度回転（x,y ともに符号反転）。
+
+    【重要】基準側の座標に `side` を掛けてはいけない。掛けたうえで下の回転も
+    かけると**符号が二重に反転し、両軍が同じ座標に重なる**（実測で発覚。敵の
+    前衛までの縁距離が 0.0 になり、後衛を 160m 下げても弓が届いたままだった）。
+    向きの反転は最後の回転1回だけで行う。
+    """
     n_front = min(form.n_front, n_cards)
     n_rear = n_cards - n_front
     out: List[Tuple[float, float]] = []
@@ -529,9 +542,9 @@ def _stations(form: Formation, n_cards: int, side: int
         return [-span / 2.0 + step * (i + 0.5) for i in range(n)]
 
     for x in spread(n_front, form.frontage):
-        out.append((x, -FRONT_Y * side))
+        out.append((x, -FRONT_Y))
     for x in spread(n_rear, form.frontage * 0.7):
-        out.append((x, -REAR_Y * side))
+        out.append((x, -form.rear_y()))
 
     if side < 0:
         out = [(-x, -y) for (x, y) in out]
