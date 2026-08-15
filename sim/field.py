@@ -752,7 +752,11 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
 
 
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
-             repulse: float = 0.0, damage: bool = True) -> Dict:
+             repulse: float = 0.0, damage: bool = True,
+             events: "List[Event] | None" = None) -> Dict:
+    """events を渡すと出来事を記録する。**記録は読み取り専用**で、勝敗にも
+    測定にも一切影響しない（§9.3。§8.2 の引き分け帯を測定へ持ち込んで計器を
+    殺した失敗と同じ形を避けるため）。"""
     # 陣形相性（表で決める）。循環で勝っている側の与ダメージへ掛ける。
     dr = (a.rank - b.rank) % 3
     fa = 1.0 + FORM_BONUS if dr == 2 else 1.0
@@ -772,6 +776,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     ub = build(b, -1, kb)
     _plan_paths(ua, ub, a.form, b.form)
     _plan_paths(ub, ua, b.form, a.form)
+
+    seen = set()
+    if events is not None:
+        _log_open(events, seen, a, b, ua, ub)
 
     start_width = _front_width(ua)
     t = 0.0
@@ -835,12 +843,21 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         t += dt
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
+        if events is not None:
+            _log_tick(events, seen, t, ua, ub, gap)
         if ra < ROUT_RATIO or rb < ROUT_RATIO:
             reason = "rout"
+            if events is not None:
+                lo, hi = (("A", ra), ("B", rb)) if ra < rb else (("B", rb), ("A", ra))
+                events.append(Event(t, "決着", 1,
+                    "{}軍、残存{:.0f}%を割って潰走。{}軍の勝利。".format(
+                        _JP[lo[0]], ROUT_RATIO * 100, _JP[hi[0]])))
             break
 
     ra = sum(u.men for u in ua) / men0a
     rb = sum(u.men for u in ub) / men0b
+    if events is not None:
+        _log_close(events, seen, t, reason, ua, ub, ra, rb)
     score = 0.5 if abs(ra - rb) < DRAW_BAND else (1.0 if ra > rb else 0.0)
     return {"score": score, "ra": ra, "rb": rb, "t": t, "reason": reason,
             "width_start": start_width, "width_end": _front_width(ua)}
@@ -900,6 +917,212 @@ def _legacy_repulse(units: List[Unit], dt: float, strength: float) -> None:
             if d < reach:
                 fx += strength * (reach - d) / reach * (dx / d)
         a.x += fx * dt
+
+
+# ============================================================================
+# 実況（§9.3）
+# ============================================================================
+#
+# 規則は3つだけ。
+#  1. 記録は**読み取り専用**。勝敗にも測定にも触れない。
+#  2. 行の選択は**種類の固定優先順位**で決める。「差が最も動いた瞬間」で選ぶと
+#     勝敗の内部量を演出が参照することになり、相性の表を較正し直すたびに実況の
+#     出どころが動く（§8.2 の引き分け帯と同じ失敗の形）。
+#  3. 同じ秒に起きた出来事は1行へ合流させる。合流は表示だけの操作。
+
+_JP = {"A": "曹", "B": "孫"}
+
+# 種類ごとの行数上限（§9.3）。合流したぶんは1行として数える。
+LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
+             "必殺技": 2, "誘発": 2, "壊滅": 2, "決着": 1}
+# 優先順位（小さいほど先に確保する）
+LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "誘発": 3,
+             "壊滅": 4, "接敵": 5, "抑制": 6, "布陣": 7}
+LINE_BUDGET = 12
+ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
+SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
+DETOUR_SHOW = 0.25      # これ以上の迂回だけを賭けとして予告する（表示のみ）
+
+
+@dataclass
+class Event:
+    t: float
+    kind: str
+    prio: int
+    text: str
+
+
+def _wing(u: Unit) -> str:
+    x = u.x0 * u.side          # 自軍から見た左右
+    return "左翼" if x < -1.0 else ("右翼" if x > 1.0 else "中央")
+
+
+def _who(u: Unit) -> str:
+    """札の呼び名。同じ翼に2枚あるので前衛/後衛まで入れて一意にする。"""
+    return "{}軍{}{}の{}".format(_JP["A" if u.side > 0 else "B"], _wing(u),
+                                 "前衛" if u.is_front else "後衛", TYPE_JP[u.typ])
+
+
+def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
+    def shape(army: Army) -> str:
+        return {2: "狭く深い", 3: "標準", 4: "広く浅い"}.get(
+            army.form.n_front, f"前衛{army.form.n_front}枚")
+    def mix(army: Army) -> str:
+        c = {}
+        for card in army.cards:
+            c[card.typ] = c.get(card.typ, 0) + 1
+        return "・".join(f"{TYPE_JP[t]}{c[t]}" for t in TYPES if c.get(t))
+    # 布陣は時刻を持たない（t = -1）。合流させず必ず先頭に置く。
+    ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"],
+        "{}軍は{}（{}）、{}軍は{}（{}）。両軍とも{:,.0f}人。".format(
+            _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b),
+            sum(u.men0 for u in ua))))
+    # 迂回の予告。所要時間も捨てる攻撃量も経路長から確定している（§9.3）
+    bets = [u for u in list(ua) + list(ub)
+            if u.typ == CAV and u.detour > DETOUR_SHOW and u.total_len > 1.0]
+    bets.sort(key=lambda u: -u.total_len)
+    seen_side = set()
+    for u in bets:                      # 同じ側から2本続けない
+        if u.side in seen_side:
+            continue
+        seen_side.add(u.side)
+        # **予告した札だけを賭けとして印を付ける。** 結果はこの札についてだけ
+        # 語る。予告と結果が対にならないと、setup のない payoff や payoff の
+        # ない setup が出て演出装置が壊れる（実測で両方出た）。
+        seen.add(("賭", id(u)))
+        ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
+            "{}、戦列を離れて大きく回り込む。{:.0f}mの迂回、"
+            "およそ{:.0f}秒ぶんの攻撃を捨てる賭け。".format(
+                _who(u), u.total_len, u.total_len / u.speed)))
+
+
+def _log_tick(ev, seen, t, ua, ub, gap) -> None:
+    # 接敵。**正面の重なりが最も大きい組**を報じる。
+    #
+    # 縁の距離で選ぶと、500m幅の方陣どうしが角で触れただけの組を「正面から
+    # 噛み合う」と報じてしまう（実測で縁0.13m・中心451m離れた組が選ばれた）。
+    # 重なりが 0 なら、それは正面ではなく側面が触れているだけである。
+    if "接敵" not in seen:
+        best = None
+        for x in ua:
+            if not x.is_front:
+                continue
+            for y in ub:
+                if not y.is_front:
+                    continue
+                ov = min(x.x + x.width / 2, y.x + y.width / 2) - \
+                     max(x.x - x.width / 2, y.x - y.width / 2)
+                d = box_gap(x, y)
+                key = (-max(ov, 0.0), d)
+                if best is None or key < best[0]:
+                    best = (key, x, y, max(ov, 0.0), d)
+        if best is not None and best[4] <= 1.0:
+            seen.add("接敵")
+            n = sum(1 for x in ua if x.is_front
+                    for y in ub if y.is_front and box_gap(x, y) <= 1.0)
+            if best[3] > 1.0:
+                ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
+                    "両軍前衛が接触。{}と{}が正面{:.0f}mで噛み合う"
+                    "（{}組が交戦）。".format(
+                        _who(best[1]), _who(best[2]), best[3], n)))
+            else:
+                ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
+                    "{}が前進し、{}の側面に取り付く。正面で受ける敵がいない"
+                    "（{}組が交戦）。".format(
+                        _who(best[1]), _who(best[2]), n)))
+    # 迂回の到達
+    for u in list(ua) + list(ub):
+        k = ("着", id(u))
+        if k in seen or ("賭", id(u)) not in seen:
+            continue
+        if u.progress / u.total_len > 0.97:
+            seen.add(k)
+            foes = ub if u.side > 0 else ua
+            tgt = min((f for f in foes if not f.is_front),
+                      key=lambda f: math.hypot(f.x - u.x, f.y - u.y), default=None)
+            ev.append(Event(t, "結果", LINE_PRIO["結果"],
+                "{}が敵後衛に到達（{:.0f}秒を要した）。{}の側背を突く。"
+                "この時点で残り{:.0f}%。".format(
+                    _who(u), t, TYPE_JP[tgt.typ] if tgt else "後衛",
+                    100 * tgt.ratio() if tgt else 0)))
+    # 弓の抑制
+    for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
+                             (ub, ua, lambda i, j: gap[j][i])):
+        for i, u in enumerate(units):
+            if u.typ != ARC or ("抑", id(u)) in seen:
+                continue
+            g = [idx(i, j) for j in range(len(foes))]
+            sup = _suppress(u, g)
+            if sup < SUPPRESS_SHOW:
+                seen.add(("抑", id(u)))
+                near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
+                ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
+                    "{}、{}に{:.0f}mまで詰められ斉射が鈍る（威力{:.0f}%）。".format(
+                        _who(u), TYPE_JP[near.typ], min(g), 100 * sup)))
+    # 壊滅
+    for u in list(ua) + list(ub):
+        k = ("滅", id(u))
+        if k not in seen and u.ratio() < ROUT_UNIT:
+            seen.add(k)
+            own = ua if u.side > 0 else ub
+            rest = sum(x.men for x in own) / sum(x.men0 for x in own)
+            ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
+                "{}が壊滅（{:,.0f}人を失う）。{}軍は残り{:.0f}%。".format(
+                    _who(u), u.men0 - u.men,
+                    _JP["A" if u.side > 0 else "B"], 100 * rest)))
+
+
+def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
+    if reason != "time":
+        return
+    # 賭けの結果は必ず語る。届かなかった側も拾う。
+    for u in list(ua) + list(ub):
+        if (("賭", id(u)) in seen_bets
+                and u.progress / u.total_len <= 0.97):
+            ev.append(Event(t, "結果", LINE_PRIO["結果"],
+                "{}は敵後衛へ回り込めないまま終わる（行程{:.0f}%、"
+                "残り{:.0f}m）。".format(
+                    _who(u), 100 * u.progress / u.total_len,
+                    u.total_len - u.progress)))
+    lost_a = sum(u.men0 - u.men for u in ua)
+    lost_b = sum(u.men0 - u.men for u in ub)
+    win = "A" if ra > rb else "B"
+    ev.append(Event(t, "決着", LINE_PRIO["決着"],
+        "時間切れ。{}軍{:.0f}%（{:,.0f}人損失）対{}軍{:.0f}%（{:,.0f}人損失）で、"
+        "{}軍の勝利。".format(_JP["A"], 100 * ra, lost_a,
+                             _JP["B"], 100 * rb, lost_b, _JP[win])))
+
+
+def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
+    """1部隊戦の実況行を返す。8〜12行（§9.3）。"""
+    ev: List[Event] = []
+    simulate(a, b, dt=dt, events=ev)
+
+    # 種類ごとの上限と全体の予算で絞る。**大きさではなく種類で選ぶ。**
+    ev.sort(key=lambda e: (e.prio, e.t))
+    kept, used = [], {}
+    for e in ev:
+        if used.get(e.kind, 0) >= LINE_CAPS.get(e.kind, 1):
+            continue
+        if len(kept) >= LINE_BUDGET:
+            break
+        used[e.kind] = used.get(e.kind, 0) + 1
+        kept.append(e)
+
+    # 同じ秒の出来事は1行へ合流させる（布陣は t=-1 なので合流しない）
+    kept.sort(key=lambda e: (e.t, e.prio))
+    out, i = [], 0
+    while i < len(kept):
+        same = [kept[i]]
+        while (i + 1 < len(kept) and kept[i + 1].t >= 0.0
+               and int(kept[i + 1].t) == int(kept[i].t)):
+            i += 1
+            same.append(kept[i])
+        head = "【布陣】" if same[0].t < 0.0 else "【{:02d}:{:02d}】".format(
+            int(same[0].t) // 60, int(same[0].t) % 60)
+        out.append(head + " " + " ".join(e.text for e in same))
+        i += 1
+    return out
 
 
 # ============================================================================
@@ -1297,6 +1520,24 @@ def cmd_price(args) -> None:
     TYPE_BONUS = keep_b
 
 
+def cmd_narrate(args) -> None:
+    print("実況の出力例（§9.3）。実際のシミュレーションから生成している。")
+    for na, a, nb, b in (
+        ("鶴翼の混成", Army(mixed_role_army([INF, INF, CAV, ARC, ARC, CAV]).cards,
+                            FORM_WIDE, 1),
+         "魚鱗の混成", Army(mixed_role_army([INF, CAV, INF, ARC, CAV, ARC]).cards,
+                            FORM_DEEP, 0)),
+        ("騎馬主体", Army(mixed_role_army([CAV, CAV, INF, CAV, ARC, INF]).cards,
+                          FORM_STANDARD, 0),
+         "弓主体", Army(mixed_role_army([ARC, INF, ARC, ARC, INF, CAV]).cards,
+                        FORM_STANDARD, 2)),
+    ):
+        print()
+        print(f"── {na} 対 {nb} " + "─" * 30)
+        for line in narrate(a, b, args.dt):
+            print("  " + line)
+
+
 def cmd_calibrate(args) -> None:
     """兵種相性の表を対戦ごとに較正する。
 
@@ -1418,6 +1659,9 @@ def main() -> None:
     s.add_argument("--bonus", type=float, nargs="*",
                    default=[0.0, 0.02, 0.04, 0.06, 0.08])
     s.set_defaults(func=cmd_triangle)
+    s = sub.add_parser("narrate")
+    s.add_argument("--dt", type=float, default=0.25)
+    s.set_defaults(func=cmd_narrate)
     s = sub.add_parser("calibrate")
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--rot", type=int, default=6)
