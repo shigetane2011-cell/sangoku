@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 ~$*.docx
+
+# sim/replay.py が生成する再生用HTML。生成物なので追跡しない。
+replay.html

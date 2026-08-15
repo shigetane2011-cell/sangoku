@@ -14,6 +14,7 @@
 | `engine.py` | 部隊戦の戦闘エンジン。§8.1 の12ステップをティックごとに処理する。 |
 | `balance.py` | バランス検証ハーネス。§4.6 の指標を実測する。 |
 | `budget.py` | 各カードがコスト式どおりの能力値かを検算する。ロスターを変更したら必ず通す。 |
+| `replay.py` | 1戦を記録し、ブラウザで再生できる自己完結HTMLを書き出す。**「見ていて面白いか」はシミュレータでは測れない**ので、実際に見て確かめるための道具。 |
 
 ## 実行
 
@@ -38,6 +39,7 @@ python3 balance.py sensitivity # 総合値の差と勝率の差の換算率
 python3 balance.py all       # すべて
 python3 budget.py            # 能力値がコスト式どおりかの検算
 python3 roster.py --write    # ロスターから cards.json を再生成
+python3 replay.py            # 1戦を再生できる自己完結HTMLを書き出す
 ```
 
 `swap` と `meta` は数万回の対戦を行うため、数分かかる。
