@@ -1204,14 +1204,18 @@ def cmd_skillprice():
                                         - roster.SKILL_ADJUST.get(k, 0.0)))
     print(f"  最大の残差: {worst}")
 
-    print("\n  ゲージ消費量を変えたときの価格（strike を例に）")
-    print(f"  {'消費':>5}{'発動回数':>10}{'価格':>9}")
-    for cost in (50, 75, 100, 150, 200):
-        casts = roster.BATTLE_TICKS / (roster.GAUGE_FILL_TICKS * cost / 100)
+    print("\n  ゲージ消費量を変えたときの発動回数と価格（strike を例に）")
+    print(f"  {'消費':>5}{'時間だけの計算':>15}{'実測':>9}{'価格':>9}")
+    for cost in (50, 75, 100, 125, 150, 200):
+        naive = roster.BATTLE_TICKS / (roster.GAUGE_FILL_TICKS * cost / 100)
+        real = roster.casts_for(cost)
         v = roster.skill_value(roster.SKILLS["strike"], cost)
-        print(f"  {cost:>4}%{casts:>9.2f}回{slope*v/attacks*100+base:>8.2f}")
-    print("  **軽い技ほど何度も撃てる。** いまは全技が消費100で固定されており、")
-    print("  この軸がまるごと使われていない。持続効果が半分捨てられるのも同じ理由。")
+        mark = "  ← 撃てない" if real < 0.5 else ""
+        print(f"  {cost:>4}%{naive:>13.2f}回{real:>8.2f}回"
+              f"{slope*v/attacks*100+base:>8.2f}{mark}")
+    print("  **時間だけの計算では合わない。** 軽い技はゲージが与被ダメージからも")
+    print("  入るので計算より多く撃て、重い技は満タン前に戦闘が終わるので撃てない。")
+    print("  **使える消費の範囲は約50〜125%しかない。**")
 
 
 def cmd_amplify():

@@ -23,6 +23,21 @@ MAX_TICKS = 900               # 1部隊戦の上限 90秒（§8.2）
 LANE_DEPTH = 100 * 10         # レーン奥行き 100単位（§5.2）
 BACK_OFFSET = 15 * 10         # 後衛は自軍前衛の後方15単位
 GAUGE_MAX = 10000             # 必殺技ゲージ最大 100
+
+# 必殺技ごとの消費ゲージ（満タンを100とする%）。技が持たなければ GAUGE_COST_DEFAULT。
+#
+# **v0.5 末まで全技が満タン消費で固定だった。この軸がまるごと使われていなかった。**
+# ゲージ満タンに50秒・戦闘は62秒なので、どの技も1戦に1.24回しか撃てない。
+# その結果、持続効果は残り12秒ぶんしか使われず（250ティックの効果なら半分以上を
+# 捨てる）、持続・バフ・デバフは構造的に「弱い技」へ沈んでいた。実測でも
+# rally / guard / curse / snare が下位に固まっていた。
+#
+# 消費を下げれば発動回数が増え、持続時間という設計軸が初めて機能する。
+#   消費 50% → 2.48回 / 100% → 1.24回 / 150% → 0.83回 / 200% → 0.62回
+#
+# 発動時は**満タンに戻さず消費ぶんだけ引く**。余剰を持ち越さないと、軽い技ほど
+# 端数を捨てて損をする。
+GAUGE_COST_DEFAULT = 100
 GAUGE_PER_SEC = 200           # 時間経過によるゲージ上昇 2.0/秒（§7.2・v0.3 実測で改訂）
 KILL_GAUGE_SECONDS = 3        # 敵撤退時のゲージ加算。固定値ではなく「自然増加の何秒ぶん」
 SURPLUS_GAUGE_PER_COST = 2    # 余剰コスト1につき初期ゲージ +2%（§4.5）
@@ -816,11 +831,16 @@ class Battle:
                         t.hp += healed
                         self.emit(f"{t.card['name']}の兵力が{healed}回復")
 
+    def gauge_cost(self, u: Unit) -> int:
+        """この武将が必殺技を撃つのに要るゲージ量（§7.1）。"""
+        pct = u.card["skill"].get("gauge", GAUGE_COST_DEFAULT)
+        return max(1, GAUGE_MAX * pct // 100)
+
     def cast(self, u: Unit):
         skill = u.card["skill"]
         targets = self.skill_targets(u, skill["target"])
         u.skills += 1
-        u.gauge = 0
+        u.gauge -= self.gauge_cost(u)
         self.apply_effects(u, skill["effects"], targets, skill["name"])
         self.emit(f"{u.card['name']}の必殺技「{skill['name']}」が発動")
         # 味方の必殺技発動を誘発条件とする固有特性（§6.6）
@@ -969,7 +989,8 @@ class Battle:
             u.gauge += GAUGE_PER_SEC // 10 * self.gauge_rate(u) // 100
 
         # 10. 必殺技発動。ゲージ最大の武将を §7.3 の順で処理する。
-        ready = [u for u in actors if not u.retreated and u.gauge >= GAUGE_MAX]
+        ready = [u for u in actors
+                 if not u.retreated and u.gauge >= self.gauge_cost(u)]
         ready.sort(key=lambda u: (-self.speed(u), SLOTS.index((u.row, u.lane)), u.card["id"]))
         for u in ready:
             if u.retreated:

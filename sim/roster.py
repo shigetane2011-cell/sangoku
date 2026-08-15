@@ -181,13 +181,50 @@ SKILL_PRICE_SCALE = 0.990
 SKILL_PRICE_BASE = -9.24
 
 
-def skill_value(skill, gauge_cost=100):
+# 消費ゲージごとの実測発動回数（1戦・1体あたり）。**時間だけの計算では合わない。**
+#
+#   消費   時間だけの計算   実測    比
+#    50%      2.48回      3.45回  1.39
+#    75%      1.65        2.28    1.38
+#   100%      1.24        1.63    1.32
+#   150%      0.83        0.50    0.61
+#   200%      0.62        0.07    0.12
+#
+# ずれる理由は2つ。**軽い技は計算より多く撃てる**。ゲージは時間経過だけでなく
+# 与被ダメージと撃破からも入るので、実効の獲得速度が約1.35倍あるためである。
+# **重い技は計算よりはるかに撃てない**。戦闘が62秒で終わるので、満タンに
+# 到達する前に決着してしまう。連続値ではなく「間に合うか間に合わないか」になる。
+#
+# **したがって使える消費の範囲は約50〜125%しかない。** 150%を超える技は
+# 設計しても撃てない。重い技を成立させるには戦闘時間かゲージ獲得速度の側を
+# 変える必要がある（§7.1）。
+# 値はロスター実測の 1.24回/戦（balance.py check）へ正規化してある。
+GAUGE_CASTS = {50: 2.62, 75: 1.73, 100: 1.24, 125: 0.85, 150: 0.38, 200: 0.05}
+
+
+def casts_for(gauge_cost):
+    """消費ゲージから1戦あたりの発動回数を出す（実測表を線形補間）。"""
+    keys = sorted(GAUGE_CASTS)
+    if gauge_cost <= keys[0]:
+        return GAUGE_CASTS[keys[0]] * keys[0] / max(1, gauge_cost)
+    if gauge_cost >= keys[-1]:
+        return GAUGE_CASTS[keys[-1]]
+    for a, b in zip(keys, keys[1:]):
+        if a <= gauge_cost <= b:
+            f = (gauge_cost - a) / (b - a)
+            return GAUGE_CASTS[a] + (GAUGE_CASTS[b] - GAUGE_CASTS[a]) * f
+    return GAUGE_CASTS[100]
+
+
+def skill_value(skill, gauge_cost=None):
     """必殺技1つの価値を「通常攻撃 何発ぶん（1戦あたり）」で返す。
 
     gauge_cost はゲージ満タンを100とした消費量。軽い技ほど何度も撃てる。
     """
+    if gauge_cost is None:
+        gauge_cost = skill.get("gauge", 100)
     fill = GAUGE_FILL_TICKS * gauge_cost / 100
-    casts = BATTLE_TICKS / fill
+    casts = casts_for(gauge_cost)
     remain = max(0.0, BATTLE_TICKS - fill)     # 1回目の発動後に残る時間
     n = TARGET_COUNT[skill["target"]]
     per_cast = 0.0
@@ -212,7 +249,7 @@ def skill_value(skill, gauge_cost=100):
     return per_cast * casts
 
 
-def skill_price(skill, gauge_cost=100):
+def skill_price(skill, gauge_cost=None):
     """必殺技の価格（総合値の%）。正 = 強いので素の能力値を下げる。"""
     attacks = BATTLE_TICKS / REF_INTERVAL
     return (SKILL_PRICE_SCALE * skill_value(skill, gauge_cost) / attacks * 100
