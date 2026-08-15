@@ -135,40 +135,43 @@ PAGE = """<title>作戦盤</title>
   .meta b { color: var(--text); font-weight: 600; }
 
   /* --- 盤面 ----------------------------------------------------------
-     **1体につき1本の軌道を与える。** 同じレーンの武将が同じ位置に来ると
-     重なって読めなくなるため、縦に分ける。レーンは背景の帯でまとめる。
-     兵種は形で区別する（歩兵=角・騎兵=菱・弓兵=丸）。 */
+     **左が青（蜀）、右が朱（魏）。同じ組を1本の軌道に置いて向かい合わせる。**
+     前衛は前衛と、後衛は後衛と組になるので、どこで当たっているかが見える。
+     重ならないよう、軌道の中で青を上寄り・朱を下寄りにずらす。
+     兵種は形で区別する（角＝歩兵・菱＝騎兵・丸＝弓兵）。 */
   .board { margin-top: 18px; background: var(--panel); border: 1px solid var(--line);
-           border-radius: 3px; padding: 6px 0 4px; box-shadow: var(--shadow);
+           border-radius: 3px; padding: 8px 0 6px; box-shadow: var(--shadow);
            overflow: hidden; }
-  .lane { padding: 5px 0; border-bottom: 1px solid var(--grid); }
+  .lane { padding: 4px 0 6px; border-bottom: 1px solid var(--grid); }
   .lane:last-child { border-bottom: 0; }
-  .lane.alt { background: linear-gradient(var(--grid), var(--grid)); }
   .lane-tag { font-size: 10px; letter-spacing: .18em; color: var(--faint);
               padding: 0 0 2px 14px; }
-  .track { position: relative; height: 26px; }
-  .gutter { position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
-            width: 116px; font-size: 11px; font-weight: 600; white-space: nowrap;
+  .pair { position: relative; height: 40px; }
+  .gutter { position: absolute; top: 50%; transform: translateY(-50%);
+            width: 112px; font-size: 11px; font-weight: 600; white-space: nowrap;
             overflow: hidden; text-overflow: ellipsis; }
-  .gutter em { font-style: normal; color: var(--faint); font-size: 10px;
-               margin-left: 4px; }
-  .rail { position: absolute; left: 138px; right: 14px; top: 0; bottom: 0; }
-  .home { position: absolute; top: 3px; bottom: 3px; width: 1px; background: var(--grid); }
-  .mk { position: absolute; top: 50%; width: 20px; height: 20px;
+  .gutter.l { left: 12px; text-align: right; color: var(--blue); }
+  .gutter.r { right: 12px; text-align: left; color: var(--red); }
+  .gutter em { font-style: normal; color: var(--faint); font-size: 10px; }
+  .rail { position: absolute; left: 132px; right: 132px; top: 0; bottom: 0; }
+  .rail::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
+                  border-top: 1px dashed var(--grid); }
+  .home { position: absolute; top: 4px; bottom: 4px; width: 1px; background: var(--grid); }
+  .mk { position: absolute; width: 19px; height: 19px;
         transform: translate(-50%, -50%); transition: left .12s linear;
         display: grid; place-items: center; }
+  .mk.s0 { top: 11px; color: var(--blue); }     /* 青は上寄り */
+  .mk.s1 { top: 29px; color: var(--red); }      /* 朱は下寄り。重ならない */
   .mk .sh { position: absolute; inset: 0; border: 1.5px solid currentColor;
             background: linear-gradient(to top, currentColor var(--hp,100%),
                                         transparent var(--hp,100%)); }
   .mk.inf .sh { border-radius: 3px; }
   .mk.cav .sh { border-radius: 3px; transform: rotate(45deg) scale(.82); }
   .mk.arc .sh { border-radius: 50%; }
-  .mk .g { position: relative; font-size: 11px; font-weight: 700; line-height: 1;
+  .mk .g { position: relative; font-size: 10px; font-weight: 700; line-height: 1;
            color: var(--panel); }
-  .mk.s0 { color: var(--blue); }
-  .mk.s1 { color: var(--red); }
   .mk.low .g { color: var(--text); }
-  .mk .gg { position: absolute; left: -2px; right: -2px; bottom: -6px; height: 2px;
+  .mk .gg { position: absolute; left: -2px; right: -2px; bottom: -5px; height: 2px;
             background: var(--grid); }
   .mk .gg i { display: block; height: 100%; background: var(--gold); }
   .mk.dead { opacity: .2; }
@@ -176,7 +179,7 @@ PAGE = """<title>作戦盤</title>
   .mk.flank .sh { border-style: dashed; }
   .mk.stun { filter: grayscale(1) brightness(.8); }
   .mk.cast { box-shadow: 0 0 0 3px var(--gold); border-radius: 50%; }
-  .cmdr-dot { position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+  .cmdr-dot { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
               font-size: 8px; color: var(--gold); font-weight: 700; }
 
   /* --- 操作 ---------------------------------------------------------- */
@@ -254,41 +257,51 @@ const span = M.xmax - M.xmin;
 const tickOf = i => i * M.sample;
 const secOf = i => (tickOf(i) / 10).toFixed(1);
 
-// 盤面。**1体につき1本の軌道**を与えるので、重なることがない。
-// レーン内の並びは 青の前衛→青の後衛→朱の後衛→朱の前衛。向かい合う形になる。
+// 盤面。**左が青（蜀）、右が朱（魏）。前衛は前衛と組になる。**
+// レーンごとに、両軍を前衛→後衛の順で並べて同じ添字どうしを1本の軌道へ置く。
+// 同じ軌道でも青は上寄り・朱は下寄りにずらしてあるので重ならない。
 const GLYPH = { inf: '歩', cav: '騎', arc: '弓' };
+const ROWJP = { front: '前', back: '後' };
 const board = document.getElementById('board');
 const marks = [];
 for (let L = 0; L < 3; L++) {
   const lane = document.createElement('div');
-  lane.className = 'lane' + (L % 2 ? ' alt' : '');
+  lane.className = 'lane';
   lane.innerHTML = '<div class="lane-tag">レーン' + (L + 1) + '</div>';
-  const order = U.map((u, i) => [u, i]).filter(([u]) => u.lane === L)
-    .sort((a, b) => (a[0].side - b[0].side)
-      || ((a[0].side ? 1 : -1) * ((a[0].row === 'back' ? 1 : 0) - (b[0].row === 'back' ? 1 : 0))));
-  for (const [u, i] of order) {
-    const tr = document.createElement('div');
-    tr.className = 'track';
-    tr.innerHTML = '<div class="gutter" style="color:var(--' + (u.side ? 'red' : 'blue')
-      + ')">' + u.name.replace(/〔.*/, '')
-      + '<em>' + (u.row === 'front' ? '前' : '後') + '・' + u.cost + '</em></div>'
-      + '<div class="rail"></div>';
-    const rail = tr.querySelector('.rail');
+  const bySide = [0, 1].map(sd => U.map((u, i) => [u, i])
+    .filter(([u]) => u.lane === L && u.side === sd)
+    .sort((a, b) => (a[0].row === 'back' ? 1 : 0) - (b[0].row === 'back' ? 1 : 0)));
+  const n = Math.max(bySide[0].length, bySide[1].length);
+  for (let k = 0; k < n; k++) {
+    const pr = document.createElement('div');
+    pr.className = 'pair';
+    pr.innerHTML = '<div class="gutter l"></div><div class="rail"></div>'
+      + '<div class="gutter r"></div>';
+    const rail = pr.querySelector('.rail');
     for (const p of [0, 1]) {
       const h = document.createElement('div');
       h.className = 'home';
       h.style.left = ((p ? M.xmax - 150 : 150 - M.xmin) / span * 100) + '%';
       rail.appendChild(h);
     }
-    const mk = document.createElement('div');
-    mk.className = 'mk s' + u.side + ' ' + u.troop;
-    mk.innerHTML = '<div class="sh"></div><div class="g">' + GLYPH[u.troop] + '</div>'
-      + '<div class="gg"><i></i></div>'
-      + (u.cmdr ? '<div class="cmdr-dot">将</div>' : '');
-    mk.title = u.name + '　' + u.skill + '（消費' + u.gcost + '%）';
-    rail.appendChild(mk);
-    lane.appendChild(tr);
-    marks[i] = mk;
+    for (const sd of [0, 1]) {
+      const ent = bySide[sd][k];
+      if (!ent) continue;
+      const [u, i] = ent;
+      pr.querySelector(sd ? '.gutter.r' : '.gutter.l').innerHTML =
+        (sd ? '<em>' + ROWJP[u.row] + '</em> ' : '')
+        + u.name.replace(/〔.*/, '')
+        + (sd ? '' : ' <em>' + ROWJP[u.row] + '</em>');
+      const mk = document.createElement('div');
+      mk.className = 'mk s' + sd + ' ' + u.troop;
+      mk.innerHTML = '<div class="sh"></div><div class="g">' + GLYPH[u.troop] + '</div>'
+        + '<div class="gg"><i></i></div>'
+        + (u.cmdr ? '<div class="cmdr-dot">将</div>' : '');
+      mk.title = u.name + '　' + u.skill + '（消費' + u.gcost + '%）';
+      rail.appendChild(mk);
+      marks[i] = mk;
+    }
+    lane.appendChild(pr);
   }
   board.appendChild(lane);
 }
@@ -333,7 +346,8 @@ document.getElementById('note').innerHTML =
   + '塗りの高さが<b>残兵力</b>、下の金の帯が<b>必殺技ゲージ</b>で、消費量は武将ごとに違う。'
   + '破線の縁は騎兵の<b>迂回中</b>（回り込むあいだは攻撃できない）、'
   + '灰色は<b>行動阻害</b>、金の輪は<b>必殺技の発動</b>。'
-  + '1体につき1本の軌道を与えているので、重なって見えなくなることはない。'
+  + '左が青（蜀）、右が朱（魏）で、<b>前衛は前衛と、後衛は後衛と組</b>になる。'
+  + '同じ軌道でも青は上寄り・朱は下寄りなので重ならない。'
   + '同じ<b>編成・配置・戦場・シード</b>なら何度でも同じ戦闘になる（§8.4）。';
 
 const scrub = document.getElementById('scrub');
