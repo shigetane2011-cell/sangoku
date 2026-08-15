@@ -446,7 +446,7 @@ class Unit:
     __slots__ = (
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
-        "total_len", "progress", "is_front", "x0",
+        "total_len", "progress", "is_front", "x0", "detour",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -483,6 +483,7 @@ class Unit:
         self.seg_len: List[float] = []
         self.total_len = 0.0
         self.progress = 0.0
+        self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -586,6 +587,7 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
     for u in mine:
         if u.typ == ARC:
             u.set_path([(u.x, u.y)])
+            u.detour = 0.0
             continue
 
         # 正面の敵前衛（x が最も近いもの）
@@ -596,6 +598,7 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
 
         if u.typ == INF or w <= 0.0:
             u.set_path([head_on])
+            u.detour = 0.0
             continue
 
         # 騎兵の迂回。自軍から見た自分の x の符号側の外縁を回る。
@@ -616,6 +619,7 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
         aim = (head_on[0] + (deep[0] - head_on[0]) * w,
                head_on[1] + (deep[1] - head_on[1]) * w)
         u.set_path([(way_x, way_y), aim])
+        u.detour = w
 
 
 def build(army: Army, side: int) -> List[Unit]:
@@ -739,9 +743,15 @@ def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],
                    dt: float) -> float:
     if u.total_len <= 1e-9:
         return 0.0
+    # ZOC は「敵を**通り過ぎる**動き」にだけ課す。取り付く動きに同じだけ課すと、
+    # 迂回を高くする前に正面の接敵が死ぬ（実測: ZOC_STR=1.6 で歩兵の到達 12%、
+    # 誰も接敵できず残存 1.000 のまま時間切れ）。迂回の度合い detour は
+    # _plan_paths が敵前衛と後衛の硬さの比から連続に決めており、分岐を含まない。
     z = 0.0
-    for f, d in zip(foes, gaps):
-        z += ZOC_STR * f.ratio() * smooth_gate(d, 0.0, ZOC_R)
+    if u.detour > 0.0:
+        for f, d in zip(foes, gaps):
+            z += ZOC_STR * f.ratio() * smooth_gate(d, 0.0, ZOC_R)
+        z *= u.detour
     v = u.speed * math.exp(-z)
     remain = u.total_len - u.progress
     return u.total_len - approach_exact(remain, v, dt)
