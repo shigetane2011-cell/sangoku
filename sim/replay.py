@@ -30,8 +30,14 @@ SAMPLE = 2          # 何ティックごとに姿勢を記録するか（0.2秒�
 
 # 既定の対戦。高コスト戦（上限40）で、名前で分かる札を並べる。
 # 陣形を左右で変えて、盤面の形の違いが見えるようにする。
-SHU = ["kanu_10", "chouun_9", "kochu_8", "gien_7", "batai_3", "chinto_3"]
-WEI = ["shibai_10", "choryo_9", "kyocho_8", "tougai_6", "manchou_3", "sokou_3"]
+#
+# **並び順がそのまま配置になる**（make_team は陣形の枠順へ順に詰める）。
+# 実プレイヤーと同じく、近接を前衛の枠へ、弓兵を後衛の枠へ来るように並べる。
+# 順に詰めるだけだと弓兵が前衛に出てしまう（黄忠が前衛に立っていた）。
+#   鶴翼の枠順: 前0 前1 前2 後0 後1 後2
+#   魚鱗の枠順: 前1 前1 前0 前2 後0 後2
+SHU = ["chinto_3", "kanu_10", "chouun_9", "gien_7", "batai_3", "kochu_8"]
+WEI = ["kyocho_8", "tougai_6", "choryo_9", "sokou_3", "shibai_10", "manchou_3"]
 
 
 def record(team_a, team_b, seed, battlefield):
