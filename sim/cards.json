@@ -1281,14 +1281,15 @@
       "cost": 7,
       "troop": "cav",
       "role": "burst",
-      "hp": 2470,
+      "hp": 2450,
       "atk": 97,
       "dfn": 37,
       "speed": 12,
       "gauge_rate": 105,
       "acc": 90,
       "crit": 14,
-      "power": 124,
+      "power": 123,
+      "gauge_start": 20,
       "traits": [
         {
           "name": "背水",

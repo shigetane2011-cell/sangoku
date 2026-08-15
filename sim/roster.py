@@ -583,8 +583,11 @@ ROSTER = [
      S("鳳雛の献策", "all_allies", [GAUGE(6)], gauge=50), ["chain"]),
     ("魏延", "子午", 7, "cav", "dps",
      S("子午の奇襲", "enemy_back_lane", [D(230)], gauge=125), ["bloodpath"]),
+    # 消費150%の大技を初期ゲージでも速度でも補っていない唯一の札で、採用率が
+    # 3レギュレーションとも下限割れだった。初期ゲージを与えて0.76回→1.03回にする。
     ("顔良", "河北の驍", 7, "cav", "burst",
-     S("河北の驍将", "front_enemy", [D(290)], gauge=150), ["laststand"]),
+     S("河北の驍将", "front_enemy", [D(290)], gauge=150), ["laststand"],
+     {"gauge_start": 20}),
     ("魯粛", "塌上策", 7, "arc", "support",
      S("塌上の策", "all_allies", [MOD("atk", 5, 140)], gauge=75), ["chain"]),
     ("凌統", "断金", 7, "inf", "dps",
