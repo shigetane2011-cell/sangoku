@@ -15,6 +15,7 @@ usage:
   python3 sim/balance.py exploit     攻略探索（最強編成を探し、収束するか循環するか）
   python3 sim/balance.py bo3         BO3のマッチ勝率（1戦の勝率が3戦でどう化けるか）
   python3 sim/balance.py factions    勢力の規模と対抗能力の実効価値
+  python3 sim/balance.py amplify     増幅の強さ（総合値の差が勝率へどれだけ拡大されるか）
   python3 sim/balance.py sensitivity 総合値の差と勝率の差の換算率
   python3 sim/balance.py all         すべて
 """
@@ -1157,6 +1158,74 @@ def scaled_team(score_mult, cost=5, troop="inf", role="bruiser", skill="strike",
                       for c, (r, l) in zip(cards, SLOTS)], "commander": 4}
 
 
+def cmd_amplify():
+    """増幅の強さを測る（§4.6）。総合値の差が勝率へどれだけ拡大されるか。
+
+    **基準を2つ先に置く。** 勝率の立ち上がりの急さが問題であって、強い側が
+    勝つこと自体は正しい。基準がないと「急すぎる」を判定できない。
+
+      1. 増幅なしの下限: 強さがそのまま勝率になるモデル s/(s+1)。+3% で 50.7%。
+      2. 設計側の上限: 中コスト戦の上限30なので 1コスト = 総合値の約3.3%。
+         三すくみの読み勝ちですら1戦71%まで（§5.3）なので、1コスト差はそれ以下。
+    """
+    import roster
+    print("=== 増幅の測定 ===")
+    print("  総合値だけを変えた編成を等倍の編成と戦わせ、勝率の立ち上がりを見る。")
+    print("  増幅なし（s/(s+1)）なら +10% でも 52.4% にしかならない。")
+    print("  実際の対戦ゲームはそれより急でよい。問題は急すぎることである。\n")
+
+    def score_of(team):
+        c = team["units"][0]["card"]
+        t = roster.TROOP["inf"]
+        return roster.effective_score(c["hp"], c["atk"], c["dfn"], t["interval"],
+                                      c["acc"], c["crit"], roster.evade_of("inf"))
+
+    base = scaled_team(1.0, tag="ampbase")
+    base_score = score_of(base)
+    rows = []
+    print(f"  {'要求':>5}{'実現':>7}{'勝率':>7}{'増幅なし':>9}")
+    for pct in (2, 4, 5, 6, 7, 8, 10, 12, 15):
+        team = scaled_team(1 + pct / 100, tag=f"amp{pct}")
+        real = (score_of(team) / base_score - 1) * 100
+        wr = winrate(team, base, seeds=300)
+        rows.append((real, wr))
+        bt = (1 + pct / 100) / (2 + pct / 100) * 100
+        print(f"  {pct:>+4}%{real:>+6.1f}%{wr:>6}%{bt:>8.1f}%")
+
+    def interp(target, xs):
+        prev = (0.0, 50.0)
+        for real, wr in rows:
+            if (wr >= target) if xs else (real >= target):
+                key = wr if xs else real
+                span = key - (prev[1] if xs else prev[0])
+                f = (target - (prev[1] if xs else prev[0])) / max(1e-9, span)
+                return (prev[0] + (real - prev[0]) * f if xs
+                        else prev[1] + (wr - prev[1]) * f)
+            prev = (real, wr)
+        return None
+
+    width = interp(75, True)
+    print(f"\n  決定幅（勝率75%に必要な総合値差）: "
+          f"{f'{width:.1f}%' if width else '15%超'}  ← 大きいほど許容誤差が広い")
+    print(f"  1コスト相当（総合値3.3%）の勝率: {interp(3.3, False):.0f}%")
+
+    print("\n  実際のコストでも測る（無個性カード6枚・合計コストだけを変える）")
+    for a, b in ((30, 29), (30, 27), (30, 24)):
+        def flat(total, tag):
+            cards = [vanilla(c, "inf", cid=f"{tag}{i}")
+                     for i, c in enumerate([5, 5, 5, 5, 5, total - 25])]
+            for c in cards:
+                CARDS[c["id"]] = c
+            return make_team([c["id"] for c in cards], commander=4)
+        print(f"    合計{a} 対 合計{b}（{a-b}コスト差）: "
+              f"{winrate(flat(a, f'ca{a}'), flat(b, f'cb{b}'), seeds=200):>3}%")
+
+    print("\n  **緩和策は v0.5 末に案A〜Fを実測し、案D（現状維持）を採った。**")
+    print("  増幅を緩める案はどれも三すくみを同じ向きに壊す（歩兵→騎兵が反転）。")
+    print("  三すくみの +4% が 67% になるのも60秒の複利によるもので、")
+    print("  **増幅と三すくみは同じ源から出ている**。詳細は仕様書 §4.6。")
+
+
 def cmd_sensitivity():
     """総合値の差が勝率の差へどう換算されるかを測る。
 
@@ -1186,7 +1255,7 @@ def main():
              "skills": cmd_skills, "traits": cmd_traits,
              "formations": cmd_formations, "exploit": cmd_exploit,
              "support": cmd_support, "bo3": cmd_bo3, "factions": cmd_factions,
-             "sensitivity": cmd_sensitivity}
+             "amplify": cmd_amplify, "sensitivity": cmd_sensitivity}
     if cmd == "all":
         for fn in (cmd_check, cmd_troops, cmd_commander, cmd_swap, cmd_meta):
             fn()
