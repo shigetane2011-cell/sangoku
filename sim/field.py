@@ -444,6 +444,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
+import random
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
@@ -1138,7 +1139,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1231,6 +1232,8 @@ class Unit:
         self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
+        self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
+        self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
         self.gauge_cost = card.gauge_cost
         self.gauge_rate = card.gauge_rate
@@ -1785,8 +1788,9 @@ def _fire_skills(own, foe, t: float, ev, seen) -> set:
     for u in own:
         if u.men <= 0.0 or not u.skill:
             continue
-        if u.gauge >= u.gauge_cost:
-            u.gauge -= u.gauge_cost
+        need = _skill_threshold(u)
+        if u.gauge >= need:
+            u.gauge -= need
             u.fires += 1
             fired.add(u)
             if SKILL_SCALE <= 0.0:
@@ -1917,6 +1921,58 @@ def chaos_ff(u: Unit) -> float:
     return CHAOS_FF * u.chaos / (1.0 + u.chaos) if u.chaos > 0.0 else 0.0
 
 
+# ============================================================================
+# 乱数（§6.4）。**「決定論」は「同じ種なら同じ結果」であって「乱数なし」ではない。**
+# ============================================================================
+#
+# §8.3 が「各部隊戦は独立した乱数シードを持つ」と決めているので、種を渡す形にする。
+# `seed=None` なら乱数をまったく引かない（＝これまでの盤面と完全に同じ）。既存の
+# 測定はそのまま動き、**構造の非対称を見つける厳密な零点も seed=None のまま残る。**
+#
+# ── 刻みに依らない引き方にすること ──────────────────────────
+#
+# 毎ティックのダメージに ±σ を掛けると、1戦の合計のばらつきは σ·√(dt/T) になる。
+# **刻みを半分にするとブレが 1/√2 に縮む。** §13 の「時間刻みを振って符号が変わら
+# ないものだけを結論に使う」に正面からぶつかるので、この引き方は採らない。
+#
+# 採るのは2つ。
+#
+#  勢い（surge）… 部隊ごとの出力が時定数 τ でゆっくり漂う Ornstein-Uhlenbeck 過程。
+#    **厳密離散化**で進めるので、刻みを変えても定常分布と自己相関がぴったり保たれる。
+#
+#        m ← 1 + (m-1)·e^(-dt/τ) + σ·√(1-e^(-2·dt/τ))·N(0,1)
+#
+#    オイラー近似で書くと刻みの効き方が変わるので、必ずこの形を使うこと。
+#
+#  技のゆらぎ（jitter）… 必殺技の閾値を発動ごとに ±SKILL_JITTER 振る。**1戦の
+#    発動回数は有限で刻みに依らない**ので、これも刻み非依存である。
+#
+# 幅は §6.4 の「通常ダメージ乱数 ±5%程度」を出発点に、コスト差が勝率へどれだけ
+# 残るかを測って決める（§5.3 の目標帯 55〜80%）。
+RAND_SIGMA = 0.00       # 勢いの定常標準偏差。0 で乱数なし
+RAND_TAU = 45.0         # 勢いが戻る時定数（ティック）
+SKILL_JITTER = 0.00     # 必殺技の閾値のゆらぎ（消費ゲージに対する割合）
+
+
+def _surge_step(units, dt: float) -> None:
+    """勢いを1ティック進める。**厳密離散化**なので刻みで分布が動かない。"""
+    if RAND_SIGMA <= 0.0:
+        return
+    a = math.exp(-dt / RAND_TAU)
+    s = RAND_SIGMA * math.sqrt(max(1.0 - a * a, 0.0))
+    for u in units:
+        if u.rand is None:
+            continue
+        u.surge = 1.0 + (u.surge - 1.0) * a + s * u.rand.gauss(0.0, 1.0)
+
+
+def _skill_threshold(u: Unit) -> float:
+    """この発動に使う閾値。ゆらぎは**発動ごとに1回**引く（刻みに依らない）。"""
+    if SKILL_JITTER <= 0.0 or u.rand is None:
+        return u.gauge_cost
+    return u.gauge_cost * (1.0 + u.rand.uniform(-SKILL_JITTER, SKILL_JITTER))
+
+
 def _output(u: Unit) -> float:
     """兵種ごとの時間プロファイル。3兵種で形が違うのが狙い。
 
@@ -1924,7 +1980,7 @@ def _output(u: Unit) -> float:
       騎兵 … 取り付いた直後が強く、乱戦が続くと落ちる（ここ）
       歩兵 … 増減なし。だから長い乱戦で相対的に強い
     """
-    m = 1.0 / (1.0 + u.disrupt + u.chaos)   # 受けた混乱ぶん出力が落ちる
+    m = u.surge / (1.0 + u.disrupt + u.chaos)   # 受けた混乱ぶん出力が落ちる
     if CHARGE_BONUS > 0.0 and u.typ == CAV:
         m *= 1.0 + CHARGE_BONUS * math.exp(-u.melee / CHARGE_TAU)
     return m
@@ -1950,10 +2006,20 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
 
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
              repulse: float = 0.0, damage: bool = True,
-             events: "List[Event] | None" = None) -> Dict:
+             events: "List[Event] | None" = None,
+             seed: "int | None" = None) -> Dict:
     """events を渡すと出来事を記録する。**記録は読み取り専用**で、勝敗にも
     測定にも一切影響しない（§9.3。§8.2 の引き分け帯を測定へ持ち込んで計器を
-    殺した失敗と同じ形を避けるため）。"""
+    殺した失敗と同じ形を避けるため）。
+
+    seed を渡すと乱数が入る（§6.4）。**渡さなければ1つも引かない**ので、
+    これまでの測定はそのまま同じ値を出す。種は部隊ごとに (seed, side, 番号) から
+    導くので、同じ種なら何度走らせても同じ結果になる（§8.4 の再現性）。
+
+    **同じ編成どうしでも、種を入れれば結果は五分にならない。** それが乱数を
+    入れた意味であって、壊れているのではない。構造の非対称を見つける厳密な
+    零点は `seed=None` のまま残してある。
+    """
     # 陣形相性（表で決める）。循環で勝っている側の与ダメージへ掛ける。
     dr = (a.rank - b.rank) % 3
     fa = 1.0 + FORM_BONUS if dr == 2 else 1.0
@@ -1971,6 +2037,12 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
 
     ua = build(a, +1, ka)
     ub = build(b, -1, kb)
+    if seed is not None and (RAND_SIGMA > 0.0 or SKILL_JITTER > 0.0):
+        # **部隊ごとに独立の流れを持たせる。** 1本の流れを共有すると、引く順序が
+        # 変わるだけで結果が動き、処理順の入れ替えに弱くなる。
+        for _side, _us in ((1, ua), (-1, ub)):
+            for _i, _u in enumerate(_us):
+                _u.rand = random.Random("{}/{}/{}".format(seed, _side, _i))
     _plan_paths(ua, ub, a.form, b.form)
     _plan_paths(ub, ua, b.form, a.form)
 
@@ -2042,6 +2114,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # **減衰は矢の消費と無関係。** ここは以前 else: の中に、しかも for を
             # 抜けた位置に置かれていて、最後の1部隊にしか当たらず、いまの
             # AMMO_MODE では一度も走っていなかった。混乱の秒数が効かない形。
+            _surge_step(ua + ub, dt)
             for x in ua + ub:
                 if x.disrupt > 0.0:
                     x.disrupt *= math.exp(-dt / DISRUPT_TAU)
