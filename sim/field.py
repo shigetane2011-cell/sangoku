@@ -1397,7 +1397,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         push_b = y0b - (sum(u.y for u in ub) / len(ub))
         diff += GROUND_WEIGHT * (push_a - push_b) / BOARD_D
     score = 0.5 if abs(diff) < DRAW_BAND else (1.0 if diff > 0 else 0.0)
-    return {"score": score, "ra": ra, "rb": rb, "t": t, "reason": reason,
+    return {"score": score, "diff": diff, "ra": ra, "rb": rb, "t": t,
+            "reason": reason,
             "width_start": start_width, "width_end": _front_width(ua),
             "fires_a": [(u.name or u.typ, u.fires) for u in ua],
             "fires_b": [(u.name or u.typ, u.fires) for u in ub]}
@@ -1917,9 +1918,14 @@ def cmd_spread(args) -> None:
 
 
 def margin(a: Army, b: Army, dt: float = 0.5) -> float:
-    """a と b の残存兵力率の差。勝敗ではなく**差そのもの**を返す。"""
-    r = simulate(a, b, dt=dt)
-    return r["ra"] - r["rb"]
+    """a の b に対する優劣。勝敗ではなく**差そのもの**を返す。
+
+    §6.1 案C（GROUND_WEIGHT）で押し込みを勝敗へ足すなら、**測定にも同じ量を
+    使わなければならない**。ここで残存兵力率の差だけを返していたため、押し込みの
+    重みを 0 から 2.0 まで振っても測定値が小数3桁まで一致し、案Cが「まったく
+    効かない」ように見えた。勝敗と測定で別々の量を見ていたのが原因。
+    """
+    return simulate(a, b, dt=dt)["diff"]
 
 
 def cost_yardstick(dt: float = 0.5) -> float:
