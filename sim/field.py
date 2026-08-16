@@ -645,6 +645,8 @@ SKILL_SCALE = 1.482    # 上の GAUGE_PER_SEC と対で決まる（予算を保�
 # ダメージ比 0.54〜0.65 はゲージ供給を2.2倍にしても動かなかったので、比のほうが
 # 素性である。SKILL_SCALE × 0.60 を採る。
 HEAL_SCALE = 0.89
+# §6.5「1つの能力に対する補正合計は -50% 〜 +50% に丸める」。
+MOD_CAP = 0.50
 USE_TYPE_DEF = True
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
@@ -983,6 +985,14 @@ class Card:
     gauge_cost: float = 100.0
     gauge_rate: float = 1.0
     gauge_init: float = 0.0
+    # 能力値を出すときのコスト。0 なら cost をそのまま使う。
+    # **効果予算（§7.5）を引いた値をここへ入れる。** cost 側を書き換えると
+    # 編成の合計コストが変わってしまうので、表示コストと能力値コストを分ける。
+    # ここが無いと、武力・知力だけが予算ぶん下がって**兵力が下がらない**
+    # （Unit が card.cost から兵力を作り直すため）。実際に踏んだ。
+    # **末尾に置くこと。** 途中に足すと Card(cost, typ, role, ...) の位置引数が
+    # 1つずつずれる（role が stat_cost に入って TypeError になった）。
+    stat_cost: float = 0.0
 
     def label(self) -> str:
         if self.name:
@@ -1051,7 +1061,7 @@ class Unit:
 
         # 総合値 ∝ コスト。実効耐久・実効火力へ均等に割り、行動面の係数で割り戻す。
         # （§6.1「強さに効く数値をひとつでも式から落とすと予算外の優位が出る」）
-        c = card.cost * cost_mult
+        c = (card.stat_cost or card.cost) * cost_mult
         p = POWER_BASE_FRAC + (1.0 - POWER_BASE_FRAC) * (c / BASE_COST)
         s = max(p, 1e-6) / ACT_COEF[card.typ]
         s = max(s, 1e-9)
@@ -1113,7 +1123,8 @@ class Unit:
         self.def_mult = 1.0
         self.spd_mult = 1.0
         self.fired = 0      # 誘発型が何回発火したか
-        self.effects: List[Tuple[float, str, float]] = []  # (失効時刻, 種別, 量)
+        # (失効時刻, 種別, 量, 出どころ)。出どころは §6.5 の同名判定に使う。
+        self.effects: List[Tuple[float, str, float, str]] = []
         # 時間つきの効果（継続ダメージ・継続回復）。(失効時刻, 種別, 毎秒の量)。
         # **総量ではなく毎秒で持つ。** 総量を1発で入れると、14秒かけて削る技と
         # 同じ量を初手で入れる技の区別が消える。前者は相手が先に潰走すれば
@@ -1313,7 +1324,8 @@ def _fire_traits(ua, ub, t, retired, ev, seen) -> None:
             u.fired += 1
             targets = own if kind == "all" else [u]
             for x in targets:
-                x.effects.append((t + dur, "def" if kind == "def" else "atk", amt))
+                x.effects.append((t + dur, "def" if kind == "def" else "atk",
+                              amt, u.trait))
             if ev is not None and ("誘", u.trait, u.side) not in seen:
                 seen.add(("誘", u.trait, u.side))
                 ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
@@ -1396,8 +1408,7 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     m = re.search(r"行動阻害\s*(\d+)秒", effect)
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
-        out.append(("atk", -1.0, float(m.group(1))))
-        out.append(("spd", -1.0, float(m.group(1))))
+        out.append(("stun", -1.0, float(m.group(1))))
     m = re.search(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", effect)
     if m:
         out.append(("gauge", float(m.group(1)), 0.0))
@@ -1480,6 +1491,11 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
             # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
             ally = "味方" in tstr or "自分" in tstr
             for key, amt, secs in sk.mods:
+                if key == "stun":
+                    for f in ([] if ally else tgts):
+                        if f.men > 0.0:
+                            f.effects.append((t + secs, "stun", amt, u.skill))
+                    continue
                 if key == "gauge":
                     for f in (tgts if ally else [u]):
                         f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
@@ -1488,7 +1504,8 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
                       ([] if ally else tgts)
                 for f in dst:
                     if f.men > 0.0:
-                        f.effects.append((t + secs, key, amt))
+                        # 同名判定のため、どの技から来たかを持たせる（§6.5）
+                        f.effects.append((t + secs, key, amt, u.skill))
             if sk.mods:
                 _expire(own + foe, t)
 
@@ -1501,7 +1518,7 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
                     if f.men <= 0.0:
                         continue
                     if dur > 0.0:
-                        f.overtime.append((t + dur, "heal", amt / dur))
+                        f.overtime.append((t + dur, "heal", amt))
                     else:
                         f.men = min(f.men0, f.men + amt)
                 continue
@@ -1509,9 +1526,10 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
             dmg = SKILL_SCALE * power * coef / n
             for f in tgts:
                 if dur > 0.0:
-                    # 継続ダメージ。**総量は同じだが取りこぼす。** 相手が先に
-                    # 潰走すれば残りは入らないし、回復と競争になる。
-                    f.overtime.append((t + dur, "dot", dmg / dur))
+                    # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
+                    # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で
+                    # 割ると総量が 1/14 になる。実際に踏んだ。
+                    f.overtime.append((t + dur, "dot", dmg))
                 else:
                     f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
 
@@ -1547,17 +1565,30 @@ def _expire(units, t: float) -> None:
         if not u.effects:
             continue
         u.effects = [e for e in u.effects if e[0] > t]
-        a = d = v = 1.0
-        for _, kind, amt in u.effects:
-            if kind == "def":
-                d += amt
-            elif kind == "spd":
-                v += amt
-            else:
-                a += amt
-        # **下限を置く。** 行動阻害（-100%）が重なると負になり、殴られるほど
-        # 回復する・後ろへ歩く、という挙動になる。
-        u.atk_mult, u.def_mult, u.spd_mult = max(a, 0.0), max(d, 0.05), max(v, 0.0)
+        # §6.5 の重複規則。**素朴に足すと壊れる。** 6枚が同じ技を3回ずつ撃つと
+        # -10% が18回積まれて -180% になり、相手が完全に無力化される
+        # （実測で 攻撃力-10%全体 の値段が 威力200%ダメージ の2.3倍になった）。
+        #   同名 … 効果量の大きい方だけを採る（重ねない）
+        #   異名 … 同じ能力への補正は加算
+        #   上限 … 1つの能力への合計を ±50% に丸める
+        best: Dict[Tuple[str, str], float] = {}
+        stun = False
+        for _, kind, amt, src in u.effects:
+            if kind == "stun":
+                stun = True
+                continue
+            k = (kind, src)
+            if abs(amt) > abs(best.get(k, 0.0)):
+                best[k] = amt
+        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0}
+        for (kind, _), amt in best.items():
+            tot[kind] += amt
+        for k in tot:
+            tot[k] = min(MOD_CAP, max(-MOD_CAP, tot[k]))
+        # 行動阻害は能力補正ではないので ±50% の丸めを受けない（§6.5 は別項）。
+        u.atk_mult = 0.0 if stun else 1.0 + tot["atk"]
+        u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
+        u.def_mult = 1.0 + tot["def"]
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
@@ -2746,6 +2777,9 @@ def cmd_dot(args) -> None:
     print()
     print("  威力40% × 14秒 = 総量560% を、14秒かけて入れる場合と1発で入れる場合。")
     print("  取りこぼし（相手が先に潰走する・回復と競争する）のぶん継続が弱いはず。")
+    print()
+    print("  **総量を揃えること。** 継続側の威力は毎秒の量なので、打ち切り側は")
+    print("  威力 × 秒数 にする。ここを揃え損ねると 14倍の差を測ることになる。")
     print()
     print("  {:<10}{:>14}{:>10}".format("時間刻み", "継続 - 打切", "勝敗"))
     cont, inst = army(0.40, 14.0), army(0.40 * 14.0, 0.0)

@@ -201,6 +201,13 @@ def tilt_of(g: Dict[str, str]) -> str:
     return TILT_BY_SKILL.get(F._skill_kind(sk["効果"], sk["対象"]), "中庸")
 
 
+def _skill_target(name: str) -> str:
+    for s in skills():
+        if s["技名"] == name:
+            return s["対象"]
+    return ""
+
+
 def to_design(g: Dict[str, str]):
     """CSV の1行を sim/design.py の設計指定へ写す。
 
@@ -211,10 +218,15 @@ def to_design(g: Dict[str, str]):
     傾きまで狂う）。コストだけを通貨として受け取り、能力値は設計式で引き直す。
     """
     from . import design as D
+    from . import field as F
+    gc = float(g["消費ゲージ%"])
+    gi = float(g["初期ゲージ"])
+    sk = F.SKILL_INFO.get(g["必殺技"])
+    # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
+    eff = D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi) if sk else 0.0
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
-                    gauge_cost=float(g["消費ゲージ%"]),
-                    gauge_init=float(g["初期ゲージ"]))
+                    gauge_cost=gc, gauge_init=gi, effect=eff)
 
 
 def to_cards(names=None):
@@ -227,7 +239,9 @@ def to_cards(names=None):
     for g in picks:
         v = D.derive(to_design(g))
         out.append(F.Card(
-            cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
+            cost=float(g["コスト"]),
+            stat_cost=float(g["コスト"]) - v["効果予算"],
+            typ=TYPE_MAP[g["兵種"]],
             role=ROLE_MAP[g["役割"]], name=g["名前"],
             trait=g["固有特性"], faction=g["勢力"],
             might=v["武力"], wits=v["知力"], skill=g["必殺技"],
