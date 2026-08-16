@@ -1148,7 +1148,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1242,6 +1242,7 @@ class Unit:
         self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
+        self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -1810,6 +1811,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         else:
             take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), f.men)
             _men_add(f, -take)
+            u.dealt += take
             done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
@@ -2199,6 +2201,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         hit *= ARC_LETHAL
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
+                    u.dealt += hit
                     db[j] += hit
             if SEQUENTIAL_DAMAGE:      # 陽性対照。通常は通らない
                 for u, d in zip(ub, db):
@@ -2229,6 +2232,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         hit *= ARC_LETHAL
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
+                    u.dealt += hit
                     da[i] += hit
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
