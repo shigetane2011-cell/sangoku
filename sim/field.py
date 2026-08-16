@@ -575,6 +575,26 @@ DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
 # **素の公平さを壊さずに個性だけ足せる。** 3兵種の時間プロファイルが揃った。
 CHARGE_BONUS = 0.6      # 突撃時の上乗せ（0 で無効）
 CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
+
+# 射線遮蔽（史実: 矢は射線の通る相手にしか当たらない）。
+# 射手と的のあいだに敵の部隊が挟まっていると、そのぶん当たらなくなる。
+# **これで敵前衛が敵後衛の盾になる**。特別規則ではなく実座標から出る。
+# 0 で無効。点と線分の距離だけで決まる連続な形で、分岐を含まない。
+# 実測。**増幅への効きは3案中いちばん悪いが、陣形の軸を強くする。**
+#
+#   遮蔽  緩い弓係数  跳び幅      陣形の推移幅  標準/狭深
+#   0.0     1.021    2.24倍        0.687       -0.145
+#   0.5     0.788    2.08倍        1.190       +0.566   ← 符号が反転
+#   1.0     0.619    1.93倍        1.307       +0.897
+#   2.0     0.389    1.67倍          －           －
+#
+# 同じ弱体化量で比べると 矢数15秒が跳び幅1.40、遮蔽1.0が1.93 で、増幅対策としては
+# 矢数に負ける。**提案した理由（増幅）では外れた。** 一方で陣形の推移幅が 0.687 →
+# 1.190 と1.7倍になり、狭く深い陣形の評価が反転した。前衛が後衛を隠すぶん奥行きに
+# 意味が出たためで、これは他の2案には無い性質である。**別の理由で採用する。**
+# 計算量は O(n^3)/tick と重い。
+SIGHT_BLOCK = 0.5       # 遮蔽の強さ
+SIGHT_SOFT = 60.0       # 射線の縁のなまし幅（m）
 FLANK_MARGIN = 30.0     # 迂回時に敵前衛の外縁からどれだけ外を回るか
 LEGACY_REACH = 1.6      # 【旧実装の再現用】斥力の届く距離（札幅の倍数）
 
@@ -956,14 +976,14 @@ def build(army: Army, side: int, cost_mult: float = 1.0) -> List[Unit]:
 # ============================================================================
 
 def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
-    """射撃の重み。射程は縁からの距離で測る。"""
+    """射撃の重み。射程は縁からの距離で測り、射線が通るぶんだけ当たる。"""
     out = []
     for f, d in zip(foes, gaps):
         rat = f.ratio()
         # ratio を掛けて全滅した札を撃ち続けないようにし、exp(FOCUS(1-ratio)) で
         # 弱った札へ寄せる。どちらも ratio の連続関数で、分岐を含まない。
         out.append(smooth_gate(d, u.rng, RANGE_SOFT) * rat
-                   * math.exp(FOCUS * (1.0 - rat)))
+                   * math.exp(FOCUS * (1.0 - rat)) * _sight(u, f, foes))
     return out
 
 
@@ -1016,6 +1036,33 @@ def _expire(units, t: float) -> None:
             else:
                 a += amt
         u.atk_mult, u.def_mult = a, d
+
+
+def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
+    """射手 u から的 f への射線の通りやすさ（0〜1）。
+
+    あいだに挟まっている敵の部隊ぶん当たらなくなる。**点と線分の距離**で測るので、
+    射手の後ろや的の向こう側にいる札は自動的に外れる（分岐を書かなくてよい）。
+    """
+    if SIGHT_BLOCK <= 0.0 or u.rng <= 0.0:
+        return 1.0
+    dx, dy = f.x - u.x, f.y - u.y
+    L2 = dx * dx + dy * dy
+    if L2 < 1.0:
+        return 1.0
+    L = math.sqrt(L2)
+    block = 0.0
+    for b in foes:
+        if b is f or b.men <= 0.0:
+            continue
+        t = ((b.x - u.x) * dx + (b.y - u.y) * dy) / L2
+        t = min(max(t, 0.0), 1.0)          # 線分の外へは出さない
+        px = u.x + t * dx - b.x
+        py = u.y + t * dy - b.y
+        # 射線から見た b の見かけの半幅（正面と奥行を射線の向きで混ぜる）
+        half = (b.width * abs(dy) + b.depth * abs(dx)) / (2.0 * L)
+        block += b.ratio() * smooth_gate(math.hypot(px, py), half, SIGHT_SOFT)
+    return math.exp(-SIGHT_BLOCK * block)
 
 
 def _output(u: Unit) -> float:
