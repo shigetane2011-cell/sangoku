@@ -148,19 +148,27 @@ def check() -> int:
         bad += 1
 
     # --- 効果予算 ---------------------------------------------------------
+    # **上限に当たった札は「値段どおりに payしていない」＝そのぶん強い。** 実測で
+    # コスト5・威力1500%の計略を持たせると智将の残差が +0.423 コスト点まで開き、
+    # コスト6（上限 2.70）へ上げると -0.063 に落ちた。上限に当たらない範囲では
+    # 傾きの残差は ±0.08 に収まる。**直し方はコストを1段上げること**なので、
+    # 収まるコストを名指しで出す（§7.24）。
     over = []
     for g in G:
         v = D.derive(to_design(g))
         if v["効果超過"] > 1e-9:
-            over.append((g["名前"], g["必殺技"], g["固有特性"], v["効果超過"]))
+            need = v["効果予算"] + v["効果超過"]
+            fit = math.ceil(need / D.EFFECT_CAP * 100.0 - 1e-6) / 100.0
+            over.append((g["名前"], g["必殺技"], g["固有特性"], v["効果超過"],
+                         float(g["コスト"]), fit))
     ng = [r for r in over if r[3] > D.EFFECT_OVER_OK]
     print("  効果予算の超過: {}（許容 {:.1f}点を超えるもの {}）".format(
         len(over) if over else "なし", D.EFFECT_OVER_OK, len(ng)))
-    for n, s_, t_, x in sorted(over, key=lambda r: -r[3]):
-        print("    {:<16}{:<10}{:<10}超過 {:.2f}コスト点{}".format(
-            n, s_, t_, x, "  ★許容超え" if x > D.EFFECT_OVER_OK else ""))
+    for n, s_, t_, x, c, fit in sorted(over, key=lambda r: -r[3]):
+        print("    {:<16}{:<10}{:<10}超過 {:.2f}点  コスト{:.0f}→{:.1f}で収まる{}".format(
+            n, s_, t_, x, c, fit, "  ★許容超え" if x > D.EFFECT_OVER_OK else ""))
     if over:
-        print("    （許容内は設計上の見逃し。超えたらデータ側で直す）")
+        print("    （許容内は設計上の見逃し。超えたらコストを上げる）")
     bad += len(ng)
 
     # --- 能力値 + 効果 = コスト か（§4.6 の本体） --------------------------
