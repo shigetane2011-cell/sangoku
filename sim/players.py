@@ -23,12 +23,23 @@ DB ファイルは **git に入れない**（`sim/data/*.db` を .gitignore 済�
 ================================================================================
  課金の形（v0.6 で決めた）
 ================================================================================
-月額。ガチャ無し。ゲーム内通貨を売らない。
+月額。ガチャ無し。ゲーム内通貨を売らない。**当面は無課金で回す**ので、
+`ACTIVE_PLANS` は free だけ。有料プランは形だけ定義してある。
 
-**レート対象マッチの数は課金で変えない。** §3.1 は「在席時間が強さになる」のを
-潰すために作られており、同じ理屈は金にも当てはまる。回数を金で増やせるなら
-「編成研究を競う」が「課金額を競う」に置き換わる。売るのは**練習戦の回数**と
-研究の道具（編成スロット、リプレイの保持期間）で、どれもレートに触らない。
+規定回数を超えてレート対象マッチへ挑めるのは**有料**。設計は旧 DCI（Elo）式で、
+
+  - 当たるのは同レーティング帯域
+  - 勝てば上がり、**負ければ下がる**（相手は上がる）
+
+**「回数を買える＝順位を買える」にはならない。** ゼロサムのレートで同レート帯と
+当たる以上、多く挑んでも期待値は上がらず、実力が伴わなければ下がる。買えるのは
+**挑戦権であって点数ではない**。§3.1 が潰したかった「在席時間が強さになる」は
+回数そのものではなく**回数が一方向に効くこと**であり、下振れのある回数はそれに
+当たらない。
+
+**ただし順位表を「最高到達レート」で見せると買えてしまう。** 試行が多いほど運の
+良い連勝を引く確率が上がる（盤面には σ=0.15 の乱数がある。§7.27）。**順位は現在
+レートで付けること。** 最高到達を見せたい場合は、別枠の記録として扱う。
 
 `plan` は権利の名前だけを持ち、**何が付くかはコード側の表**で決める。DB に
 効果を書くと、プラン改定のたびに既存行の書き換えが要る。
@@ -40,7 +51,7 @@ import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA, "players.db")
@@ -54,12 +65,15 @@ DUMMY_DOMAIN = "example.invalid"
 
 RATING_START = 1500.0
 
-# プランごとの権利。**レート対象マッチ数は全プラン同じ**（公平性の床）。
-# 増やすのは練習戦と研究の道具だけ。
+# プランごとの権利。`rated_per_day` は §3.1 の「レート変動上限」に当たる。
+# 有料で増えるが、**増えるのは挑戦できる回数であって点数ではない**（上の注記）。
 PLANS: Dict[str, Dict[str, int]] = {
     "free":    {"rated_per_day": 12, "practice_per_day": 6,  "entry_slots": 3},
-    "monthly": {"rated_per_day": 12, "practice_per_day": 48, "entry_slots": 12},
+    "monthly": {"rated_per_day": 36, "practice_per_day": 48, "entry_slots": 12},
 }
+# **いま提供しているプラン。** 当面は無課金で回すので free だけ。ここを見て
+# 課金導線を出すこと。PLANS に定義があることと、売っていることは別である。
+ACTIVE_PLANS: Tuple[str, ...] = ("free",)
 
 
 @dataclass
@@ -162,6 +176,20 @@ def get(cx: sqlite3.Connection, player_id: str) -> Optional[Player]:
         " LEFT JOIN billing b ON b.player_id=p.id WHERE p.id=?",
         (player_id,)).fetchone()
     return _row(r) if r else None
+
+
+def leaderboard(cx: sqlite3.Connection, limit: int = 50) -> List[Player]:
+    """順位表。**現在レートで並べる（最高到達では並べない）。**
+
+    最高到達で並べると、レート対象マッチを多く買った人ほど運の良い連勝を
+    引きやすく、**順位が買えてしまう**。現在レートなら、下振れも同じだけ
+    反映されるので買えない。
+    """
+    q = ("SELECT p.*, COALESCE(b.plan,'free') AS plan FROM players p"
+         " LEFT JOIN billing b ON b.player_id=p.id"
+         " WHERE p.display_name <> '(退会)'"
+         " ORDER BY p.rating DESC, p.id LIMIT ?")
+    return [_row(r) for r in cx.execute(q, (limit,))]
 
 
 def all_players(cx: sqlite3.Connection, kind: Optional[str] = None
