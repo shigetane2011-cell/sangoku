@@ -69,9 +69,11 @@ POWER_SLOPE = 0.2039
 # 知力の傾き k = 知力 / 武力。**設計者が選ぶ軸**であり、コストや役割から導かない。
 WITS_TILT = {"智将": 1.90, "才幹": 1.35, "中庸": 1.00, "武辺": 0.75, "勇将": 0.55}
 
-# 役割は総合値を変えず、兵力 ↔ 攻撃力 の配分だけを変える（§4.6）
-ROLE_MEN = {"耐久": 1.40, "均衡": 1.00, "火力": 1.0 / 1.4,
-            "瞬発": 1.0 / 1.6, "支援": 1.15}
+# 役割は総合値を変えず、兵力 ↔ 攻撃力 の配分だけを変える（§4.6）。
+# **field.ROLE_MEN の写しである。** 片方だけ触ると実カードが曲線から外れる。
+ROLE_KEY = {"耐久": F.TANK, "均衡": F.BAL, "火力": F.DPS,
+            "瞬発": F.BURST, "支援": F.SUP}
+ROLE_MEN = {jp: F.ROLE_MEN[k] for jp, k in ROLE_KEY.items()}
 
 # 気勢（旧ゲージ上昇率）。知力とは独立。1.0 が標準。
 KISEI = {"遅": 0.85, "標準": 1.00, "速": 1.15, "俊": 1.30}
@@ -127,8 +129,7 @@ def derive(d: Design) -> Dict[str, float]:
 def to_card(d: Design, name: str = "", trait: str = "",
             skill: str = "", faction: str = "") -> F.Card:
     v = derive(d)
-    role_key = {"耐久": F.TANK, "均衡": F.BAL, "火力": F.DPS,
-                "瞬発": F.DPS, "支援": F.BAL}[d.role]
+    role_key = ROLE_KEY[d.role]
     return F.Card(cost=d.cost, typ=d.typ, role=role_key, name=name,
                   trait=trait, faction=faction, might=v["武力"], wits=v["知力"],
                   skill=skill, gauge_cost=d.gauge_cost,

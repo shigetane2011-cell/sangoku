@@ -147,8 +147,11 @@ def check() -> int:
     return bad
 
 
-if __name__ == "__main__":
-    raise SystemExit(1 if check() else 0)
+def _main() -> int:
+    bad = check()
+    print()
+    bad += on_curve()
+    return bad
 
 
 # ============================================================================
@@ -159,28 +162,113 @@ if __name__ == "__main__":
 # 測れない（§13）。統制した合成カードで測る。ここで作るのは実況・リプレイ用である。
 
 ROLE_MAP = {"耐久": "tank", "均衡": "bal", "火力": "dps",
-            "瞬発": "dps", "支援": "bal"}
-
-# 【廃棄予定】知力を役割から機械的に導く placeholder。根拠がない。
-# sim/design.py が「知力の傾きは設計者が選ぶ軸」として置き換える。CSV に知力の列が
-# 無いあいだの足場として残しているだけで、設計式でロスターを引き直したら消すこと。
-WITS_BY_ROLE = {"支援": 1.45, "均衡": 1.05, "耐久": 0.85, "火力": 0.70, "瞬発": 0.65}
+            "瞬発": "burst", "支援": "sup"}
 TYPE_MAP = {"歩兵": "inf", "騎兵": "cav", "弓兵": "arc"}
+
+
+# ---------------------------------------------------------------------------
+# 知力の傾き（sim/design.py の WITS_TILT のキー）
+# ---------------------------------------------------------------------------
+# CSV に知力の列が無いので、ここで補う。**傾きは総合値を動かさない**（design.py の
+# 検算[1]）ので、値付けには一切効かない。効くのは必殺技の係数だけである。
+#
+# 既定は必殺技の種別から弱めに置く。計略で撃つ札は知力が乗るので知力寄り、
+# 武技で撃つ札は武力寄り。強い傾き（智将・勇将）は**人物として明らかな札にだけ**
+# 手で置く。残りは設計者が後から埋める前提の暫定値である。
+#
+# 以前ここにあった WITS_BY_ROLE（支援1.45・火力0.70…）は廃棄した。あれは役割から
+# 知力を機械的に導く根拠のない placeholder で、しかも武力の側を解き直していなかった
+# ため、**役割ごとに総合値が -12.3% 〜 +15.8% ずれていた**（実測）。
+TILT_BY_SKILL = {"scheme": "才幹", "area": "中庸", "melee": "武辺"}
+
+TILT_BY_NAME = {
+    "諸葛亮": "智将", "司馬懿": "智将", "周瑜": "智将", "郭嘉": "智将",
+    "賈詡": "智将", "陸遜": "智将", "荀彧": "智将", "龐統": "智将",
+    "呂布": "勇将", "関羽": "勇将", "張飛": "勇将", "許褚": "勇将",
+    "典韋": "勇将", "馬超": "勇将", "顔良": "勇将", "文醜": "勇将",
+}
+
+
+def tilt_of(g: Dict[str, str]) -> str:
+    """1枚の知力の傾きを決める。人物指定が最優先、無ければ必殺技の種別から。"""
+    from . import field as F
+    t = TILT_BY_NAME.get(g.get("人物", ""))
+    if t:
+        return t
+    sk = {s["技名"]: s for s in skills()}.get(g["必殺技"])
+    if not sk:
+        return "中庸"
+    return TILT_BY_SKILL.get(F._skill_kind(sk["効果"], sk["対象"]), "中庸")
+
+
+def to_design(g: Dict[str, str]):
+    """CSV の1行を sim/design.py の設計指定へ写す。
+
+    **CSV の兵力・攻撃力は使わない。** あの2列は旧ルール（レーンあり）の内部スケール
+    で、この盤面のコスト曲線とは別物である。両方を混ぜると、兵力はコスト曲線で伸び、
+    攻撃力は CSV の別スケールで伸びるので、**コストが二重に乗る**（実測：コスト10の
+    札の総合値が設計式の 65% しかないのに、コスト1の札は 46% しかない、という形で
+    傾きまで狂う）。コストだけを通貨として受け取り、能力値は設計式で引き直す。
+    """
+    from . import design as D
+    return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
+                    role=g["役割"], tilt=tilt_of(g),
+                    gauge_cost=float(g["消費ゲージ%"]),
+                    gauge_init=float(g["初期ゲージ"]))
 
 
 def to_cards(names=None):
     """武将名のリストから field.Card を作る。名前を省くと全80枚を返す。"""
+    from . import design as D
     from . import field as F  # 遅延 import（rosterdata 単体でも検算できるように）
     idx = {g["名前"]: g for g in generals()}
     picks = [idx[n] for n in names] if names else list(idx.values())
-    return [F.Card(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
-                   role=ROLE_MAP[g["役割"]], name=g["名前"],
-                   trait=g["固有特性"], faction=g["勢力"],
-                   might=float(g["攻撃力"]),
-                   wits=float(g["攻撃力"]) * WITS_BY_ROLE[g["役割"]],
-                   skill=g["必殺技"], gauge_cost=float(g["消費ゲージ%"]),
-                   gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
-                   gauge_init=float(g["初期ゲージ"])) for g in picks]
+    out = []
+    for g in picks:
+        v = D.derive(to_design(g))
+        out.append(F.Card(
+            cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
+            role=ROLE_MAP[g["役割"]], name=g["名前"],
+            trait=g["固有特性"], faction=g["勢力"],
+            might=v["武力"], wits=v["知力"], skill=g["必殺技"],
+            gauge_cost=float(g["消費ゲージ%"]),
+            # 気勢だけは CSV の値を使う。知力とは独立の項目なので設計式で潰さない。
+            gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
+            gauge_init=float(g["初期ゲージ"])))
+    return out
+
+
+def on_curve() -> int:
+    """実カードがコスト曲線に乗っているか検算する。
+
+    §13「新しい指標を作ったら、まず完全に均衡していたら何が出るかを計算する」。
+    ここでの正解は「盤面での総合値 ÷ 設計式の総合値 が全コスト帯で 1.000」である。
+    ずれていたら、CSV の別スケールがどこかから漏れて入っている。
+    """
+    from . import design as D
+    from . import field as F
+    form = F.Formation(n_front=3)
+    idx = {g["名前"]: g for g in generals()}
+    cards = to_cards()
+    bad = 0
+    print("実カードがコスト曲線に乗っているか（比 1.0000 が正解）")
+    print("  {:<6}{:>6}{:>10}{:>10}{:>10}{:>10}".format(
+        "コスト", "枚数", "盤面", "設計式", "比", "最大ずれ%"))
+    for c in sorted({int(x.cost) for x in cards}):
+        ps, ds = [], []
+        for x in (x for x in cards if int(x.cost) == c):
+            u = F.Unit(0, x, form, (0.0, 0.0), True)
+            ps.append(u.men0 * (100.0 + u.dfn) / 100.0 * u.atk / u.interval / 1e5)
+            ds.append(D.derive(to_design(idx[x.name]))["総合値"])
+        dev = max(abs(p / d - 1.0) for p, d in zip(ps, ds)) * 100
+        print("  {:<6}{:>6}{:>10.2f}{:>10.2f}{:>10.4f}{:>10.2f}{}".format(
+            c, len(ps), st.mean(ps), st.mean(ds),
+            st.mean(p / d for p, d in zip(ps, ds)), dev,
+            "  ★" if dev > 0.5 else ""))
+        if dev > 0.5:
+            bad += 1
+    print("\n" + ("乗っていない帯が {} 件".format(bad) if bad else "全帯がコスト曲線の上"))
+    return bad
 
 
 def load_skills_into_field() -> int:
@@ -198,3 +286,7 @@ def load_skills_into_field() -> int:
 
 def by_cost(cost: int):
     return [g["名前"] for g in generals() if int(g["コスト"]) == cost]
+
+
+if __name__ == "__main__":
+    raise SystemExit(1 if _main() else 0)

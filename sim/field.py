@@ -933,9 +933,13 @@ def approach_exact(d: float, v: float, dt: float, L: float = APPROACH_L) -> floa
 
 # 役割は総合値を変えず**内訳だけ**を変える（§4.6）。耐久寄りは兵力へ、火力寄りは
 # 攻撃力へ寄せる。§5.3 の「三すくみは役割を混ぜた編成で測る」を満たすために要る。
-TANK, BAL, DPS = "tank", "bal", "dps"
-ROLE_JP = {TANK: "耐久", BAL: "均衡", DPS: "火力"}
-ROLE_MEN = {TANK: 1.4, BAL: 1.0, DPS: 1.0 / 1.4}
+TANK, BAL, DPS, BURST, SUP = "tank", "bal", "dps", "burst", "sup"
+ROLE_JP = {TANK: "耐久", BAL: "均衡", DPS: "火力", BURST: "瞬発", SUP: "支援"}
+# 役割は総合値を変えず、兵力 ↔ 攻撃力 の配分だけを変える（§4.6）。
+# **sim/design.py の ROLE_MEN と同じ値でなければならない。** ここが食い違うと、
+# 設計式で解いた武力・知力を盤面が別の兵力と掛けることになり、実カードの総合値が
+# コスト曲線から外れる（実測で最大 14.3% ずれた）。
+ROLE_MEN = {TANK: 1.4, BAL: 1.0, DPS: 1.0 / 1.4, BURST: 1.0 / 1.6, SUP: 1.15}
 MIXED_ROLES = (TANK, TANK, BAL, BAL, DPS, DPS)
 
 
