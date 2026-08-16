@@ -759,9 +759,31 @@ AMMO_TAIL = 20.0        # 尽きたあとの減衰の時定数（秒）
 # 下げたとき、矢数25秒は跳び幅1.70、混乱0.7は1.97。仮説（兵力を減らさないから
 # 複利に乗らない）は支持されず、実体は「弓を弱くしているだけ」だった。
 # 体力（持続射の低下）も矢数と同じ形（累積で出力が落ちる）なので重複。入れない。
-ARC_LETHAL = 1.0        # 1.0 で全部が兵力減（＝混乱を使わない）
+ARC_LETHAL = 1.0        # 1.0 で全部が兵力減（＝弓の混乱は使わない）
+# **陽性対照専用のスイッチ。通常は False のまま。** True にすると A の与えた
+# ダメージを B が撃つ前に適用する（＝逐次解決）。§5.1 の同時解決を壊した
+# ときに計器が反応するかを確かめるためだけにある。
+SEQUENTIAL_DAMAGE = False
 DISRUPT_GAIN = 6.0      # 混乱の効き。攻撃力は 1/(1+混乱) 倍になる
 DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
+
+# 混乱と同士討ち（§6.5）。**計略で相手の隊列を乱す。**
+#
+# 混乱を受けた札は出力が 1/(1+混乱) 倍に落ちるだけでなく、**与ダメージの一部が
+# 味方へ向く**。これが同士討ちで、混乱の量に比例して増える。
+#
+#   同士討ちの割合 = CHAOS_FF × 混乱 / (1 + 混乱)
+#
+# **知力が抵抗になる。** 掛ける側の知力と受ける側の知力の比で効き目が変わる。
+# 判定（成功/失敗）は置かない。決定論の盤面で分岐を作ると時間刻みに弱くなるうえ、
+# 「効いたか外れたか」の二値は帯を踏めない（§13）。**量が連続に変わる形にする。**
+#
+#   実際の混乱 = 表記の混乱 × (掛ける側の知力 / 受ける側の知力) ^ CHAOS_WITS
+#
+# これで知力が**守りにも効く**ようになる。いまの知力は必殺技の係数にしか効かず、
+# 攻める側の軸でしかなかった（§7.22 の非対称）。
+CHAOS_FF = 0.50         # 混乱が最大のとき、与ダメージのこの割合が味方へ向く
+CHAOS_WITS = 0.50       # 知力比の効き（0 で知力は無関係、1 で比がそのまま乗る）
 
 # 騎兵の突撃（史実の衝撃力）。取り付いた直後は強いが、乱戦になると落ちる。
 # 矢数と同じ「消耗する資源」で書く。歩兵は増減なしで乱戦に強い、という差になる。
@@ -1116,7 +1138,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1206,7 +1228,9 @@ class Unit:
         self.overtime: List[Tuple[float, str, float]] = []
         self.shot = 0.0     # 累積の射撃時間（矢数の代理）
         self.melee = 0.0    # 敵と噛み合っている累積時間（突撃の勢いの逆）
-        self.disrupt = 0.0  # 受けている混乱の量
+        self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
+        self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
+        self.chaos_until = 0.0  # その失効時刻
         self.gauge = card.gauge_init
         self.gauge_cost = card.gauge_cost
         self.gauge_rate = card.gauge_rate
@@ -1485,6 +1509,9 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
             r"(攻撃力|命中率|防御力|移動速度|気勢)\s*([+-]\d+)%（(\d+)秒）", effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
+    m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
+    if m:
+        out.append(("chaos", float(m.group(1)) / 100.0, float(m.group(2))))
     m = re.search(r"行動阻害\s*(\d+)秒", effect)
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
@@ -1585,6 +1612,9 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         return "{}、{}。{}が{:,.0f}人を立て直す。".format(who, name, where, amount)
     if kind == "stun":
         return "{}、{}。{}の足が{:.0f}分止まる。".format(who, name, where, secs)
+    if kind == "chaos":
+        return "{}、{}。{}の隊列が乱れ、同士討ちが始まる（{:.0f}分）。".format(
+            who, name, where, secs)
     if kind == "buff":
         return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}分）。".format(
             who, name, where, amount, secs)
@@ -1628,6 +1658,18 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     ally = "味方" in tstr or "自分" in tstr
     best = None                 # 1回の発動につき実況は1行。いちばん大きい成分で書く
     for key, amt, secs in sk.mods:
+        if key == "chaos":
+            # 知力の比で効き目が変わる。**判定は置かず、量が連続に変わる。**
+            hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
+            for f in hit:
+                r = (u.wits / max(f.wits, 1e-6)) ** CHAOS_WITS
+                f.chaos = max(f.chaos, amt * r)
+                f.chaos_until = max(f.chaos_until, t + secs)
+            if hit:
+                m = amt * secs * len(hit)
+                if best is None or m > best[3]:
+                    best = ("chaos", amt, secs, m)
+            continue
         if key == "stun":
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
@@ -1809,6 +1851,34 @@ def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
     return math.exp(-SIGHT_BLOCK * block)
 
 
+def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
+    """同士討ち。混乱した札の与ダメージの一部が味方へ向く。
+
+    向き先は**自分以外の味方へ兵力に比例して配る**。誰を撃つかを乱数で選ぶと
+    決定論が壊れるうえ、時間刻みで結果が変わる。連続に配れば分岐が要らない。
+
+    減らす先は**通常のダメージと同じ蓄積器**（da / db）。ここで直接 men を
+    引くと、同じティックの中で味方の兵力が先に減り、あとから撃つ相手側だけが
+    その減った兵力を見る。左右の同時解決が壊れて、同じ編成どうしでも零点が
+    0 にならない。
+    """
+    if amount <= 0.0:
+        return
+    tot = sum(x.men for x in own if x is not u)
+    if tot <= 0.0:
+        return
+    for k, x in enumerate(own):
+        if x is u or x.men <= 0.0:
+            continue
+        acc[k] += (amount * (x.men / tot)
+                   * (100.0 / (100.0 + x.dfn * x.def_mult)))
+
+
+def chaos_ff(u: Unit) -> float:
+    """同士討ちに回る割合。混乱の量で連続に決まる。"""
+    return CHAOS_FF * u.chaos / (1.0 + u.chaos) if u.chaos > 0.0 else 0.0
+
+
 def _output(u: Unit) -> float:
     """兵種ごとの時間プロファイル。3兵種で形が違うのが狙い。
 
@@ -1816,7 +1886,7 @@ def _output(u: Unit) -> float:
       騎兵 … 取り付いた直後が強く、乱戦が続くと落ちる（ここ）
       歩兵 … 増減なし。だから長い乱戦で相対的に強い
     """
-    m = 1.0 / (1.0 + u.disrupt)          # 受けた混乱ぶん出力が落ちる
+    m = 1.0 / (1.0 + u.disrupt + u.chaos)   # 受けた混乱ぶん出力が落ちる
     if CHARGE_BONUS > 0.0 and u.typ == CAV:
         m *= 1.0 + CHARGE_BONUS * math.exp(-u.melee / CHARGE_TAU)
     return m
@@ -1931,8 +2001,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for x in ua + ub:
                     if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
                         x.shot += dt
+            # **減衰は矢の消費と無関係。** ここは以前 else: の中に、しかも for を
+            # 抜けた位置に置かれていて、最後の1部隊にしか当たらず、いまの
+            # AMMO_MODE では一度も走っていなかった。混乱の秒数が効かない形。
+            for x in ua + ub:
                 if x.disrupt > 0.0:
                     x.disrupt *= math.exp(-dt / DISRUPT_TAU)
+                if x.chaos > 0.0 and t + dt >= x.chaos_until:
+                    x.chaos = 0.0
             if CHARGE_BONUS > 0.0:
                 for i, x in enumerate(ua):
                     if min(gap[i]) <= 1.0:
@@ -1951,6 +2027,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * _suppress(u, gap[i]) * _output(u) * fa * ramp * ta)
+                ff = chaos_ff(u)
+                if ff > 0.0:
+                    _friendly_fire(u, ua, da, base * ff)
+                    base *= 1.0 - ff
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
@@ -1963,6 +2043,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     db[j] += hit
+            if SEQUENTIAL_DAMAGE:      # 陽性対照。通常は通らない
+                for u, d in zip(ub, db):
+                    u.men = max(u.men - d, 0.0)
+                db = [0.0] * nb
             for j, u in enumerate(ub):
                 col = [gap[i][j] for i in range(na)]
                 ws = _weights(u, ua, col)
@@ -1973,6 +2057,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * _suppress(u, col) * _output(u) * fb * ramp * tb)
+                ff = chaos_ff(u)
+                if ff > 0.0:
+                    _friendly_fire(u, ub, db, base * ff)
+                    base *= 1.0 - ff
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
@@ -2594,33 +2682,20 @@ def cmd_selftest(args) -> None:
 
 
 def _zero_sequential(army: Army) -> float:
-    """ダメージをA→Bの順に適用したときの零点（片側が先に減る＝不公平）。"""
-    ua = build(army, +1)
-    ub = build(army, -1)
-    _plan_paths(ua, ub, army.form, army.form)
-    _plan_paths(ub, ua, army.form, army.form)
-    dt = 0.25
-    for _ in range(int(T_MAX / dt)):
-        gap = [[box_gap(x, y) for y in ub] for x in ua]
-        for side_a, side_b, g in ((ua, ub, gap),
-                                  (ub, ua, [list(c) for c in zip(*gap)])):
-            for i, u in enumerate(side_a):
-                ws = _weights(u, side_b, g[i])
-                tot = sum(ws)
-                if tot <= 1e-12:
-                    continue
-                base = (u.men * LETHALITY * (u.atk / BASE_ATK) / u.interval
-                        * max(ws) / tot * dt)
-                for f, w in zip(side_b, ws):
-                    if w <= 0.0:
-                        continue
-                    bonus = 1.0 + TYPE_BONUS if BEATS[u.typ] == f.typ else 1.0
-                    f.men = max(f.men - base * w * bonus
-                                * (100.0 / (100.0 + f.dfn)), 0.0)
-    ra = sum(u.men for u in ua) / sum(u.men0 for u in ua)
-    rb = sum(u.men for u in ub) / sum(u.men0 for u in ub)
-    return 100.0 * (0.5 if abs(ra - rb) < DRAW_BAND else
-                    (1.0 if ra > rb else 0.0)) - 50.0
+    """ダメージを A→B の順に適用したときの零点（片側が先に減る＝不公平）。
+
+    **本体のループをそのまま使う。** ここは以前、ティックを別に書き写した独立の
+    実装だった。写しのほうに移動が入っておらず、両軍が一度も接敵しないまま
+    400秒を終えて残存率が 1.000 対 1.000 になり、**陽性対照が「反応しない」と
+    表示されていた**。計器の故障を計器で見つけられない形である。
+    非対称の注入は本体へ差し込み、対照は本体を通すこと。
+    """
+    global SEQUENTIAL_DAMAGE
+    SEQUENTIAL_DAMAGE = True
+    try:
+        return 100.0 * simulate(army, army)["score"] - 50.0
+    finally:
+        SEQUENTIAL_DAMAGE = False
 
 
 def cmd_spread(args) -> None:
