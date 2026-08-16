@@ -631,7 +631,7 @@ SKILL_WITS = {"melee": 0.15, "area": 0.50, "scheme": 0.85}
 #
 # 【計器】最初 150/300/600 で測って完全に同じ値が並んだ。1発45,000ダメージで札
 # （兵力10,000）が一撃で消えていたため。**同じ値の並びはゼロに限らず計器を疑う合図。**
-SKILL_SCALE = 5.0       # 必殺技ダメージの倍率（1発が札の兵力の約15%）
+SKILL_SCALE = 1.482    # 上の GAUGE_PER_SEC と対で決まる（予算を保つ値）
 # 回復の倍率。**測ったら6倍ではなく約0.6倍だった**（`sim/field.py heal`）。
 # 旧盤面の「回復はダメージの6倍必要」は総大将撤退が決着の88%を占めていたからで、
 # 1枚を落とせば即勝ちなら回復では買えない価値がダメージにあった。いまの決着条件は
@@ -641,9 +641,10 @@ SKILL_SCALE = 5.0       # 必殺技ダメージの倍率（1発が札の兵力�
 # だけで殴られてはいない）。歩兵の防御56.6なら 1.566倍ぶん効率がよく、実測の
 # 5.0/2.87 = 1.74倍とほぼ一致する。
 #
-# 実測の帯は 2.77〜3.50（兵種・潰走閾値・消費ゲージ・時間刻みを振った）。
-# 帯の中で、やや削る側に寄せて 3.0 を採る。
-HEAL_SCALE = 3.0
+# 実測の帯は 0.80〜0.97（兵種・潰走閾値・消費ゲージ・時間刻みを振った）。
+# ダメージ比 0.54〜0.65 はゲージ供給を2.2倍にしても動かなかったので、比のほうが
+# 素性である。SKILL_SCALE × 0.60 を採る。
+HEAL_SCALE = 0.89
 USE_TYPE_DEF = True
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
@@ -847,7 +848,15 @@ SKILLS_ON = False
 # なく、90秒で溜まる総量（時間だけで約145、上昇率1.3なら約190）が閾値175をぎりぎり
 # 跨ぐため 0.7回に落ち着く。回数の差ではなく到達の可否になっているので、機構では
 # 分離できない。**消費の上限を 200〜250 へ広げるか、総量を下げるかのデータ側の話。**
-GAUGE_PER_SEC = 1.45    # 時間経過（上昇率1.0のとき毎秒）。§7.1 の 1.2回/枚 に合わせた
+# ゲージの自然増加（毎秒）。**1.45 では消費175以上の技が一度も撃てなかった**
+# （90秒の供給が130しかない）。「弱いけど何度も出る技」と「本当の大技」を分けるには、
+# 供給が消費の幅より広くなければならない。3.20 なら90秒で約300が入り、
+# 消費50が6回・100が3回・200が1回（62秒）・250が1回（78秒）になる。
+#
+# 供給を上げたぶん技が出る回数が増えるので、**SKILL_SCALE を下げて予算を戻す**
+# （消費100・威力200% の技を持つ価値が +0.0670 のまま変わらない点を探した）。
+# 変わるのは技1発の重みと出る回数の配分であって、技の総価値ではない。
+GAUGE_PER_SEC = 3.20
 GAUGE_PER_DEAL = 20.0   # 与ダメージ ÷ 対象の最大兵力 × これ
 GAUGE_PER_TAKE = 15.0   # 被ダメージ ÷ 自分の最大兵力 × これ
 GAUGE_ON_ROUT = 10.0    # 敵を撤退させたとき
@@ -1029,7 +1038,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1102,6 +1111,7 @@ class Unit:
         self.trait = card.trait
         self.atk_mult = 1.0
         self.def_mult = 1.0
+        self.spd_mult = 1.0
         self.fired = 0      # 誘発型が何回発火したか
         self.effects: List[Tuple[float, str, float]] = []  # (失効時刻, 種別, 量)
         # 時間つきの効果（継続ダメージ・継続回復）。(失効時刻, 種別, 毎秒の量)。
@@ -1314,6 +1324,21 @@ def x_rate(u: Unit) -> float:
     return u.gauge_rate
 
 
+@dataclass(frozen=True)
+class Skill:
+    """必殺技1つぶんの中身。CSV の効果文から作る（`_parse_skill`）。
+
+    **盤面が持っていない量へは写さない。** 命中率はダメージ式に無いので、
+    命中率 -7% は攻撃力 -7% と同じ意味になる（期待ダメージが同じ倍率で落ちる）。
+    別の器を作ると「命中率だけ下げる技」が実は何もしない、という嘘になる。
+    """
+    power: float = 0.0      # ダメージ威力。dur > 0 なら**毎秒**の量
+    kind: str = "melee"     # 知力の効き方（SKILL_WITS）
+    dur: float = 0.0        # 継続秒数。0 は打ち切り
+    heal: float = 0.0       # 回復量（ダメージと同じ係数に掛ける）
+    mods: Tuple[Tuple[str, float, float], ...] = ()   # (種別, 量, 秒数)
+
+
 def _skill_kind(effect: str, target: str) -> str:
     if "継続ダメージ" in effect or "ダメージ" not in effect:
         return "scheme"
@@ -1350,6 +1375,40 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
     p = float(m.group(1)) / 100.0
     d = re.search(r"継続回復.*?（(\d+)秒）", effect)
     return (p, float(d.group(1))) if d else (p, 0.0)
+
+
+# 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
+_MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd"}
+
+
+def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
+    """効果文から「攻撃力 +9%（15秒）」などの状態効果を取り出す。
+
+    符号が向き先を決める。**プラスは自分（または味方）、マイナスは対象**。
+    「突撃 / 敵1体（最前） / ダメージ 威力160% + 移動速度 +30%（12秒）」の
+    +30% は敵の速度を上げる技ではなく、突っ込む自分の速度である。
+    """
+    out = []
+    for m in re.finditer(r"(攻撃力|命中率|防御力|移動速度)\s*([+-]\d+)%（(\d+)秒）",
+                         effect):
+        out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
+                    float(m.group(3))))
+    m = re.search(r"行動阻害\s*(\d+)秒", effect)
+    if m:
+        # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
+        out.append(("atk", -1.0, float(m.group(1))))
+        out.append(("spd", -1.0, float(m.group(1))))
+    m = re.search(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", effect)
+    if m:
+        out.append(("gauge", float(m.group(1)), 0.0))
+    return tuple(out)
+
+
+def _parse_skill(effect: str, target: str) -> Skill:
+    p, dur = _skill_power(effect)
+    heal, hdur = _skill_heal(effect)
+    return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
+                 heal=heal, mods=_skill_mods(effect))
 
 
 def _skill_targets(target: str, u, foe, own):
@@ -1406,18 +1465,35 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
             u.fires += 1
             if SKILL_SCALE <= 0.0:
                 continue
-            info = SKILL_INFO.get(u.skill)
-            if not info:
+            sk = SKILL_INFO.get(u.skill)
+            if not sk:
                 continue
-            power, kind, dur, heal = info
-            if power <= 0.0 and heal <= 0.0:
+            power, kind, dur, heal = sk.power, sk.kind, sk.dur, sk.heal
+            tstr = SKILL_TARGET.get(u.skill, "")
+            tgts = _skill_targets(tstr, u, foe, own)
+            if not tgts:
                 continue
             v = SKILL_WITS[kind]
             coef = u.might * (1.0 - v) + u.wits * v
-            tgts = _skill_targets(SKILL_TARGET.get(u.skill, ""), u, foe, own)
-            if not tgts:
-                continue
             n = max(len(tgts), 1)
+
+            # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
+            ally = "味方" in tstr or "自分" in tstr
+            for key, amt, secs in sk.mods:
+                if key == "gauge":
+                    for f in (tgts if ally else [u]):
+                        f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
+                    continue
+                dst = (tgts if ally else [u]) if amt > 0.0 else \
+                      ([] if ally else tgts)
+                for f in dst:
+                    if f.men > 0.0:
+                        f.effects.append((t + secs, key, amt))
+            if sk.mods:
+                _expire(own + foe, t)
+
+            if power <= 0.0 and heal <= 0.0:
+                continue
             if heal > 0.0:
                 # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
                 amt = HEAL_SCALE * heal * coef / n
@@ -1471,13 +1547,17 @@ def _expire(units, t: float) -> None:
         if not u.effects:
             continue
         u.effects = [e for e in u.effects if e[0] > t]
-        a = d = 1.0
+        a = d = v = 1.0
         for _, kind, amt in u.effects:
             if kind == "def":
                 d += amt
+            elif kind == "spd":
+                v += amt
             else:
                 a += amt
-        u.atk_mult, u.def_mult = a, d
+        # **下限を置く。** 行動阻害（-100%）が重なると負になり、殴られるほど
+        # 回復する・後ろへ歩く、という挙動になる。
+        u.atk_mult, u.def_mult, u.spd_mult = max(a, 0.0), max(d, 0.05), max(v, 0.0)
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
@@ -1706,6 +1786,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
             _fire_skills(ua, ub, t + dt, events, seen)
             _fire_skills(ub, ua, t + dt, events, seen)
+            if not TRAITS_ON:
+                _expire(ua + ub, t + dt)    # 特性オフでも状態効果は切れさせる
             # **発動より後に進める。** 先に進めると、いま乗った継続効果が
             # 同じティックで1回ぶん入ってしまう。
             _overtime(ua + ub, t + dt, dt)
@@ -1755,7 +1837,7 @@ def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],
         for f, d in zip(foes, gaps):
             z += ZOC_STR * f.ratio() * smooth_gate(d, 0.0, ZOC_R)
         z *= u.detour
-    v = u.speed * math.exp(-z)
+    v = u.speed * u.spd_mult * math.exp(-z)
     remain = u.total_len - u.progress
     return u.total_len - approach_exact(remain, v, dt)
 
@@ -2051,7 +2133,7 @@ SYNTH_SKILL_TARGET = "敵1体（最前）"
 def _synth(cost: float, typ: str, role: str = BAL) -> Card:
     """合成カード。SKILLS_ON のとき標準技を持つ。"""
     if SKILLS_ON:
-        SKILL_INFO[SYNTH_SKILL] = (SYNTH_SKILL_POWER, SYNTH_SKILL_KIND, 0.0, 0.0)
+        SKILL_INFO[SYNTH_SKILL] = Skill(SYNTH_SKILL_POWER, SYNTH_SKILL_KIND)
         SKILL_TARGET[SYNTH_SKILL] = SYNTH_SKILL_TARGET
         return Card(cost, typ, role, skill=SYNTH_SKILL)
     return Card(cost, typ, role)
@@ -2589,7 +2671,7 @@ def cmd_heal(args) -> None:
 
     def army(power, heal, typ=INF, gc=100.0):
         n = "＿測" + repr((power, heal, typ, gc))
-        SKILL_INFO[n] = (power, "melee", 0.0, heal)
+        SKILL_INFO[n] = Skill(power, "melee", 0.0, heal)
         SKILL_TARGET[n] = "敵1体（最前）" if power > 0 else "味方1体（残兵力が最少）"
         return Army(tuple(Card(BASE_COST, typ, r, skill=n, gauge_cost=gc)
                           for r in MIXED_ROLES), FORM_STANDARD)
@@ -2656,7 +2738,7 @@ def cmd_dot(args) -> None:
 
     def army(power, dur):
         n = "＿継" + repr((power, dur))
-        SKILL_INFO[n] = (power, "scheme", dur, 0.0)
+        SKILL_INFO[n] = Skill(power, "scheme", dur, 0.0)
         SKILL_TARGET[n] = "敵1列"
         return Army(tuple(Card(BASE_COST, INF, r, skill=n)
                           for r in MIXED_ROLES), FORM_STANDARD)
