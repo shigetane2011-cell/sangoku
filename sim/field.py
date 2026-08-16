@@ -1605,21 +1605,22 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         where = "{}{}隊".format(side, n)
     if kind == "dot":
         return "{}、{}。{}が燃え続ける（毎分{:,.0f}人・{:.0f}分）。".format(
-            who, name, where, amount, secs)
+            who, name, where, per_min(amount), mins(secs))
     if kind == "damage":
         return "{}、{}。{}に{:,.0f}人の損害。".format(who, name, where, amount)
     if kind == "heal":
         return "{}、{}。{}が{:,.0f}人を立て直す。".format(who, name, where, amount)
     if kind == "stun":
-        return "{}、{}。{}の足が{:.0f}分止まる。".format(who, name, where, secs)
+        return "{}、{}。{}の足が{:.0f}分止まる。".format(
+            who, name, where, mins(secs))
     if kind == "chaos":
         return "{}、{}。{}の隊列が乱れ、同士討ちが始まる（{:.0f}分）。".format(
-            who, name, where, secs)
+            who, name, where, mins(secs))
     if kind == "buff":
         return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}分）。".format(
-            who, name, where, amount, secs)
+            who, name, where, amount, mins(secs))
     return "{}、{}。{}の動きが鈍る（{:+.0%}・{:.0f}分）。".format(
-        who, name, where, amount, secs)
+        who, name, where, amount, mins(secs))
 
 
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
@@ -2240,27 +2241,40 @@ LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3,
 LINE_BUDGET = 12
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
-# 実況の時間表現。**盤面の1秒を戦場の1分として読ませる。**
+# 実況の時間表現。**盤面の1ティックを戦場の 1.35 分として読ませる。**
 #
-# 盤面の時間はティックの単位であって、戦場で流れた時間ではない。1秒＝1分にすると、
-# 中央値137ティックの戦闘が「2時間17分の戦い」になり、上限400ティックでも6時間40分
-# に収まる。古代の会戦の尺としてはこのあたりが自然である。
+# 盤面の時間はティックの単位であって、戦場で流れた時間ではない。**尺は表示だけの
+# 量なので、盤面の較正には一切触れない**（T_MAX を動かすと相性も値付けも全部
+# 測り直しになる。動かすのはこちらの尺のほうである）。
 #
-# **単位の付け替えだけで済むのが利点。** 「毎秒317人」は「毎分317人」、「3秒止まる」は
-# 「3分止まる」で、数字はそのまま使える。刻みを 0.5 にしても表示は変わらない。
+#   開戦 8:00 ／ 上限 400ティック × 1.35 = 540分 → 17:00 ちょうど
+#   中央値 137ティックの戦闘は 185分＝「3時間5分の戦い」
 #
-# 開始時刻は夜明けの6時。上限400ティックなら 12:40 までに終わる。
-# **夜戦・払暁・日没の表現は別途決める（未着手）。** いまは上限に当たった行を
-# 「決着つかず、両軍とも兵を退く」とだけ書く。6時開始・上限400分では日没に届かない
-# ので「日没」とは書けない。夜まで戦う型を作るなら、上限か1ティックの尺のどちらかを
-# 決め直す必要がある。
-BATTLE_START_H = 6      # 開戦の時刻（時）
+# 以前は 6時開始・1ティック＝1分で、上限まで戦っても 12:40 にしかならず、日没まで
+# 届かなかった（だから「日没」と書けなかった）。朝に始めて夕刻に決着がつく尺へ
+# 直したので、夜戦・払暁・日没の表現はこの上に載せられる。
+#
+# **1分ちょうどでなくなったので、秒数をそのまま分として書けない。** 「毎秒317人」を
+# 「毎分317人」と読み替える手は使えず、持続時間は mins()、率は per_min() を通す。
+# 刻み（dt）を変えても表示は変わらない。
+BATTLE_START_H = 8      # 開戦の時刻（時）
 BATTLE_START_M = 0      # 同（分）
+MIN_PER_TICK = 1.35     # 盤面1ティックを戦場の何分として読ませるか（表示のみ）
+
+
+def mins(secs: float) -> float:
+    """盤面の秒数を戦場の分へ直す（表示のみ）。"""
+    return secs * MIN_PER_TICK
+
+
+def per_min(per_sec: float) -> float:
+    """盤面の毎秒あたりの量を、戦場の毎分あたりへ直す（表示のみ）。"""
+    return per_sec / MIN_PER_TICK
 
 
 def clock(t: float) -> str:
-    """盤面の経過（秒）を戦場の時刻（24時間表記）へ直す。"""
-    m = BATTLE_START_H * 60 + BATTLE_START_M + int(t)
+    """盤面の経過（ティック）を戦場の時刻（24時間表記）へ直す。"""
+    m = BATTLE_START_H * 60 + BATTLE_START_M + int(mins(t))
     return "{:02d}:{:02d}".format((m // 60) % 24, m % 60)
 # 実況に出す下限。対象の兵力に対してこれ未満のダメージ・回復は行にしない。
 NARRATE_FLOOR = 0.02
@@ -2334,7 +2348,7 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
             "{}、戦列を離れて大きく回り込む。{:.0f}mの迂回、"
             "およそ{:.0f}分ぶんの攻撃を捨てる賭け。".format(
-                _who(u), u.total_len, u.total_len / u.speed)))
+                _who(u), u.total_len, mins(u.total_len / u.speed))))
 
 
 def _log_tick(ev, seen, t, ua, ub, gap) -> None:
@@ -2384,7 +2398,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
                 "{}が敵後衛に到達（{:.0f}分を要した）。{}の側背を突く。"
                 "この時点で残り{:.0f}%。".format(
-                    _who(u), t, _who(tgt) if tgt else "後衛",
+                    _who(u), mins(t), _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
     # 騎兵が突撃の勢いを使い切る（乱戦に呑まれる）
     if CHARGE_BONUS > 0.0:
