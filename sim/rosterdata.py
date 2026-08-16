@@ -606,14 +606,8 @@ def rebalance_big() -> int:
         want = target * D.CARD_COST_RATE / max(fr, 1e-9) - mods
         if sk.dur > 0.0:            # 継続。威力は毎秒の量
             power = want / D.EFFECT_PRICE["dot"] / sk.dur / max(tc, 1e-6)
-        else:
-            # 打ち切りは折れ線なので、折れ点の前後で分けて解く
-            knee = D.EFFECT_PRICE["damage"] * D.DAMAGE_KNEE
-            if want <= knee:
-                power = want / D.EFFECT_PRICE["damage"]
-            else:
-                power = D.DAMAGE_KNEE + (want - knee) / D.DAMAGE_SLOPE_HI
-            power /= max(tc, 1e-6)   # 傾きで係数が上がるぶん威力を下げる
+        else:                       # 打ち切りは威力に線形
+            power = want / D.EFFECT_PRICE["damage"] / max(tc, 1e-6)
         # 下限。**継続と打ち切りで桁が違う**（継続の威力は毎秒の量なので、
         # 威力50%×13秒 は総威力650%にあたる）。打ち切りと同じ 0.5 を当てると
         # 継続系がすべて下限に張り付き、目標より 0.34〜0.49 コスト点も高く出ていた。
