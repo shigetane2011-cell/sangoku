@@ -332,7 +332,7 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
 # **新しい特性を足したら `python3 -m sim.field traits` で測って書き直すこと。**
 TRAIT_PRICE = {
     # 常在型。陣頭が飛び抜けている
-    "vanguard":  1.7180,    # 前衛の兵力 +12%
+    "vanguard":  0.7097,    # 前衛の兵力 +4.5%
     "vs_wei":    0.4627,    # 該当勢力への与ダメージ +10%
     "vs_shu":    0.4627,
     "vs_go":     0.4627,

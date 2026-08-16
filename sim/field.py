@@ -841,7 +841,17 @@ TRAIT_TRIGGER = 0.30
 TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
 
 # 常在型。戦闘中の瞬間を持たないので実況には出ない（§9.3）。
-VANGUARD_MEN = 0.12     # 陣頭: 前衛に置いたときの兵力の増分
+# 陣頭: 前衛に置いたときの兵力の増分。
+# **12% は受動効果として重すぎた。** 値段が 1.72コスト点 で、どの必殺技（最大
+# 1.35）よりも高い。コスト3の陳到・コスト4の高順が予算を払いきれず、能力値の
+# コストが底を突いていた。実測は
+#
+#   兵力+   12.0%   9.0%   6.0%   4.5%   3.0%
+#   値段    1.721  1.447  0.954  0.710  0.485
+#
+# 4.5% を採る。誘発型の最上位（弔旗 0.369）の約2倍で「特性の中でいちばん強い」
+# 位置は保ちつつ、コスト3から払える。
+VANGUARD_MEN = 0.045
 VS_FACTION = 0.10       # 対勢力: 該当する勢力の敵へのダメージ増
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 
@@ -3063,7 +3073,7 @@ def cmd_traits(args) -> None:
     v = margin(front, base, dt) / ys
     out["vanguard"] = v
     print("  {:<10}{:<16}{:>6}{:>10.4f}".format(
-        "陣頭", "前衛の兵力+{:.0%}".format(VANGUARD_MEN), "", v))
+        "陣頭", "前衛の兵力+{:.1%}".format(VANGUARD_MEN), "", v))
     # 対勢力は「その勢力の敵」が要る。両軍に勢力を持たせて測る。
     wei = Army(tuple(replace(_synth(BASE_COST, INF, r), faction="魏")
                      for r in MIXED_ROLES), FORM_STANDARD)
