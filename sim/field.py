@@ -324,7 +324,7 @@ RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
 # この盤面で測り直した値（`field.py price` が再現する）。旧値 1.00/0.90/1.12 は
 # 旧レーンエンジンのもので、入れたままだと兵種補正を 0〜0.15、FOCUS を 0〜3 まで
 # 振っても三すくみが 0/100/0 から一切動かなかった（係数だけで勝敗が決まっていた）。
-ACT_COEF = {INF: 1.0000, CAV: 1.0391, ARC: 1.4407}
+ACT_COEF = {INF: 1.0000, CAV: 1.0377, ARC: 1.4402}
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
@@ -375,7 +375,7 @@ TYPE_BONUS = 0.0        # 旧: 攻撃ごとの % 補正。推移成分が混ざ�
 # 1つの値では揃わない。**コスト点→勝敗の感度が対戦ごとに違う**ため、同じ 1.0 を
 # 与えても 歩/騎 では +1.918、騎/弓 では +0.762 にしかならない（実測）。
 # 対戦ごとに較正して初めて、狙った量が3方向に揃って出る。
-TYPE_EDGE_COST = {(INF, CAV): 0.5736, (CAV, ARC): 1.2494, (ARC, INF): 1.1242}
+TYPE_EDGE_COST = {(INF, CAV): 0.8094, (CAV, ARC): 1.5797, (ARC, INF): 1.4988}
 TYPE_EDGE_TARGET = 1.0  # 有利側に持たせたい優位（総コスト30に対するコスト点）
 LETHALITY = 0.024       # ダメージ係数
 FOCUS = 0.0             # 射撃の集中度。§5.2「残兵力の少ない方を狙う」を連続化した
@@ -386,6 +386,13 @@ BASE_ATK = 100.0
 BASE_DEF = 50.0
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
+# 総合値 = 枠の基礎価値 + コスト比例分（§4.6 / sim/roster.py）。
+# POWER_BASE_FRAC は「コスト5の札の強さのうち、枠を占めること自体で得ている割合」。
+#   0.000 … 総合値 ∝ コスト（コスト9の札はコスト1の9倍）
+#   0.585 … 実カード80枚の実測値（総合値 ≒ 1.440 + 0.2039×コスト。9倍ではなく約2倍）
+# 6枠固定なので、どちらの形でも軍の総価値は合計コストだけで決まる（加算性は
+# 能力値の段階では両方成立する）。違うのは**札どうしの能力差の開き**である。
+POWER_BASE_FRAC = 0.585
 
 APPROACH_L = 20.0       # 接近則の減速長さ L
 RANGE_SOFT = 20.0       # 射程の縁をなまらせる幅（分岐を作らないため）
@@ -552,7 +559,9 @@ class Unit:
 
         # 総合値 ∝ コスト。実効耐久・実効火力へ均等に割り、行動面の係数で割り戻す。
         # （§6.1「強さに効く数値をひとつでも式から落とすと予算外の優位が出る」）
-        s = (card.cost * cost_mult / BASE_COST) / ACT_COEF[card.typ]
+        c = card.cost * cost_mult
+        p = POWER_BASE_FRAC + (1.0 - POWER_BASE_FRAC) * (c / BASE_COST)
+        s = max(p, 1e-6) / ACT_COEF[card.typ]
         s = max(s, 1e-9)
         # 総合値 = 実効耐久 × 実効火力 ∝ コスト（§4.6）を保ったまま、コストを
         # 兵力側と攻撃側へどう割るかを SPLIT_EXP で選ぶ。
@@ -1510,9 +1519,17 @@ def cmd_price(args) -> None:
                   ACT_COEF[INF], ACT_COEF[CAV], ACT_COEF[ARC]))
         if max(abs(x) for x in r) < 0.02:
             break
-        new = {T[i]: ACT_COEF[T[i]] * (1.0 + r[i] / 30.0) for i in range(3)}
+        # 補正の刻み幅はコスト曲線に依存する。
+        #
+        # 正規化した強さは p(c) = F + (1-F)·c/5（F = POWER_BASE_FRAC）なので、
+        # **1コスト点の重みは (1-F)/5** である。r/30 と決め打ちすると、F を
+        # 変えたときに刻みが (1-F) 倍ずれる。実際 F=0.585 で 4.3倍の過剰補正に
+        # なり、係数が負へ飛んで発散した（騎兵 -0.687、三すくみ ±57コスト点）。
+        step = (1.0 - POWER_BASE_FRAC) / 30.0
+        new = {T[i]: ACT_COEF[T[i]] * (1.0 + r[i] * step) for i in range(3)}
         k = new[INF]
-        ACT_COEF = {t: new[t] / k for t in T}
+        # 係数は正でなければ意味を持たない。発散を早期に止める。
+        ACT_COEF = {t: min(max(new[t] / k, 0.2), 5.0) for t in T}
     print()
     print("  採用: 歩 {:.4f} / 騎 {:.4f} / 弓 {:.4f}".format(
         ACT_COEF[INF], ACT_COEF[CAV], ACT_COEF[ARC]))
