@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import math
+import re
 import os
 import statistics as st
 from collections import Counter
@@ -224,6 +225,7 @@ def to_design(g: Dict[str, str]):
     sk = F.SKILL_INFO.get(g["必殺技"])
     # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
     eff = D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi) if sk else 0.0
+    eff += D.trait_value(g["固有特性"])
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
                     gauge_cost=gc, gauge_init=gi, effect=eff)
@@ -283,6 +285,35 @@ def on_curve() -> int:
             bad += 1
     print("\n" + ("乗っていない帯が {} 件".format(bad) if bad else "全帯がコスト曲線の上"))
     return bad
+
+
+def load_traits_into_field() -> int:
+    """固有特性を field.py へ読み込む。**必殺技とまったく同じ器を使う。**
+
+    CSV の効果文が同じ文法（「攻撃力 +12%（20秒）」「回復 攻撃力の130%」
+    「ゲージ付与 自然増加の2秒ぶん」）なので、専用の表を持つ理由が無い。
+    備考から発動条件・対象・回数上限を取り出す。
+
+    以前 field.py は6種だけをハードコードしていて、**残り13種は読み込むだけで
+    何もしていなかった**（採用枚数で数えると80枚中47枚が無効の特性を持っていた）。
+    """
+    from . import field as F
+    F.TRAITS.clear()
+    n = 0
+    for t in traits():
+        if t["型"] != "誘発":
+            continue            # 常在型は field.py 側で個別に扱う
+        note = t["備考"]
+        m = re.search(r"(\w+) で発動", note)
+        cond = m.group(1) if m else ""
+        m = re.search(r"対象 ([^/]+)", note)
+        target = m.group(1).strip() if m else "自分"
+        m = re.search(r"1戦(\d+)回", note)
+        cap = int(m.group(1)) if m else 1
+        F.TRAITS[t["キー"]] = (cond, target, cap,
+                               F._parse_skill(t["効果"], target), t["名前"])
+        n += 1
+    return n
 
 
 def load_skills_into_field() -> int:

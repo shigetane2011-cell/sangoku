@@ -815,15 +815,36 @@ FORM_BONUS = 0.07
 # 合成カードで測るときに入れると、測っているものが変わる（§13）。
 TRAITS_ON = False
 LOW_HP = 0.40           # self_low_hp の閾値（§6.6 の背水）
-TRAITS = {
-    # key:      (条件,            種別,  量,    秒,   回数上限, 表示名)
-    "legacy":    ("ally_retreat",  "atk", 0.15, 20.0, 3, "遺志"),
-    "laststand": ("self_low_hp",   "atk", 0.25, 90.0, 1, "背水"),
-    "pursuit":   ("enemy_retreat", "atk", 0.12, 20.0, 3, "執念"),
-    "diehard":   ("self_low_hp",   "def", 0.40, 90.0, 1, "死守"),
-    "bloodpath": ("self_low_hp",   "atk", 0.10, 90.0, 1, "血路"),
-    "banner":    ("ally_retreat",  "all", 0.06, 20.0, 2, "弔旗"),
-}
+# 「味方が倒れた／敵を倒した」を判定する残存率。**ROUT_UNIT とは分ける。**
+# ROUT_UNIT（15%）で判定すると、釣り合った対戦では誰もそこまで落ちないので、
+# ally_retreat / enemy_retreat を条件に持つ7種の特性が**一度も発動しない**
+# （実測: 30対30 で潰走0枚、30対18 でようやく1枚）。29枚の札が死んだ特性を
+# 持っていることになる。実況にも一行も出ない。
+# 実測（1枚だけが持つときの値段、コスト点）:
+#   閾値   執念    殿    弔旗   遺志   救護   継戦
+#   15%   0.000  0.000  0.000  0.000  0.000  0.000   ← 全滅。誰も落ちない
+#   30%   0.115  0.314  0.369  0.144  0.218  0.138
+#   45%   0.215  0.572  0.639  0.273  0.263  0.230
+#   60%   0.232  0.390  0.503  0.292  0.284  0.255
+# 30% を採る。軍全体の潰走が20%なので、30%は「崩れかけているがまだ居る」である。
+# 45% のほうが値は大きいが、半分残っている札を「崩れた」と呼ぶのは無理がある。
+TRAIT_TRIGGER = 0.30
+# 固有特性。**必殺技とまったく同じ器で持つ。** CSV の効果文が同じ文法
+# （「攻撃力 +12%（20秒）」「回復 攻撃力の130%」「ゲージ付与 自然増加の2秒ぶん」）
+# なので、専用の表を持つ理由が無い。以前は6種だけをハードコードしていて、残り13種は
+# **読み込むだけで何もしていなかった**。
+#
+#   キー: (発動条件, 対象文, 1戦の回数上限, Skill, 表示名)
+#
+# 発動条件は4つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill。
+# 常在型（陣頭・対勢力）はここに入らない。CONSTANT_TRAITS を参照。
+TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
+
+# 常在型。戦闘中の瞬間を持たないので実況には出ない（§9.3）。
+VANGUARD_MEN = 0.12     # 陣頭: 前衛に置いたときの兵力の増分
+VS_FACTION = 0.10       # 対勢力: 該当する勢力の敵へのダメージ増
+FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
+
 
 # 増幅の緩和（§6.1 案B）。優勢な側ほど与ダメージ倍率を下げる。
 #
@@ -1056,7 +1077,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1111,6 +1132,10 @@ class Unit:
             self.might = self.wits = scale * f
         w = INT_WEIGHT[card.typ]
         self.atk = (self.might * (1.0 - w) + self.wits * w) / f
+        # 常在型の固有特性（§6.6）。戦闘中の瞬間を持たないので実況には出ない。
+        if TRAITS_ON and card.trait == "vanguard" and is_front:
+            self.men0 *= 1.0 + VANGUARD_MEN
+            self.men = self.men0
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
         self.interval = INTERVAL[card.typ]
         self.speed = SPEED[card.typ]
@@ -1127,6 +1152,7 @@ class Unit:
         self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
         self.name = card.name
         self.trait = card.trait
+        self.faction = card.faction
         self.atk_mult = 1.0
         self.def_mult = 1.0
         self.spd_mult = 1.0
@@ -1307,13 +1333,16 @@ def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
     return out
 
 
-def _fire_traits(ua, ub, t, retired, ev, seen) -> None:
-    """誘発型を発火させる。条件は §6.6 の表に従う。
+def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
+    """誘発型の固有特性を発火させる（§6.6）。中身は必殺技と同じ器で処理する。
 
     閾値をまたぐ判定なので**分岐**であり、時間刻みに弱い。移動の規則と違って
     連続化できない（「撤退した」は本質的に離散）ので、dt を振って結論の符号が
     変わらないかを別途確かめること。
+
+    fired_skill には、このティックで必殺技を撃った札の集合を渡す（ally_skill 用）。
     """
+    fired_skill = fired_skill or set()
     for own, foe in ((ua, ub), (ub, ua)):
         newly_own = [x for x in own if x in retired["new"]]
         newly_foe = [x for x in foe if x in retired["new"]]
@@ -1321,19 +1350,18 @@ def _fire_traits(ua, ub, t, retired, ev, seen) -> None:
             spec = TRAITS.get(u.trait)
             if spec is None or u.men <= 0.0:
                 continue
-            cond, kind, amt, dur, cap, jp = spec
+            cond, target, cap, sk, jp = spec
             if u.fired >= cap:
                 continue
             hit = ((cond == "ally_retreat" and any(x is not u for x in newly_own))
-                   or (cond == "enemy_retreat" and newly_foe)
-                   or (cond == "self_low_hp" and u.ratio() < LOW_HP))
+                   or (cond == "enemy_retreat" and bool(newly_foe))
+                   or (cond == "self_low_hp" and u.ratio() < LOW_HP)
+                   or (cond == "ally_skill"
+                       and any(x in fired_skill for x in own if x is not u)))
             if not hit:
                 continue
             u.fired += 1
-            targets = own if kind == "all" else [u]
-            for x in targets:
-                x.effects.append((t + dur, "def" if kind == "def" else "atk",
-                              amt, u.trait))
+            _apply_skill(u, sk, target, own, foe, t, src=u.trait)
             if ev is not None and ("誘", u.trait, u.side) not in seen:
                 seen.add(("誘", u.trait, u.side))
                 ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
@@ -1468,78 +1496,92 @@ def _d2(a, b) -> float:
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
 
 
-def _fire_skills(own, foe, t: float, ev, seen) -> None:
+def _vs_faction(u: Unit, f: Unit) -> bool:
+    """対勢力の常在型が当たるか。**群雄にはどの対勢力も当たる**（CSV の備考）。"""
+    want = FACTION_OF.get(u.trait)
+    return want is not None and f.faction in (want, "群雄")
+
+
+def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
+                 src: str = "") -> None:
+    """必殺技1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
+
+    src は §6.5 の同名判定に使う出どころ（技名または特性キー）。
+    """
+    tgts = _skill_targets(tstr, u, foe, own)
+    if not tgts:
+        return
+    v = SKILL_WITS[sk.kind]
+    coef = u.might * (1.0 - v) + u.wits * v
+    n = max(len(tgts), 1)
+
+    # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
+    ally = "味方" in tstr or "自分" in tstr
+    for key, amt, secs in sk.mods:
+        if key == "stun":
+            for f in ([] if ally else tgts):
+                if f.men > 0.0:
+                    f.effects.append((t + secs, "stun", amt, src))
+            continue
+        if key == "gauge":
+            for f in (tgts if ally else [u]):
+                f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
+            continue
+        dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
+        for f in dst:
+            if f.men > 0.0:
+                f.effects.append((t + secs, key, amt, src))
+    if sk.mods:
+        _expire(own + foe, t)
+
+    if sk.power <= 0.0 and sk.heal <= 0.0:
+        return
+    if sk.heal > 0.0:
+        # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
+        amt = HEAL_SCALE * sk.heal * coef / n
+        for f in tgts:
+            if f.men <= 0.0:
+                continue
+            if sk.dur > 0.0:
+                f.overtime.append((t + sk.dur, "heal", amt))
+            else:
+                f.men = min(f.men0, f.men + amt)
+        return
+    # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
+    dmg = SKILL_SCALE * sk.power * coef / n
+    for f in tgts:
+        if sk.dur > 0.0:
+            # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
+            # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
+            # 総量が 1/14 になる。実際に踏んだ。
+            f.overtime.append((t + sk.dur, "dot", dmg))
+        else:
+            f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
+
+
+def _fire_skills(own, foe, t: float, ev, seen) -> set:
     """ゲージが消費量に達した札の必殺技を発動する（§7.2）。
 
     閾値は 100 ではなく**その札の消費ゲージ%**。だから消費50の札は何度も撃ち、
-    消費175の札は1戦に1回あるかどうかになる。効果はまだ載っていないので、
-    ここでは発動の記録だけを行う（実況で嘘を書かないよう、効果が入るまで
-    実況側の行も出さない）。
+    消費175の札は1戦に1回あるかどうかになる。
+    戻り値は**このティックで撃った札の集合**（固有特性の ally_skill 条件が使う）。
     """
+    fired = set()
     for u in own:
         if u.men <= 0.0 or not u.skill:
             continue
         if u.gauge >= u.gauge_cost:
             u.gauge -= u.gauge_cost
             u.fires += 1
+            fired.add(u)
             if SKILL_SCALE <= 0.0:
                 continue
             sk = SKILL_INFO.get(u.skill)
             if not sk:
                 continue
-            power, kind, dur, heal = sk.power, sk.kind, sk.dur, sk.heal
-            tstr = SKILL_TARGET.get(u.skill, "")
-            tgts = _skill_targets(tstr, u, foe, own)
-            if not tgts:
-                continue
-            v = SKILL_WITS[kind]
-            coef = u.might * (1.0 - v) + u.wits * v
-            n = max(len(tgts), 1)
-
-            # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
-            ally = "味方" in tstr or "自分" in tstr
-            for key, amt, secs in sk.mods:
-                if key == "stun":
-                    for f in ([] if ally else tgts):
-                        if f.men > 0.0:
-                            f.effects.append((t + secs, "stun", amt, u.skill))
-                    continue
-                if key == "gauge":
-                    for f in (tgts if ally else [u]):
-                        f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
-                    continue
-                dst = (tgts if ally else [u]) if amt > 0.0 else \
-                      ([] if ally else tgts)
-                for f in dst:
-                    if f.men > 0.0:
-                        # 同名判定のため、どの技から来たかを持たせる（§6.5）
-                        f.effects.append((t + secs, key, amt, u.skill))
-            if sk.mods:
-                _expire(own + foe, t)
-
-            if power <= 0.0 and heal <= 0.0:
-                continue
-            if heal > 0.0:
-                # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
-                amt = HEAL_SCALE * heal * coef / n
-                for f in tgts:
-                    if f.men <= 0.0:
-                        continue
-                    if dur > 0.0:
-                        f.overtime.append((t + dur, "heal", amt))
-                    else:
-                        f.men = min(f.men0, f.men + amt)
-                continue
-            # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
-            dmg = SKILL_SCALE * power * coef / n
-            for f in tgts:
-                if dur > 0.0:
-                    # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
-                    # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で
-                    # 割ると総量が 1/14 になる。実際に踏んだ。
-                    f.overtime.append((t + dur, "dot", dmg))
-                else:
-                    f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
+            _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
+                         src=u.skill)
+    return fired
 
 
 def _overtime(units, t: float, dt: float) -> None:
@@ -1772,6 +1814,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    if TRAITS_ON and _vs_faction(u, f):
+                        hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
@@ -1792,6 +1836,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    if TRAITS_ON and _vs_faction(u, f):
+                        hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
@@ -1803,17 +1849,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             for u, d in zip(ub, db):
                 u.men = max(u.men - d, 0.0)
 
-        if TRAITS_ON:
-            newly = {u for u in ua + ub
-                     if u.ratio() < ROUT_UNIT and u not in retired["all"]}
-            if newly:
-                retired["new"] = newly
-                retired["all"] |= newly
-            else:
-                retired["new"] = set()
-            _fire_traits(ua, ub, t + dt, retired, events, seen)
-            _expire(ua + ub, t + dt)
-
+        # **必殺技を先に、固有特性を後に。** 特性の ally_skill 条件は「味方が
+        # 技を撃った」を見るので、順序を逆にすると1ティック遅れる。
+        fired = set()
         if SKILLS_ON:
             for x, taken in ((u, d) for u, d in zip(ua, da)):
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
@@ -1823,10 +1861,21 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
-            _fire_skills(ua, ub, t + dt, events, seen)
-            _fire_skills(ub, ua, t + dt, events, seen)
-            if not TRAITS_ON:
-                _expire(ua + ub, t + dt)    # 特性オフでも状態効果は切れさせる
+            fired = _fire_skills(ua, ub, t + dt, events, seen)
+            fired |= _fire_skills(ub, ua, t + dt, events, seen)
+
+        if TRAITS_ON:
+            newly = {u for u in ua + ub
+                     if u.ratio() < TRAIT_TRIGGER and u not in retired["all"]}
+            if newly:
+                retired["new"] = newly
+                retired["all"] |= newly
+            else:
+                retired["new"] = set()
+            _fire_traits(ua, ub, t + dt, retired, events, seen, fired)
+
+        if SKILLS_ON or TRAITS_ON:
+            _expire(ua + ub, t + dt)
             # **発動より後に進める。** 先に進めると、いま乗った継続効果が
             # 同じティックで1回ぶん入ってしまう。
             _overtime(ua + ub, t + dt, dt)
@@ -1860,7 +1909,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "reason": reason,
             "width_start": start_width, "width_end": _front_width(ua),
             "fires_a": [(u.name or u.typ, u.fires) for u in ua],
-            "fires_b": [(u.name or u.typ, u.fires) for u in ub]}
+            "fires_b": [(u.name or u.typ, u.fires) for u in ub],
+            # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
+            # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
+            # どんな特性も 0.0000 になる（実測で7種が該当した）。
+            "traits_a": sum(u.fired for u in ua),
+            "traits_b": sum(u.fired for u in ub),
+            "routed_a": sum(1 for u in ua if u.ratio() < ROUT_UNIT),
+            "routed_b": sum(1 for u in ub if u.ratio() < ROUT_UNIT)}
 
 
 def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],
@@ -2825,6 +2881,80 @@ def cmd_dot(args) -> None:
     SKILLS_ON = keep
 
 
+def cmd_traits(args) -> None:
+    """固有特性の値段を測る（コスト点。1枚だけが持つ形）。
+
+    **式を当てず、測った表をそのまま使う。** 誘発型の値段は「いつ発動したか」で
+    決まり、発動時刻は条件ごとに違う。たとえば背水（攻撃力+25%・90秒）は式なら
+    2.96 だが実測は 0.096 で、30倍ずれる。**残り時間が90秒も無い**うえ、発動する
+    ころには本人が4割まで削れていて攻撃力を上げても乗る兵が居ないためである。
+    15種しかない固定データに、発動時刻の模型を作るほうが割に合わない。
+
+    新しい特性を足したら、このコマンドで測って `sim/design.py` の表へ書くこと。
+    """
+    global SKILLS_ON, TRAITS_ON, TRAIT_TRIGGER
+    from . import rosterdata as R
+    R.load_skills_into_field()
+    n = R.load_traits_into_field()
+    SKILLS_ON = TRAITS_ON = True
+    dt = args.dt
+    ys = cost_yardstick(dt)
+
+    def army(trait):
+        return Army(tuple(replace(_synth(BASE_COST, INF, r),
+                                  trait=(trait if i == 0 else ""))
+                          for i, r in enumerate(MIXED_ROLES)), FORM_STANDARD)
+
+    base = army("")
+    print("固有特性の値段（誘発型 {}種。単位はコスト点／総コスト30）".format(n))
+    print()
+    print("【計器】零点 {:+.4f}（同編成どうし。0 でなければバグ）".format(
+        margin(base, base, dt) / ys))
+    print("  誘発の閾値 {:.0%}。**ここを ROUT_UNIT({:.0%}) にすると7種が死ぬ**"
+          .format(TRAIT_TRIGGER, ROUT_UNIT))
+    print("  （釣り合った対戦では誰もそこまで落ちないので、味方/敵の潰走を条件に")
+    print("   する特性が一度も発動しない。実測で全部 0.0000 が並んだ）。")
+    print()
+    print("  {:<10}{:<16}{:>6}{:>10}".format("特性", "条件", "上限", "値段"))
+    out = {}
+    for k, (cond, tgt, cap, sk, jp) in TRAITS.items():
+        v = margin(army(k), base, dt) / ys
+        out[k] = v
+        print("  {:<10}{:<16}{:>6}{:>10.4f}{}".format(
+            jp, cond, cap, v, "   ★ほぼ無価値" if abs(v) < 0.05 else ""))
+
+    # 常在型。TRAITS には入らないので別に測る。
+    print()
+    print("  {:<10}{:<16}{:>6}{:>10}   常在型".format("特性", "内容", "", "値段"))
+    front = Army(tuple(replace(_synth(BASE_COST, INF, r),
+                               trait=("vanguard" if i == 0 else ""))
+                       for i, r in enumerate(MIXED_ROLES)), FORM_STANDARD)
+    v = margin(front, base, dt) / ys
+    out["vanguard"] = v
+    print("  {:<10}{:<16}{:>6}{:>10.4f}".format(
+        "陣頭", "前衛の兵力+{:.0%}".format(VANGUARD_MEN), "", v))
+    # 対勢力は「その勢力の敵」が要る。両軍に勢力を持たせて測る。
+    wei = Army(tuple(replace(_synth(BASE_COST, INF, r), faction="魏")
+                     for r in MIXED_ROLES), FORM_STANDARD)
+    anti = Army(tuple(replace(_synth(BASE_COST, INF, r),
+                              trait=("vs_wei" if i == 0 else ""), faction="蜀")
+                      for i, r in enumerate(MIXED_ROLES)), FORM_STANDARD)
+    plain = Army(tuple(replace(_synth(BASE_COST, INF, r), faction="蜀")
+                       for r in MIXED_ROLES), FORM_STANDARD)
+    v = (margin(anti, wei, dt) - margin(plain, wei, dt)) / ys
+    for k in FACTION_OF:
+        out[k] = v
+    print("  {:<10}{:<16}{:>6}{:>10.4f}   （vs_wei/shu/go 共通）".format(
+        "対勢力", "該当勢力へ+{:.0%}".format(VS_FACTION), "", v))
+
+    print()
+    print("  sim/design.py の TRAIT_PRICE へ貼る形:")
+    print("    TRAIT_PRICE = {")
+    for k, v in sorted(out.items(), key=lambda kv: -kv[1]):
+        print("        {!r}: {:.4f},".format(k, max(v, 0.0)))
+    print("    }")
+
+
 def cmd_calib(args) -> None:
     print("計器の素性（決着理由と戦闘時間）")
     for name, mk in ZERO_CASES[:4]:
@@ -2841,6 +2971,9 @@ def main() -> None:
                      ("spread", cmd_spread), ("calib", cmd_calib),
                      ("heal", cmd_heal), ("dot", cmd_dot)):
         sub.add_parser(name).set_defaults(func=fn)
+    s = sub.add_parser("traits")
+    s.add_argument("--dt", type=float, default=0.5)
+    s.set_defaults(func=cmd_traits)
     s = sub.add_parser("cost")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(func=cmd_cost)
@@ -2877,4 +3010,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # **`python3 -m sim.field` は二重 import になる。** このファイルは __main__ と
+    # して走るので sys.modules["sim.field"] は空のまま。rosterdata の
+    # `from . import field as F` がもう一つ別のモジュールを作り、そちらの
+    # SKILL_INFO / TRAITS を埋めてしまう。実行中の表は空のままなので、
+    # **「15種読み込んだ」と表示しておいて1行も出ない**という形で出た。
+    import sys as _sys
+    _sys.modules.setdefault("sim.field", _sys.modules[__name__])
     main()
