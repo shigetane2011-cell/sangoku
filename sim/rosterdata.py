@@ -203,14 +203,24 @@ def check() -> int:
     A, B = affine_fit(G)
     print(f"  総合値 ≒ {A:.3f} + {B:.4f} × コスト  "
           f"（枠の基礎価値 + コスト比例分）")
+    # **兵種をまたいで総合値を足さない。** ACT_COEF は「兵種を盤面で等しくする」
+    # つまみなので、同じコストでも兵種が違えば総合値は違う。またいで足すと、
+    # 測っているのはコストの加算性ではなく**その帯の兵種構成**になる（実際に
+    # 弓兵の係数を 0.89→1.44 へ直したとき、幅が 1.7%→9.1% に見せかけで悪化した）。
+    # **兵種をまたぐ通貨はコストそのもの**で、その加算性は盤面で測る
+    # （`python3 -m sim.field cost`）。ここは1兵種の中だけで見る。
+    main = Counter(g["兵種"] for g in G).most_common(1)[0][0]
     by = {}
     for c in sorted({g["_cost"] for g in G}):
-        by[c] = st.mean(g["_power"] for g in G if g["_cost"] == c)
+        v = [g["_power"] for g in G if g["_cost"] == c and g["兵種"] == main]
+        by[c] = st.mean(v) if v else st.mean(
+            g["_power"] for g in G if g["_cost"] == c)
     plans = [("均等 5×6", [5] * 6), ("やや偏り 6/6/6/4/4/4", [6, 6, 6, 4, 4, 4]),
              ("偏り 7/7/4/4/4/4", [7, 7, 4, 4, 4, 4]),
              ("極端 10/10/4/2/2/2", [10, 10, 4, 2, 2, 2]),
              ("極端 10/9/8/1/1/1", [10, 9, 8, 1, 1, 1])]
-    print("  6枠・合計コスト30 での総価値（配分によらず等しいのが設計の狙い）")
+    print("  6枠・合計コスト30 での総価値（{}のみ。配分によらず等しいのが狙い）"
+          .format(main))
     vals = []
     for name, cs in plans:
         v = sum(by[c] for c in cs)
