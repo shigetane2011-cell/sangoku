@@ -3143,7 +3143,7 @@ def cmd_narrate(args) -> None:
         print()
         print("── {} （{} {:g}コスト 対 {} {:g}コスト） ".format(
             title, fa, ca, fb, cb) + "─" * 20)
-        for line in narrate(a, b, args.dt):
+        for line in narrate(a, b, args.dt, seed=getattr(args, "seed", None)):
             print("  " + line)
 
 
@@ -3466,6 +3466,8 @@ def main() -> None:
     s.set_defaults(func=cmd_triangle)
     s = sub.add_parser("narrate")
     s.add_argument("--dt", type=float, default=0.25)
+    # 種を渡すと乱数入りの戦いを語る。渡さないと乱数なし（＝毎回同じ）。
+    s.add_argument("--seed", type=int, default=None)
     s.set_defaults(func=cmd_narrate)
     s = sub.add_parser("calibrate")
     s.add_argument("--dt", type=float, default=0.5)
