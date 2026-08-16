@@ -128,3 +128,62 @@ def play_round(field_: Sequence[Entrant], rnd: int, dt: float = 0.5,
 def standings(field_: Sequence[Entrant]) -> List[Entrant]:
     """順位表。**現在レートで並べる**（最高到達では並べない。§7.29）。"""
     return sorted(field_, key=lambda e: (-e.rating, e.pid))
+
+
+# ============================================================================
+# 順位制（採用方式・§7.35）
+# ============================================================================
+#
+# 一つ上の順位と当たり、勝てば入れ替わる。Elo とほぼ同じ序列に落ち着くが、
+# **次の対戦相手が事前に分かる**点が決定的に違う。
+#
+# §3 の時間割は「毎時06分 次の対戦相手と戦場条件を告知」「06〜55分 相手の前回
+# 編成を踏まえて編成を変更」と、**次の相手が分かっている前提**で書かれている。
+# Elo でも組んだ後に告知はできるが、順位制なら構造的にそうなる。偵察（§3.2）が
+# 「一般的な対策」ではなく「この相手への対策」になり、編成研究型の核が回る。
+#
+# ── 均衡なら何が出るか（測る前に計算しておく）────────────────
+#
+# 隣どうしで勝てば入れ替わるので、実力が等しければ順位は ±1 のランダムウォーク。
+# N巡後の順位の標準偏差は **√N ランク**（ただし端で跳ね返るので、人数が少ないと
+# それより小さく出る）。勝率 p の人は1巡あたり **(2p-1) ランク**上がる。
+#
+# ── 組み方 ──────────────────────────────────
+#
+# 偶奇を巡ごとに入れ替える。そうしないと (1,2)(3,4)... の組が固定され、
+# **2位と3位が永久に当たらない**。
+LADDER_STEP = 1          # 勝ったときに動く順位の数。1 で隣と入れ替え
+
+
+def ladder_pairs(order: Sequence[Entrant], rnd: int
+                 ) -> List[Tuple[Entrant, Entrant]]:
+    """順位表から今巡の組を作る。**上位が先、下位が挑戦側。**
+
+    偶奇を巡ごとに入れ替えるので、あぶれるのは端の1人だけになる。
+    """
+    off = rnd % 2
+    return [(order[i], order[i + 1]) for i in range(off, len(order) - 1, 2)]
+
+
+def play_ladder_round(order: List[Entrant], rnd: int, dt: float = 0.5) -> None:
+    """1巡ぶん。**下位が勝ったら入れ替える。** 順位表そのものを書き換える。"""
+    reg = rnd % len(M.REGULATIONS)
+    swaps = []
+    for hi, lo in ladder_pairs(order, rnd):
+        seed = hash((rnd, hi.pid, lo.pid)) & 0x7FFFFFFF
+        r = M.play_one(lo.entry, hi.entry, reg, dt, seed=seed)
+        won = r["winner"] == "A"          # A = 挑戦側（下位）
+        for x, s, o in ((lo, 1.0 if won else 0.0, hi),
+                        (hi, 0.0 if won else 1.0, lo)):
+            x.games += 1
+            x.wins += s
+            x.recent.append(o.pid)
+        if won:
+            swaps.append((hi, lo))
+    # **入れ替えは全部の対戦が終わってから。** 途中で順位表を触ると、同じ巡の
+    # 後ろの組が動いたあとの順位で戦うことになる（同時解決の破れと同じ形）。
+    idx = {e.pid: i for i, e in enumerate(order)}
+    for hi, lo in swaps:
+        i, j = idx[hi.pid], idx[lo.pid]
+        order[i], order[j] = order[j], order[i]
+        idx[hi.pid], idx[lo.pid] = j, i
