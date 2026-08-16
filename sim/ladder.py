@@ -131,8 +131,19 @@ def standings(field_: Sequence[Entrant]) -> List[Entrant]:
 
 
 # ============================================================================
-# 順位制（採用方式・§7.35）
+# 【不採用】素の順位制（挑戦ラダー）。**収束が遅すぎる**ので採用しない
 # ============================================================================
+#
+# 一つ上と当たって入れ替える形。実装して測ったら、隣どうしの入れ替えは**カードの
+# シャッフルと同じで混ざるのが遅い**（混合時間 ~N² 巡）と分かった。
+#
+#   16人 256巡（毎時1戦で11日） / 100人 1万巡（1.1年） / 1000人 100万巡（114年）
+#
+# 実測でも +1コストという明確に強い札が50巡で6ランクしか上がらない。人数が
+# 増えると、強い新規が上位へ到達するのが事実上不可能になる。
+#
+# **狙い（次の対戦相手が事前に分かる）は組み方を決定的にすれば満たせる**ので、
+# 内部は Elo で組んで、表示を順位にする（下の `Board`）。以下は比較用に残す。
 #
 # 一つ上の順位と当たり、勝てば入れ替わる。Elo とほぼ同じ序列に落ち着くが、
 # **次の対戦相手が事前に分かる**点が決定的に違う。
@@ -152,7 +163,7 @@ def standings(field_: Sequence[Entrant]) -> List[Entrant]:
 #
 # 偶奇を巡ごとに入れ替える。そうしないと (1,2)(3,4)... の組が固定され、
 # **2位と3位が永久に当たらない**。
-LADDER_STEP = 1          # 勝ったときに動く順位の数。1 で隣と入れ替え
+LADDER_STEP = 1          # 勝ったときに動く順位の数。1 で隣と入れ替え（不採用方式）
 
 
 def ladder_pairs(order: Sequence[Entrant], rnd: int
@@ -187,3 +198,97 @@ def play_ladder_round(order: List[Entrant], rnd: int, dt: float = 0.5) -> None:
         i, j = idx[hi.pid], idx[lo.pid]
         order[i], order[j] = order[j], order[i]
         idx[hi.pid], idx[lo.pid] = j, i
+
+
+# ============================================================================
+# 採用方式: レートは内部、表示は順位、組み方は先に決めて告知する（§7.35）
+# ============================================================================
+#
+# **レートは4本持つ。** BO1 の3レギュレーションと、BO3（毎時の自動参加）。
+# 1本にまとめると全員が得意帯だけで挑み、残り2部隊が飾りになる。分ければ
+# 「高コスト戦だけ極める」「低コスト戦を掘る」が別々の順位として成立する
+# （旧 DCI が Standard と Limited で別レートだったのと同じ）。
+#
+# **組む → 告知 → 編成期間 → 戦う** の順を関数の形で分ける。§3 の時間割が
+#
+#   毎時06分 次の対戦相手を告知 → 06〜50分 編成期間 → 次の00分 対戦
+#
+# なので、`plan_round` で組んだ結果が編成期間中ずっと固定されていなければ
+# 偵察が成立しない。**組んでから戦うまでの間に編成が変わる**のがこのゲームの
+# 読み合いなので、2つを1つの関数に混ぜないこと。
+
+BOARDS: Tuple[str, ...] = ("低コスト戦", "中コスト戦", "高コスト戦", "統一(BO3)")
+BO3_BOARD = 3
+
+
+@dataclass
+class Board:
+    """1つの順位表。レートは内部に持ち、外へは順位で見せる。"""
+    name: str
+    reg: Optional[int]                    # BO1 のレギュレーション。None なら BO3
+    rating: Dict[str, float] = dfield(default_factory=dict)
+    games: Dict[str, int] = dfield(default_factory=dict)
+    wins: Dict[str, float] = dfield(default_factory=dict)
+    recent: Dict[str, List[str]] = dfield(default_factory=dict)
+
+    def get(self, pid: str) -> float:
+        return self.rating.setdefault(pid, RATING_START)
+
+    def order(self, pids: Sequence[str]) -> List[str]:
+        """順位。**現在レート順**（最高到達では並べない。§7.29）。"""
+        return sorted(pids, key=lambda p: (-self.get(p), p))
+
+
+def plan_round(board: Board, pids: Sequence[str], rnd: int
+               ) -> List[Tuple[str, str]]:
+    """次の対戦の組を決める。**戦う前に呼び、そのまま告知する。**
+
+    同レート帯の隣どうしで組み、直近の相手は避ける。決定的なので、告知した組は
+    編成期間中に変わらない。
+    """
+    order = board.order(pids)
+    used: set = set()
+    out: List[Tuple[str, str]] = []
+    for a in order:
+        if a in used:
+            continue
+        cand = [b for b in order
+                if b not in used and b != a
+                and b not in board.recent.get(a, [])[-REMATCH_GAP:]]
+        if not cand:
+            cand = [b for b in order if b not in used and b != a]
+        if not cand:
+            continue
+        b = min(cand, key=lambda x: abs(board.get(a) - board.get(x)))
+        used.add(a); used.add(b)
+        out.append((a, b))
+    return out
+
+
+def resolve_round(board: Board, pairs: Sequence[Tuple[str, str]],
+                  entries: Dict[str, M.Entry], rnd: int,
+                  dt: float = 0.5) -> None:
+    """告知済みの組を戦わせてレートを更新する。**組み直さない。**"""
+    for a, b in pairs:
+        seed = hash((board.name, rnd, a, b)) & 0x7FFFFFFF
+        if board.reg is None:
+            r = M.play(entries[a], entries[b], dt, seed=seed)
+            sa = 1.0 if r["wins_a"] > r["wins_b"] else (
+                0.0 if r["wins_b"] > r["wins_a"] else 0.5)
+        else:
+            r = M.play_one(entries[a], entries[b], board.reg, dt, seed=seed)
+            sa = 1.0 if r["winner"] == "A" else (
+                0.0 if r["winner"] == "B" else 0.5)
+        ea = expected(board.get(a), board.get(b))
+        board.rating[a] = board.get(a) + K_FACTOR * (sa - ea)
+        board.rating[b] = board.get(b) - K_FACTOR * (sa - ea)
+        for x, sc, o in ((a, sa, b), (b, 1.0 - sa, a)):
+            board.games[x] = board.games.get(x, 0) + 1
+            board.wins[x] = board.wins.get(x, 0.0) + sc
+            board.recent.setdefault(x, []).append(o)
+
+
+def make_boards() -> List[Board]:
+    """4本の順位表を作る（BO1 の3レギュ + BO3）。"""
+    return [Board(BOARDS[i], i if i < BO3_BOARD else None)
+            for i in range(len(BOARDS))]
