@@ -42,22 +42,19 @@ def traits() -> List[Dict[str, str]]:
 
 
 def power(g: Dict[str, str]) -> float:
-    """総合値 = 実効耐久 × 実効火力（§4.6）。
+    """総合値 = 実効耐久 × 実効火力（§4.6）。**盤面と同じ定義で計算する。**
 
-    実効耐久 = 兵力 × (100 + 防御力) / 100
-    実効火力 = 攻撃力 × 命中率 × クリティカル期待値 / 攻撃間隔
+        実効耐久 = 兵力 × (100 + 防御力) / 100
+        実効火力 = 攻撃力 / 攻撃間隔
 
-    §6.1「強さに効く数値をひとつでも式から落とすと、その値が高い兵種が予算外の
-    優位を持つ」。命中・クリ・攻撃間隔を必ず入れる。
+    命中率・クリ率は使わない。位置ベースの盤面がどちらも持っていないからである
+    （§7.8: 命中率 -X% は攻撃力 -X% と同じ意味になる）。旧版はこの2つを掛けており、
+    **CSV の上でだけ成り立つ総合値**を計算していた。
     """
     men = float(g["兵力"])
     atk = float(g["攻撃力"])
     dfn = float(g["防御力"])
-    hit = float(g["命中率"]) / 100.0
-    crit = float(g["クリ率"]) / 100.0
-    dur = men * (100.0 + dfn) / 100.0
-    fire = atk * hit * (1.0 + 0.5 * crit) / INTERVAL[g["兵種"]]
-    return dur * fire / 1e5
+    return men * (100.0 + dfn) / 100.0 * atk / INTERVAL[g["兵種"]] / 1e5
 
 
 def affine_fit(rows) -> tuple:
@@ -77,6 +74,16 @@ def affine_fit(rows) -> tuple:
 
 
 def check() -> int:
+    """CSV の検算。**盤面・設計式・CSV の3つが一致しているかを見る。**
+
+    以前はここで「実力比% が能力値から再現できるか」を見ていたが、あれは
+    **CSV の中だけで閉じた検算**だった。命中率とクリ率を掛けた総合値は盤面に
+    存在しないので、通っても盤面が同じ強さで動く保証にならない。
+    """
+    from . import design as D
+    from . import field as F
+    load_skills_into_field()
+    load_traits_into_field()
     G, S, T = generals(), skills(), traits()
     for g in G:
         g["_cost"] = int(g["コスト"])
@@ -103,26 +110,79 @@ def check() -> int:
         print(f"  {label}: {v if v else 'なし'}")
         bad += len(v)
 
-    # --- 実力比% が能力値から再現できるか ---------------------------------
-    k = st.mean(float(g["実力比%"]) / g["_power"] for g in G)
-    err = [abs(float(g["実力比%"]) - k * g["_power"]) / float(g["実力比%"]) * 100
-           for g in G]
-    print(f"  実力比% ≒ 総合値 × {k:.2f}  （最大誤差 {max(err):.2f}% / "
-          f"平均 {st.mean(err):.2f}%）")
-    if max(err) > 10.0:
-        print("    ★ 実力比% が能力値から再現できない。列か式のどちらかが誤り")
+    # --- CSV の数字で盤面が動くか（読んだとおりに動くシートか） -------------
+    form = F.FORM_STANDARD
+    worst = ("", 0.0)
+    for g, c in zip(G, to_cards([g["名前"] for g in G])):
+        u = F.Unit(0, c, form, (0.0, 0.0), True)
+        for col, got in (("兵力", u.men0), ("武力", u.might),
+                         ("知力", u.wits), ("攻撃力", u.atk),
+                         ("防御力", u.dfn)):
+            want = float(g[col])
+            e = abs(got - want) / max(abs(want), 1e-9) * 100.0
+            if e > worst[1]:
+                worst = ("{} の {}（表 {} / 盤面 {:.1f}）".format(
+                    g["名前"], col, g[col], got), e)
+    # 表は小数1桁で書くので、丸めぶんのずれは残る（攻撃力は武力・知力・兵力から
+    # 導くので、3つの丸めが乗る）。0.5% を超えたら丸めでは説明できない。
+    print("  CSV の数字で盤面が動くか: 最大ずれ {:.3f}%  {}".format(
+        worst[1], worst[0] if worst[1] > 0.5 else "（丸めの範囲）"))
+    if worst[1] > 0.5:
+        print("    ★ シートと盤面が食い違う。regenerate() を走らせ直すこと")
         bad += 1
 
-    # --- §4.6 の ±8% -----------------------------------------------------
-    print("  コスト帯ごとの ばらつき（§4.6 は ±8%以内）")
+    # --- CSV が設計式の上に乗っているか -----------------------------------
+    worst = ("", 0.0)
+    for g in G:
+        v = D.derive(to_design(g))
+        for col, got in (("兵力", v["兵力"]), ("武力", v["武力"]),
+                         ("知力", v["知力"]), ("攻撃力", v["攻撃力"])):
+            want = float(g[col])
+            e = abs(got - want) / max(abs(want), 1e-9) * 100.0
+            if e > worst[1]:
+                worst = ("{} の {}".format(g["名前"], col), e)
+    print("  CSV が設計式と一致するか: 最大ずれ {:.3f}%  {}".format(
+        worst[1], worst[0] if worst[1] > 0.5 else ""))
+    if worst[1] > 0.5:
+        print("    ★ 手で直したまま regenerate() を通していない可能性")
+        bad += 1
+
+    # --- 効果予算 ---------------------------------------------------------
+    over = []
+    for g in G:
+        v = D.derive(to_design(g))
+        if v["効果超過"] > 1e-9:
+            over.append((g["名前"], g["必殺技"], g["固有特性"], v["効果超過"]))
+    print("  効果予算の超過: {}".format(len(over) if over else "なし"))
+    for n, s_, t_, x in sorted(over, key=lambda r: -r[3]):
+        print("    {:<16}{:<10}{:<10}超過 {:.2f}コスト点".format(n, s_, t_, x))
+    print("    （式ではなくデータ側で直す。技を弱くするかコストを上げる）")
+
+    # --- 能力値 + 効果 = コスト か（§4.6 の本体） --------------------------
+    # **総合値そのものを ±8% で見てはいけない。** 効果予算を導入した以上、同じ
+    # コストでも技の強い札は能力値が低いのが正しい。見るべきは
+    # 「能力値コスト + 効果予算 = 表示コスト」であり、これは上限に当たった札を
+    # 除いて厳密に成り立つ。
+    worst = ("", 0.0)
+    for g in G:
+        v = D.derive(to_design(g))
+        got = float(g["能力値コスト"]) + v["効果予算"]
+        e = abs(got - float(g["コスト"]))
+        if e > worst[1]:
+            worst = (g["名前"], e)
+    print("  能力値コスト + 効果予算 = コスト: 最大ずれ {:.4f}点 {}".format(
+        worst[1], worst[0] if worst[1] > 0.01 else ""))
+    if worst[1] > 0.01:
+        bad += 1
+
+    print("  コスト帯ごとの 総合値のばらつき（**これは効果予算の幅である**）")
     for c in sorted({g["_cost"] for g in G}):
         v = [g["_power"] / c for g in G if g["_cost"] == c]
         m = st.mean(v)
         dev = max(abs(x - m) / m * 100 for x in v)
-        mark = "  ★超過" if dev > 8.0 else ""
-        print(f"    コスト{c:<3} {len(v)}枚  ±{dev:5.1f}%{mark}")
-        if dev > 8.0:
-            bad += 1
+        eb = [D.derive(to_design(g))["効果予算"] for g in G if g["_cost"] == c]
+        print("    コスト{:<3} {}枚  総合値 ±{:5.1f}%   効果予算 {:.2f}〜{:.2f}点"
+              .format(c, len(v), dev, min(eb), max(eb)))
 
     # --- 配分によらず総価値が等しいか（設計の眼目） ------------------------
     A, B = affine_fit(G)
@@ -232,26 +292,26 @@ def to_design(g: Dict[str, str]):
 
 
 def to_cards(names=None):
-    """武将名のリストから field.Card を作る。名前を省くと全80枚を返す。"""
-    from . import design as D
-    from . import field as F  # 遅延 import（rosterdata 単体でも検算できるように）
+    """武将名のリストから field.Card を作る。名前を省くと全80枚を返す。
+
+    **CSV が一次、設計式は生成器。** 能力値は CSV の 武力・知力・能力値コスト を
+    そのまま渡す。手で1枚だけ調整したいときは CSV を直せばよく、全体を引き直したい
+    ときは `regenerate()` を走らせる。CSV と設計式が食い違っていないかは
+    `check()` が見る。
+    """
+    from . import field as F
     idx = {g["名前"]: g for g in generals()}
     picks = [idx[n] for n in names] if names else list(idx.values())
-    out = []
-    for g in picks:
-        v = D.derive(to_design(g))
-        out.append(F.Card(
-            cost=float(g["コスト"]),
-            stat_cost=float(g["コスト"]) - v["効果予算"],
-            typ=TYPE_MAP[g["兵種"]],
-            role=ROLE_MAP[g["役割"]], name=g["名前"],
-            trait=g["固有特性"], faction=g["勢力"],
-            might=v["武力"], wits=v["知力"], skill=g["必殺技"],
-            gauge_cost=float(g["消費ゲージ%"]),
-            # 気勢だけは CSV の値を使う。知力とは独立の項目なので設計式で潰さない。
-            gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
-            gauge_init=float(g["初期ゲージ"])))
-    return out
+    return [F.Card(
+        cost=float(g["コスト"]),
+        stat_cost=float(g["能力値コスト"]),
+        typ=TYPE_MAP[g["兵種"]], role=ROLE_MAP[g["役割"]], name=g["名前"],
+        trait=g["固有特性"], faction=g["勢力"],
+        might=float(g["武力"]), wits=float(g["知力"]), skill=g["必殺技"],
+        gauge_cost=float(g["消費ゲージ%"]),
+        # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
+        gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
+        gauge_init=float(g["初期ゲージ"])) for g in picks]
 
 
 def on_curve() -> int:
@@ -285,6 +345,63 @@ def on_curve() -> int:
             bad += 1
     print("\n" + ("乗っていない帯が {} 件".format(bad) if bad else "全帯がコスト曲線の上"))
     return bad
+
+
+# ============================================================================
+# CSV の書き出し（能力値を盤面が実際に使う値へ置き換える）
+# ============================================================================
+
+# 書き出す列。**盤面が読まない列は置かない。**
+# 旧 CSV には 命中率・クリ率 があったが、位置ベースの盤面はどちらも持っていない
+# （§7.8: 命中率 -X% は攻撃力 -X% と同じ意味になる）。数字が載っていて効かない列は
+# 「実力比% を再現できるか」の検算まで通ってしまうので、質が悪い。落とす。
+COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種", "役割",
+           "兵力", "武力", "知力", "攻撃力", "防御力",
+           "必殺技", "消費ゲージ%", "ゲージ上昇率", "初期ゲージ", "固有特性",
+           "知力傾き", "効果予算", "能力値コスト", "総合値", "実力比%"]
+
+
+def regenerate() -> int:
+    """`sim/data/generals.csv` の能力値を設計式で引き直して上書きする。
+
+    **読んだとおりに動くシートにするのが目的。** これまで CSV の 兵力・攻撃力 は
+    旧ルール（レーンあり）の内部スケールで、`to_cards()` は一切読んでいなかった。
+    シートを見た人が把握する強さと、盤面が実行する強さが別物だった。
+
+    置き換えたあとは、**CSV が一次で設計式は生成器**になる。手で1枚だけ直したい
+    ときは CSV を直せばよく、全体を引き直したいときはこれを走らせる。
+    """
+    from . import design as D
+    from . import field as F
+    load_skills_into_field()
+    load_traits_into_field()
+    rows = generals()
+    out = []
+    for g in rows:
+        d = to_design(g)
+        v = D.derive(d)
+        r = {k: g.get(k, "") for k in COLUMNS if k in g}
+        r.update({
+            "兵力": "{:.0f}".format(v["兵力"]),
+            "武力": "{:.1f}".format(v["武力"]),
+            "知力": "{:.1f}".format(v["知力"]),
+            "攻撃力": "{:.1f}".format(v["攻撃力"]),
+            "防御力": "{:.1f}".format(v["防御力"]),
+            "知力傾き": d.tilt,
+            "効果予算": "{:.3f}".format(v["効果予算"]),
+            "能力値コスト": "{:.3f}".format(d.cost - v["効果予算"]),
+            "総合値": "{:.4f}".format(v["総合値"]),
+        })
+        out.append(r)
+    mean = st.mean(float(r["総合値"]) for r in out)
+    for r in out:
+        r["実力比%"] = "{:.0f}".format(float(r["総合値"]) / mean * 100.0)
+    path = os.path.join(DATA, "generals.csv")
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=COLUMNS)
+        w.writeheader()
+        w.writerows(out)
+    return len(out)
 
 
 def load_traits_into_field() -> int:
