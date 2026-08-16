@@ -336,6 +336,37 @@ sim/engine.py はレーン（3本の平行通路）を前提とした旧実装�
 筋がよい。
 
 ================================================================================
+ 7. 3兵種に「時間の形」を与えた（史実の制約から）
+================================================================================
+史実の弓の制約は3つ。**矢数**（漢代の弩兵で携行50本前後）、**体力**（張力30〜70kgを
+引き続けられない）、**殺傷効率の低さ**（massed archery の主目的は崩すこと）。
+このうち採ったのは矢数だけである。
+
+| 案 | 結果 | 採否 |
+| --- | --- | --- |
+| 矢数（AMMO_TIME） | 弓係数 1.50 → 1.00。跳び幅 3.4倍 → 2.2倍 | **採用** |
+| 殺傷効率（ARC_LETHAL） | 弓係数を同じだけ下げたとき、矢数25秒は跳び幅1.70、混乱0.7は1.97 | 却下 |
+| 体力 | 矢数と同じ形（累積で出力が落ちる）。重複 | 却下 |
+
+**混乱の仮説は外れた。** 「兵力を減らさないダメージは複利に乗らない」と考えたが、
+実体は「弓を弱くしているだけ」で、しかも矢数より効率が悪い。同じ弱体化なら矢数の
+ほうが decoupling が効く。複雑さは効果で買うものなので入れない。
+
+そのうえで騎兵に**突撃**を足した。取り付いた直後は強く、乱戦が続くと落ちる
+（CHARGE_BONUS / CHARGE_TAU）。矢数と同じ「消耗する資源」で書けるので、追加の
+複雑さはほぼない。実測で 0.6 でも係数は 騎1.058 / 弓1.021 と 1.0 付近に留まり、
+**素の公平さを壊さずに個性だけ足せた**。
+
+これで3兵種の時間プロファイルが揃った。**同じ強さでも、強い時間帯が違う。**
+
+    弓兵 … 遠くから撃てるが矢が尽きる。詰められると撃てない
+    騎兵 … 取り付いた直後が最も強く、乱戦が続くと落ちる
+    歩兵 … 増減なし。だから長い乱戦で相対的に強い
+
+実況にもそのまま出る（「突撃の勢いを失い乱戦へ」「斉射が鈍る」）。**強さの差では
+なく時間の形の差なので、テキストで語ったときに嘘にならない。**
+
+================================================================================
  残課題
 ================================================================================
  - 較正済み係数のばらつき（0.57/1.25/1.12）の原因である射程の効き方の非対称を、
@@ -403,7 +434,7 @@ RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
 # この盤面で測り直した値（`field.py price` が再現する）。旧値 1.00/0.90/1.12 は
 # 旧レーンエンジンのもので、入れたままだと兵種補正を 0〜0.15、FOCUS を 0〜3 まで
 # 振っても三すくみが 0/100/0 から一切動かなかった（係数だけで勝敗が決まっていた）。
-ACT_COEF = {INF: 1.0000, CAV: 0.9886, ARC: 0.9958}
+ACT_COEF = {INF: 1.0000, CAV: 1.0621, ARC: 1.0129}
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
@@ -454,7 +485,7 @@ TYPE_BONUS = 0.0        # 旧: 攻撃ごとの % 補正。推移成分が混ざ�
 # 1つの値では揃わない。**コスト点→勝敗の感度が対戦ごとに違う**ため、同じ 1.0 を
 # 与えても 歩/騎 では +1.918、騎/弓 では +0.762 にしかならない（実測）。
 # 対戦ごとに較正して初めて、狙った量が3方向に揃って出る。
-TYPE_EDGE_COST = {(INF, CAV): 0.8108, (CAV, ARC): 2.1186, (ARC, INF): 2.0215}
+TYPE_EDGE_COST = {(INF, CAV): 1.0223, (CAV, ARC): 2.7167, (ARC, INF): 2.6614}
 TYPE_EDGE_TARGET = 1.0  # 有利側に持たせたい優位（総コスト30に対するコスト点）
 # 【重要】決着の速さと兵種バランスは、この戦闘モデルの増幅（§6.1）を通じて
 # **構造的に結合している**。0.024 は時間切れ100%で実況の山が消えるので上げたく
@@ -525,6 +556,25 @@ SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大に
 # 時間切れが 33% → 72% へ増える）ので、決着とは別のところで釣り合いが要る。
 AMMO_TIME = 40.0
 AMMO_TAIL = 20.0        # 尽きたあとの減衰の時定数（秒）
+
+# 弓の殺傷効率の低さ（史実）。massed archery の主目的は殺すことより隊列を崩すこと。
+# 弓のダメージのうち ARC_LETHAL だけが兵力を減らし、残りは相手の攻撃力を一時的に
+# 下げる「混乱」になる。**増幅は兵力の差を通じて複利になるので、兵力を減らさない
+# ダメージは複利に乗らない**というのが狙い。
+# 【実測して捨てた】混乱は矢数より decoupling の効率が悪い。弓係数を同じだけ
+# 下げたとき、矢数25秒は跳び幅1.70、混乱0.7は1.97。仮説（兵力を減らさないから
+# 複利に乗らない）は支持されず、実体は「弓を弱くしているだけ」だった。
+# 体力（持続射の低下）も矢数と同じ形（累積で出力が落ちる）なので重複。入れない。
+ARC_LETHAL = 1.0        # 1.0 で全部が兵力減（＝混乱を使わない）
+DISRUPT_GAIN = 6.0      # 混乱の効き。攻撃力は 1/(1+混乱) 倍になる
+DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
+
+# 騎兵の突撃（史実の衝撃力）。取り付いた直後は強いが、乱戦になると落ちる。
+# 矢数と同じ「消耗する資源」で書く。歩兵は増減なしで乱戦に強い、という差になる。
+# 実測: 0.6 でも行動面の係数は 騎1.058 / 弓1.021 と 1.0 付近に留まる。
+# **素の公平さを壊さずに個性だけ足せる。** 3兵種の時間プロファイルが揃った。
+CHARGE_BONUS = 0.6      # 突撃時の上乗せ（0 で無効）
+CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
 FLANK_MARGIN = 30.0     # 迂回時に敵前衛の外縁からどれだけ外を回るか
 LEGACY_REACH = 1.6      # 【旧実装の再現用】斥力の届く距離（札幅の倍数）
 
@@ -706,7 +756,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -754,6 +804,8 @@ class Unit:
         self.fired = 0      # 誘発型が何回発火したか
         self.effects: List[Tuple[float, str, float]] = []  # (失効時刻, 種別, 量)
         self.shot = 0.0     # 累積の射撃時間（矢数の代理）
+        self.melee = 0.0    # 敵と噛み合っている累積時間（突撃の勢いの逆）
+        self.disrupt = 0.0  # 受けている混乱の量
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -966,6 +1018,19 @@ def _expire(units, t: float) -> None:
         u.atk_mult, u.def_mult = a, d
 
 
+def _output(u: Unit) -> float:
+    """兵種ごとの時間プロファイル。3兵種で形が違うのが狙い。
+
+      弓兵 … 遠くから撃てるが矢が尽きる（_suppress の AMMO）
+      騎兵 … 取り付いた直後が強く、乱戦が続くと落ちる（ここ）
+      歩兵 … 増減なし。だから長い乱戦で相対的に強い
+    """
+    m = 1.0 / (1.0 + u.disrupt)          # 受けた混乱ぶん出力が落ちる
+    if CHARGE_BONUS > 0.0 and u.typ == CAV:
+        m *= 1.0 + CHARGE_BONUS * math.exp(-u.melee / CHARGE_TAU)
+    return m
+
+
 def _suppress(u: Unit, gaps: List[float]) -> float:
     """接敵抑制。射程を持つ札は、敵に近づかれるほど出力が落ちる。
 
@@ -1040,10 +1105,18 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         # --- 射撃（同時解決。片側を先に処理すると左右非対称になる） ---------
         if damage:
             ramp = damage_ramp(t)
-            if AMMO_TIME > 0.0:
-                for x in ua + ub:
-                    if x.rng > 0.0 and x.men > 0.0:
-                        x.shot += dt
+            for x in ua + ub:
+                if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
+                    x.shot += dt
+                if x.disrupt > 0.0:
+                    x.disrupt *= math.exp(-dt / DISRUPT_TAU)
+            if CHARGE_BONUS > 0.0:
+                for i, x in enumerate(ua):
+                    if min(gap[i]) <= 1.0:
+                        x.melee += dt
+                for j, x in enumerate(ub):
+                    if min(gap[i][j] for i in range(na)) <= 1.0:
+                        x.melee += dt
             da = [0.0] * na
             db = [0.0] * nb
             for i, u in enumerate(ua):
@@ -1054,11 +1127,15 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 gate = max(ws)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, gap[i]) * fa * ramp)
+                        * _suppress(u, gap[i]) * _output(u) * fa * ramp)
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
-                    db[j] += base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    if u.typ == ARC and ARC_LETHAL < 1.0:
+                        f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
+                        hit *= ARC_LETHAL
+                    db[j] += hit
             for j, u in enumerate(ub):
                 col = [gap[i][j] for i in range(na)]
                 ws = _weights(u, ua, col)
@@ -1068,11 +1145,15 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 gate = max(ws)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, col) * fb * ramp)
+                        * _suppress(u, col) * _output(u) * fb * ramp)
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
-                    da[i] += base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    if u.typ == ARC and ARC_LETHAL < 1.0:
+                        f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
+                        hit *= ARC_LETHAL
+                    da[i] += hit
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
             for u, d in zip(ub, db):
@@ -1190,10 +1271,10 @@ def _army_name(army: "Army", fallback: str) -> str:
 
 # 種類ごとの行数上限（§9.3）。合流したぶんは1行として数える。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
-             "必殺技": 2, "誘発": 2, "壊滅": 2, "決着": 1}
+             "必殺技": 2, "誘発": 2, "突撃": 1, "壊滅": 2, "決着": 1}
 # 優先順位（小さいほど先に確保する）
 LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "誘発": 3,
-             "壊滅": 4, "接敵": 5, "抑制": 6, "布陣": 7}
+             "突撃": 4, "壊滅": 4, "接敵": 5, "抑制": 6, "布陣": 7}
 LINE_BUDGET = 12
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
@@ -1311,6 +1392,18 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 "この時点で残り{:.0f}%。".format(
                     _who(u), t, _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
+    # 騎兵が突撃の勢いを使い切る（乱戦に呑まれる）
+    if CHARGE_BONUS > 0.0:
+        for u in list(ua) + list(ub):
+            k = ("突", id(u))
+            # 勢いがほぼ抜けた時点で報じる。CHARGE_TAU で切ると出力がまだ122%
+            # あり「勢いを失い」と書くのが嘘になる。落差で語る。
+            if (k not in seen and u.typ == CAV and u.men > 0.0
+                    and u.melee > 2.5 * CHARGE_TAU):
+                seen.add(k)
+                ev.append(Event(t, "突撃", LINE_PRIO["突撃"],
+                    "{}、突撃の勢いが尽きて乱戦へ（{:.0f}% → {:.0f}%）。".format(
+                        _who(u), 100 * (1.0 + CHARGE_BONUS), 100 * _output(u))))
     # 弓の抑制
     for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
                              (ub, ua, lambda i, j: gap[j][i])):
