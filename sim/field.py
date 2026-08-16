@@ -646,6 +646,17 @@ TRAITS = {
     "banner":    ("ally_retreat",  "all", 0.06, 20.0, 2, "弔旗"),
 }
 
+# 増幅の緩和（§6.1 案B）。優勢な側ほど与ダメージ倍率を下げる。
+#
+# この戦闘モデルは「毎ティックの与ダメージ差が生存時間の差を生み、生存時間の差が
+# さらに与ダメージ差を生む」複利構造を持つ（§6.1）。TAPER はその複利へ負の帰還を
+# かける。残存兵力率の比 r_self / r_foe が 1 を超えるぶんだけ出力を落とす。
+#
+#   倍率 = (r_foe / r_self) ** TAPER      … TAPER=0 で無効
+#
+# 距離でも時刻でもなく**比**で決まるので、分岐も閾値も要らない。
+TAPER = 0.0
+
 ROUT_RATIO = 0.20       # 残存兵力率がこれを割ったら潰走（総大将の置き換え）
 # 【重要・計器】§8.2 の「残存兵力率の差が1%未満なら引き分け」は**見せ方の規則**で
 # あって、測定に使ってはいけない。1% を測定へ持ち込むと、近い編成どうしが全部
@@ -1173,6 +1184,12 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         # --- 射撃（同時解決。片側を先に処理すると左右非対称になる） ---------
         if damage:
             ramp = damage_ramp(t)
+            ta = tb = 1.0
+            if TAPER > 0.0:
+                ra_ = max(sum(u.men for u in ua) / men0a, 1e-6)
+                rb_ = max(sum(u.men for u in ub) / men0b, 1e-6)
+                ta = (rb_ / ra_) ** TAPER
+                tb = (ra_ / rb_) ** TAPER
             for x in ua + ub:
                 if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
                     x.shot += dt
@@ -1195,7 +1212,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 gate = max(ws)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, gap[i]) * _output(u) * fa * ramp)
+                        * _suppress(u, gap[i]) * _output(u) * fa * ramp * ta)
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
@@ -1213,7 +1230,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 gate = max(ws)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, col) * _output(u) * fb * ramp)
+                        * _suppress(u, col) * _output(u) * fb * ramp * tb)
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
