@@ -289,7 +289,8 @@ def to_design(g: Dict[str, str]):
     gi = float(g["初期ゲージ"])
     sk = F.SKILL_INFO.get(g["必殺技"])
     # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
-    eff = D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi) if sk else 0.0
+    eff = (D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi,
+                          cost=float(g["コスト"])) if sk else 0.0)
     eff += D.trait_value(g["固有特性"])
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
@@ -505,6 +506,66 @@ def retier() -> int:
         w = csv.DictWriter(f, fieldnames=list(gen[0].keys()))
         w.writeheader()
         w.writerows(gen)
+    return n
+
+
+# 大技の目標値段（コスト点）。**枠の基礎価値 + コスト比例分**の形にする（§4.6 と同じ）。
+# コスト比例だけにすると、コスト1の技が 0.074 まで削られて「安い札の個性は技」という
+# 性格が消える。基礎価値を置くと、安い札は今の値段のまま、高い札ほど技が主役になる。
+#
+#   コスト1  0.27   コスト5  0.75   コスト10  1.35
+#
+# 入れ替え前は 0.29〜1.07 とコストにほとんど乗っていなかった（呂布の無双乱舞が
+# 0.191 で、関羽の青龍偃月 0.421 の半分以下だった）。
+BIG_BASE = 0.15
+BIG_SLOPE = 0.12
+
+
+def rebalance_big() -> int:
+    """大技40種の威力を、人物の格（コスト）に見合う値へ引き直す。
+
+    **予算は自動で釣り合う。** 威力を上げたぶん効果予算が増え、その分だけ能力値が
+    下がる（§7.8）。強さは動かず、技と能力値の配分だけが変わる。
+
+    値段は威力について線形なので、状態効果ぶんを引いてから割れば解ける。
+    """
+    from . import design as D
+    from . import field as F
+    load_skills_into_field()
+    rows = skills()
+    G = {g["必殺技"]: g for g in generals()}
+    gc, gi = D.GAUGE_TIER["大技"]
+    fr = D.fires(gc, gi) / D.PRICE_FIRES
+    n = 0
+    for r in rows:
+        name = r["技名"]
+        sk = F.SKILL_INFO[name]
+        if tier_of(sk) != "大技" or name not in G:
+            continue
+        cost = float(G[name]["コスト"])
+        target = BIG_BASE + BIG_SLOPE * cost
+        nt = D.target_n(r["対象"])
+        # 状態効果ぶん（威力とは無関係な部分）を先に引く
+        mods = 0.0
+        for k, a, sec in sk.mods:
+            if k == "stun":
+                mods += D.EFFECT_PRICE["stun"] * sec * nt
+            elif k in ("atk", "def"):
+                mods += D.EFFECT_PRICE[k] * abs(a) * 100.0 * sec * nt
+        want = target * D.CARD_COST_RATE / max(fr, 1e-9) - mods
+        if sk.dur > 0.0:            # 継続。威力は毎秒の量
+            power = want / D.EFFECT_PRICE["dot"] / sk.dur
+        else:
+            power = want / D.EFFECT_PRICE["damage"]
+        power = max(power, 0.5)     # 状態効果だけで予算を超える技は最低限に
+        r["効果"] = re.sub(r"威力\d+%", "威力{:.0f}%".format(power * 100.0),
+                          r["効果"], count=1)
+        n += 1
+    with open(os.path.join(DATA, "skills.csv"), "w",
+              encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
     return n
 
 
