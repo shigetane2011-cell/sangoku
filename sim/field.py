@@ -1039,15 +1039,22 @@ class Unit:
         rm = ROLE_MEN[card.role]
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm
         self.men = self.men0
-        # 攻撃力は武力と知力からの導出値。指定が無ければ従来どおり。
-        base = BASE_ATK * (s ** (1.0 - SPLIT_EXP)) / rm * ATK_BY_TYPE[card.typ]
+        # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ
+        # 武力・知力と実際の攻撃力が食い違いうる（別々に保持されるため）。
+        # 攻撃力は保持せず、必ず下の式で計算する。
+        #
+        #   攻撃力 = 武力 × (1 - w) + 知力 × w        w = INT_WEIGHT[兵種]
+        #
+        # 武力・知力の指定が無い合成カードは、コスト曲線から出した値を両方へ入れる
+        # （知力 = 武力 なら攻撃力は武力に一致するので、従来と同じ値になる）。
+        scale = BASE_ATK * (s ** (1.0 - SPLIT_EXP)) / rm * ATK_BY_TYPE[card.typ]
         if card.might > 0.0:
-            w = INT_WEIGHT[card.typ]
-            blend = card.might * (1.0 - w) + (card.wits or card.might) * w
-            base *= blend / max(card.might, 1e-9)
-        self.atk = base
-        self.might = card.might or BASE_ATK
-        self.wits = card.wits or card.might or BASE_ATK
+            self.might = card.might
+            self.wits = card.wits or card.might
+        else:
+            self.might = self.wits = scale
+        w = INT_WEIGHT[card.typ]
+        self.atk = self.might * (1.0 - w) + self.wits * w
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
         self.interval = INTERVAL[card.typ]
         self.speed = SPEED[card.typ]

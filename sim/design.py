@@ -105,11 +105,17 @@ def derive(d: Design) -> Dict[str, float]:
     men = F.CARD_MEN * s * rm
     atk = F.BASE_ATK / rm
 
-    # 3. 攻撃力を 武力 と 知力 へ配合（攻撃力は変えない）
+    # 3. **武力と知力が一次値。** 攻撃力はそこからの導出。
+    #
+    # コスト曲線が決めるのは「攻撃力に相当する総量」なので、傾き k のもとで
+    #   攻撃力 = 武力(1-w) + 知力·w = 武力(1-w+k·w)
+    # を満たすように武力を決める。こうすると武力・知力を一次値として持ちながら、
+    # 導出された攻撃力がコスト曲線の上に乗る。
     w = F.INT_WEIGHT[d.typ]
     k = WITS_TILT[d.tilt]
     might = atk / (1.0 - w + k * w)
     wits = k * might
+    atk = might * (1.0 - w) + wits * w      # 導出しなおす（保持しない）
 
     return {"兵力": men, "攻撃力": atk, "武力": might, "知力": wits,
             "防御力": F.DEF_BY_TYPE[d.typ], "気勢": KISEI[d.kisei],
