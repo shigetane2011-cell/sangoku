@@ -68,6 +68,8 @@ placeholder だったので廃棄した。知力の傾きは**カードごとに
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import Dict
 
@@ -88,7 +90,7 @@ ROLE_MEN = {jp: F.ROLE_MEN[k] for jp, k in ROLE_KEY.items()}
 
 # 役割で兵力を rm 倍したとき、攻撃力を rm^k で割る。**k=1 が「積を保つ」で、
 # それは盤面では正しくない。** 盤面で測って決める（`python3 -m sim.design roles`）。
-ROLE_ATK_EXP = 1.0
+ROLE_ATK_EXP = F.ROLE_ATK_EXP
 
 # 気勢（旧ゲージ上昇率）。知力とは独立。1.0 が標準。
 KISEI = {"遅": 0.85, "標準": 1.00, "速": 1.15, "俊": 1.30}
@@ -107,6 +109,26 @@ class Design:
     # 必殺技・固有特性に払うコスト点（`effect_value`）。**能力値から引く。**
     # ここが 0 のままだと、技の強い札が能力値も同じだけ持つことになる。
     effect: float = 0.0
+
+
+def total_value(men: float, atk: float, typ: str) -> float:
+    """1枚の総合値。**加法の通貨**（コストに線形・役割に中立）。
+
+    集中砲火の保存量は 攻撃力×兵力²（ランチェスターの二乗則）なので、その
+    平方根が「足せる量」になる。
+
+        総合値 = 兵力 × √( 攻撃力/攻撃間隔 × (100+防御力)/100 )
+
+    役割は 兵力 ∝ rm・攻撃力 ∝ 1/rm² なので rm が打ち消えて中立になる。
+    コストは全部 兵力 に乗る（SPLIT_EXP=1）ので線形になる。
+
+    **以前は 兵力×攻撃力 だった。** あれは「毎秒の与ダメージ」であって強さでは
+    ない。兵力は殴ることと耐えることの二役をこなし、攻撃力は殴ることしかしない
+    ので、積を保つ交換は兵力側が一方的に得をする（実測で役割の幅が 6.81〜27.90
+    コスト点。§7.30）。
+    """
+    return men * math.sqrt(atk / F.INTERVAL[typ]
+                           * (100.0 + F.DEF_BY_TYPE[typ]) / 100.0) / 1e3
 
 
 def total_power(cost: float) -> float:
@@ -179,8 +201,7 @@ def derive(d: Design) -> Dict[str, float]:
             "効果予算": e, "効果超過": max(d.effect - EFFECT_CAP * d.cost, 0.0),
             "防御力": F.DEF_BY_TYPE[d.typ], "気勢": KISEI[d.kisei],
             "消費ゲージ": d.gauge_cost, "初期ゲージ": d.gauge_init,
-            "総合値": men * (100.0 + F.DEF_BY_TYPE[d.typ]) / 100.0
-                      * atk / F.INTERVAL[d.typ] / 1e5}
+            "総合値": total_value(men, atk, d.typ)}
 
 
 # ============================================================================

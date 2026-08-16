@@ -42,19 +42,21 @@ def traits() -> List[Dict[str, str]]:
 
 
 def power(g: Dict[str, str]) -> float:
-    """総合値 = 実効耐久 × 実効火力（§4.6）。**盤面と同じ定義で計算する。**
+    """CSV の1行から総合値を計算する。**定義は `design.total_value` に一本化。**
 
-        実効耐久 = 兵力 × (100 + 防御力) / 100
-        実効火力 = 攻撃力 / 攻撃間隔
+        総合値 = 兵力 × √( 攻撃力/攻撃間隔 × (100+防御力)/100 )
+
+    ここに定義を書き写していたせいで、設計式を直したときに片方だけ古い定義の
+    まま残り、盤面と設計式の比が 8.7倍ずれた（実際に踏んだ）。**同じ量の定義を
+    2箇所に持たないこと。**
 
     命中率・クリ率は使わない。位置ベースの盤面がどちらも持っていないからである
-    （§7.8: 命中率 -X% は攻撃力 -X% と同じ意味になる）。旧版はこの2つを掛けており、
-    **CSV の上でだけ成り立つ総合値**を計算していた。
+    （§7.8: 命中率 -X% は攻撃力 -X% と同じ意味になる）。
     """
-    men = float(g["兵力"])
-    atk = float(g["攻撃力"])
-    dfn = float(g["防御力"])
-    return men * (100.0 + dfn) / 100.0 * atk / INTERVAL[g["兵種"]] / 1e5
+    from . import design as D
+    from . import field as F
+    return D.total_value(float(g["兵力"]), float(g["攻撃力"]),
+                         TYPE_MAP[g["兵種"]])
 
 
 def affine_fit(rows) -> tuple:
@@ -355,7 +357,9 @@ def on_curve() -> int:
         ps, ds = [], []
         for x in (x for x in cards if int(x.cost) == c):
             u = F.Unit(0, x, form, (0.0, 0.0), True)
-            ps.append(u.men0 * (100.0 + u.dfn) / 100.0 * u.atk / u.interval / 1e5)
+            # **定義は design.total_value に一本化。** ここに式を書き写して
+            # いたせいで、設計式を直したときに 8.7倍ずれた（実際に踏んだ）。
+            ps.append(D.total_value(u.men0, u.atk, x.typ))
             ds.append(D.derive(to_design(idx[x.name]))["総合値"])
         dev = max(abs(p / d - 1.0) for p, d in zip(ps, ds)) * 100
         print("  {:<6}{:>6}{:>10.2f}{:>10.2f}{:>10.4f}{:>10.2f}{}".format(
