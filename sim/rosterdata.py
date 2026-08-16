@@ -409,6 +409,105 @@ def regenerate() -> int:
     return len(out)
 
 
+def tier_of(skill) -> str:
+    """必殺技をゲージの段へ割り当てる（`design.GAUGE_TIER`）。
+
+    **中身で決める。** 打撃は「1発を大きく、遅く、1回だけ」にしたいので大技へ。
+    強化・妨害・回復は掛かっている時間が価値なので標準へ。ゲージ付与だけの技は
+    早く何度も回らないと意味がないので手数へ。
+    """
+    if skill.power > 0.0:
+        return "大技"
+    if skill.heal > 0.0:
+        return "標準"
+    if any(k == "gauge" for k, _, _ in skill.mods):
+        return "手数"
+    return "標準"
+
+
+def _scale_effect(text: str, m: float) -> str:
+    """効果文の量を m 倍する。**％は50で頭打ちにし、あふれた分は秒数へ回す。**
+
+    §6.5 が「1つの能力への補正合計は ±50%」と決めているので、%だけを伸ばすと
+    上限に当たって予算が消える。%×秒 を保てば価値は同じである。
+    """
+    def pw(mo):
+        return "威力{:.0f}%".format(float(mo.group(1)) * m)
+
+    def hp(mo):
+        return "回復 攻撃力の{:.0f}%".format(float(mo.group(1)) * m)
+
+    def stun(mo):
+        # 行動阻害も同名では重ならない。秒数で払う（もともと秒数の効果なので同じ）。
+        return "行動阻害 {:.0f}秒".format(float(mo.group(1)) * m)
+
+    def gauge(mo):
+        return "ゲージ付与 自然増加の{:.0f}秒ぶん".format(float(mo.group(1)) * m)
+
+    def mod(mo):
+        # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ技を何度撃っても
+        # 効果は重ならず「大きい方」だけが残る。だから回数を減らしたぶん量を
+        # 増やすと二重取りになる（実測で堅忍 +0.28・一喝 +0.33 コスト点ぶん強く
+        # なった）。価値は「どれだけの時間かかっていたか」なので、秒数で払う。
+        stat, sign, val, sec = (mo.group(1), mo.group(2),
+                                float(mo.group(3)), float(mo.group(4)))
+        return "{} {}{:.0f}%（{:.0f}秒）".format(stat, sign, val, sec * m)
+
+    text = re.sub(r"威力(\d+)%", pw, text)
+    text = re.sub(r"回復\s*攻撃力の(\d+)%", hp, text)
+    text = re.sub(r"行動阻害\s*(\d+)秒", stun, text)
+    text = re.sub(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", gauge, text)
+    text = re.sub(r"(攻撃力|命中率|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
+                  mod, text)
+    return text
+
+
+def retier() -> int:
+    """必殺技をゲージの段へ割り当て直し、威力を予算が変わらないように直す。
+
+    **予算 = 発動回数 × 効果量 を保つ。** 回数が半分になるなら効果量を倍にする。
+    変わるのは刻みだけで、技の総価値は動かない。
+
+    これをやる理由は見せ方である。1発が相手の 1〜6% しか削らないと、実況で
+    「呂布〔飛将〕、無双乱舞。敵3隊に299人の損害。」と出て名前負けする（§7.12）。
+    """
+    from . import design as D
+    from . import field as F
+    load_skills_into_field()
+    rows = skills()
+    gs = {g["必殺技"]: g for g in generals()}
+    n = 0
+    for r in rows:
+        sk = F.SKILL_INFO[r["技名"]]
+        t = tier_of(sk)
+        gc, gi = D.GAUGE_TIER[t]
+        old_fires = D.fires(float(r["消費ゲージ%"]))
+        new_fires = D.fires(gc, gi)
+        m = max(old_fires, 1.0) / max(new_fires, 1.0)
+        r["効果"] = _scale_effect(r["効果"], m)
+        r["消費ゲージ%"] = "{:.0f}".format(gc)
+        n += 1
+    with open(os.path.join(DATA, "skills.csv"), "w",
+              encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    # 武将側の消費ゲージ・初期ゲージも段に合わせる
+    load_skills_into_field()
+    gen = generals()
+    for g in gen:
+        t = tier_of(F.SKILL_INFO[g["必殺技"]])
+        gc, gi = D.GAUGE_TIER[t]
+        g["消費ゲージ%"] = "{:.0f}".format(gc)
+        g["初期ゲージ"] = "{:.0f}".format(gi)
+    with open(os.path.join(DATA, "generals.csv"), "w",
+              encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(gen[0].keys()))
+        w.writeheader()
+        w.writerows(gen)
+    return n
+
+
 def load_traits_into_field() -> int:
     """固有特性を field.py へ読み込む。**必殺技とまったく同じ器を使う。**
 
