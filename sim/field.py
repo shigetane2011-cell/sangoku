@@ -657,6 +657,14 @@ TRAITS = {
 # 距離でも時刻でもなく**比**で決まるので、分岐も閾値も要らない。
 TAPER = 0.0
 
+# 必殺技のゲージ（§7.2）。最大値100を基準に、消費ゲージ%が発動の閾値になる。
+# **測定では既定オフ。** 統制した合成カードにはゲージを持たせない。
+SKILLS_ON = False
+GAUGE_PER_SEC = 2.0     # 時間経過（上昇率1.0のとき毎秒）
+GAUGE_PER_DEAL = 20.0   # 与ダメージ ÷ 対象の最大兵力 × これ
+GAUGE_PER_TAKE = 15.0   # 被ダメージ ÷ 自分の最大兵力 × これ
+GAUGE_ON_ROUT = 10.0    # 敵を撤退させたとき
+
 ROUT_RATIO = 0.20       # 残存兵力率がこれを割ったら潰走（総大将の置き換え）
 # 【重要・計器】§8.2 の「残存兵力率の差が1%未満なら引き分け」は**見せ方の規則**で
 # あって、測定に使ってはいけない。1% を測定へ持ち込むと、近い編成どうしが全部
@@ -753,6 +761,14 @@ class Card:
     name: str = ""          # 実カードの武将名（実況用。測定には使わない）
     trait: str = ""         # 固有特性のキー（sim/data/traits.csv）
     faction: str = ""       # 勢力（魏/蜀/呉/群雄）。実況の呼称に使う
+    # 必殺技のゲージ（§7.2）。**3つセットで意味を持つ。**
+    #   消費が閾値なので、消費50は約25秒で撃てて消費175は約87秒かかる。
+    #   これで「弱いけど何度も出る技」と「本当の大技」が分かれる。
+    #   上昇率は溜まる速さ、初期ゲージは開幕の頭金。
+    skill: str = ""
+    gauge_cost: float = 100.0
+    gauge_rate: float = 1.0
+    gauge_init: float = 0.0
 
     def label(self) -> str:
         if self.name:
@@ -808,7 +824,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -858,6 +874,11 @@ class Unit:
         self.shot = 0.0     # 累積の射撃時間（矢数の代理）
         self.melee = 0.0    # 敵と噛み合っている累積時間（突撃の勢いの逆）
         self.disrupt = 0.0  # 受けている混乱の量
+        self.gauge = card.gauge_init
+        self.gauge_cost = card.gauge_cost
+        self.gauge_rate = card.gauge_rate
+        self.skill = card.skill
+        self.fires = 0      # 必殺技の発動回数
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -1051,6 +1072,26 @@ def _fire_traits(ua, ub, t, retired, ev, seen) -> None:
                     "{}が{}を発する。".format(_who(u), jp)))
 
 
+def x_rate(u: Unit) -> float:
+    return u.gauge_rate
+
+
+def _fire_skills(own, foe, t: float, ev, seen) -> None:
+    """ゲージが消費量に達した札の必殺技を発動する（§7.2）。
+
+    閾値は 100 ではなく**その札の消費ゲージ%**。だから消費50の札は何度も撃ち、
+    消費175の札は1戦に1回あるかどうかになる。効果はまだ載っていないので、
+    ここでは発動の記録だけを行う（実況で嘘を書かないよう、効果が入るまで
+    実況側の行も出さない）。
+    """
+    for u in own:
+        if u.men <= 0.0 or not u.skill:
+            continue
+        if u.gauge >= u.gauge_cost:
+            u.gauge -= u.gauge_cost
+            u.fires += 1
+
+
 def _expire(units, t: float) -> None:
     """持続時間の切れた効果を落として倍率を組み直す。
 
@@ -1220,6 +1261,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
+                    if SKILLS_ON and f.men0 > 0:
+                        u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     db[j] += hit
             for j, u in enumerate(ub):
                 col = [gap[i][j] for i in range(na)]
@@ -1238,6 +1281,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
+                    if SKILLS_ON and f.men0 > 0:
+                        u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     da[i] += hit
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
@@ -1254,6 +1299,18 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 retired["new"] = set()
             _fire_traits(ua, ub, t + dt, retired, events, seen)
             _expire(ua + ub, t + dt)
+
+        if SKILLS_ON:
+            for x, taken in ((u, d) for u, d in zip(ua, da)):
+                x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
+                if x.men0 > 0:
+                    x.gauge += taken / x.men0 * GAUGE_PER_TAKE
+            for x, taken in ((u, d) for u, d in zip(ub, db)):
+                x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
+                if x.men0 > 0:
+                    x.gauge += taken / x.men0 * GAUGE_PER_TAKE
+            _fire_skills(ua, ub, t + dt, events, seen)
+            _fire_skills(ub, ua, t + dt, events, seen)
 
         t += dt
         ra = sum(u.men for u in ua) / men0a
@@ -1275,7 +1332,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         _log_close(events, seen, t, reason, ua, ub, ra, rb)
     score = 0.5 if abs(ra - rb) < DRAW_BAND else (1.0 if ra > rb else 0.0)
     return {"score": score, "ra": ra, "rb": rb, "t": t, "reason": reason,
-            "width_start": start_width, "width_end": _front_width(ua)}
+            "width_start": start_width, "width_end": _front_width(ua),
+            "fires_a": [(u.name or u.typ, u.fires) for u in ua],
+            "fires_b": [(u.name or u.typ, u.fires) for u in ub]}
 
 
 def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],

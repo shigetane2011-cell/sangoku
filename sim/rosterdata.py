@@ -170,7 +170,10 @@ def to_cards(names=None):
     picks = [idx[n] for n in names] if names else list(idx.values())
     return [F.Card(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                    role=ROLE_MAP[g["役割"]], name=g["名前"],
-                   trait=g["固有特性"], faction=g["勢力"]) for g in picks]
+                   trait=g["固有特性"], faction=g["勢力"],
+                   skill=g["必殺技"], gauge_cost=float(g["消費ゲージ%"]),
+                   gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
+                   gauge_init=float(g["初期ゲージ"])) for g in picks]
 
 
 def by_cost(cost: int):
