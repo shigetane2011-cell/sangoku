@@ -488,7 +488,7 @@ RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
 # この盤面で測り直した値（`field.py price` が再現する）。旧値 1.00/0.90/1.12 は
 # 旧レーンエンジンのもので、入れたままだと兵種補正を 0〜0.15、FOCUS を 0〜3 まで
 # 振っても三すくみが 0/100/0 から一切動かなかった（係数だけで勝敗が決まっていた）。
-ACT_COEF = {INF: 1.0000, CAV: 1.0725, ARC: 0.9685}
+ACT_COEF = {INF: 1.0000, CAV: 1.0659, ARC: 0.8839}
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
@@ -539,7 +539,8 @@ TYPE_BONUS = 0.0        # 旧: 攻撃ごとの % 補正。推移成分が混ざ�
 # 1つの値では揃わない。**コスト点→勝敗の感度が対戦ごとに違う**ため、同じ 1.0 を
 # 与えても 歩/騎 では +1.918、騎/弓 では +0.762 にしかならない（実測）。
 # 対戦ごとに較正して初めて、狙った量が3方向に揃って出る。
-TYPE_EDGE_COST = {(INF, CAV): 0.6703, (CAV, ARC): 3.3416, (ARC, INF): 3.1118}
+TYPE_EDGE_COST = {(INF, CAV): 0.4916, (CAV, ARC): 2.6956,
+                  (ARC, INF): 2.5763}
 TYPE_EDGE_TARGET = 1.0  # 有利側に持たせたい優位（総コスト30に対するコスト点）
 # 【重要】決着の速さと兵種バランスは、この戦闘モデルの増幅（§6.1）を通じて
 # **構造的に結合している**。0.024 は時間切れ100%で実況の山が消えるので上げたく
@@ -833,7 +834,10 @@ TAPER = 0.0
 
 # 必殺技のゲージ（§7.2）。最大値100を基準に、消費ゲージ%が発動の閾値になる。
 # **測定では既定オフ。** 統制した合成カードにはゲージを持たせない。
-SKILLS_ON = False
+# **必殺技は既定でオン。** 技を切った盤面は別のゲームで、そこで較正した係数を
+# 技オンの盤面へ持ち込むと 弓兵→歩兵 が負のまま残る（実測 -0.83）。
+# ACT_COEF と TYPE_EDGE_COST はどちらも技オンで測り直した値である。
+SKILLS_ON = True
 # 実カード175戦での実測（1枚あたり平均 1.18回。§7.1 の目標 1.2回）。
 #   消費ゲージ  50    75   100   125   150   175
 #   平均発動   2.89  1.61  0.99  0.96  0.82  0.77
@@ -2162,11 +2166,19 @@ SYNTH_SKILL_TARGET = "敵1体（最前）"
 
 
 def _synth(cost: float, typ: str, role: str = BAL) -> Card:
-    """合成カード。SKILLS_ON のとき標準技を持つ。"""
+    """合成カード。SKILLS_ON のとき標準技を持ち、その値段ぶん能力値を下げる。
+
+    **技を無料で配ると較正がずれる。** 技を持つぶん強いカードを「コストどおり」と
+    見なしてしまうので、兵種係数がそのぶんを吸ってしまう。実カードと同じく
+    効果予算（§7.5）を払わせる。
+    """
     if SKILLS_ON:
         SKILL_INFO[SYNTH_SKILL] = Skill(SYNTH_SKILL_POWER, SYNTH_SKILL_KIND)
         SKILL_TARGET[SYNTH_SKILL] = SYNTH_SKILL_TARGET
-        return Card(cost, typ, role, skill=SYNTH_SKILL)
+        from . import design as D      # 遅延 import（design は field を読むため）
+        e = D.effect_value(SKILL_INFO[SYNTH_SKILL], SYNTH_SKILL_TARGET)
+        return Card(cost, typ, role, skill=SYNTH_SKILL,
+                    stat_cost=max(cost - e, 0.1))
     return Card(cost, typ, role)
 
 
@@ -2532,6 +2544,9 @@ def form_table(forms=FORMS, dt: float = 0.5, rot: int = 6):
 
 
 def cmd_price(args) -> None:
+    global SKILLS_ON
+    if getattr(args, "skills", False):
+        SKILLS_ON = True
     """行動面の係数をこの盤面で測り直す（3兵種の総当たりで）。
 
     §6.1 の値（歩1.00 / 騎0.90 / 弓1.12）は旧レーンエンジンのもの。歩兵基準の
@@ -2548,7 +2563,7 @@ def cmd_price(args) -> None:
     print()
     print("  {:<6}{:>9}{:>9}{:>9}{:>11}{:>9}{:>9}{:>9}".format(
         "反復", "歩", "騎", "弓", "巡回c", "係数歩", "係数騎", "係数弓"))
-    for it in range(5):
+    for it in range(getattr(args, "iters", 5)):
         _, r, cyc = type_table(args.dt, args.rot)
         print("  {:<6}{:>+9.3f}{:>+9.3f}{:>+9.3f}{:>+11.4f}"
               "{:>9.4f}{:>9.4f}{:>9.4f}".format(
@@ -2599,11 +2614,14 @@ def cmd_calibrate(args) -> None:
     与えても 歩/騎 は +1.918、騎/弓 は +0.762 にしかならない。対戦ごとに感度を
     測って解くと1回の反復で揃う。
     """
-    global TYPE_EDGE_COST
+    global TYPE_EDGE_COST, SKILLS_ON
+    if getattr(args, "skills", False):
+        SKILLS_ON = True
     pairs = [(INF, CAV, 0, 1, "歩→騎"), (CAV, ARC, 1, 2, "騎→弓"),
              (ARC, INF, 2, 0, "弓→歩")]
     target = args.target
-    print(f"兵種相性の表の較正（目標 各方向 +{target:.2f} コスト点）")
+    print(f"兵種相性の表の較正（目標 各方向 +{target:.2f} コスト点"
+          f"／必殺技 {'オン' if SKILLS_ON else 'オフ'}）")
     print()
     for it in range(4):
         M, r, _ = type_table(args.dt, args.rot)
@@ -2628,7 +2646,9 @@ def cmd_calibrate(args) -> None:
 
 
 def cmd_triangle(args) -> None:
-    global TYPE_BONUS
+    global TYPE_BONUS, SKILLS_ON
+    if getattr(args, "skills", False):
+        SKILLS_ON = True
     keep = TYPE_BONUS
     T = (INF, CAV, ARC)
     print("兵種の三すくみ（役割を混ぜた統制編成。両側とも合計コスト30）")
@@ -2815,6 +2835,7 @@ def main() -> None:
     s = sub.add_parser("triangle")
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--rot", type=int, default=6)
+    s.add_argument("--skills", action="store_true")
     s.add_argument("--bonus", type=float, nargs="*",
                    default=[0.0, 0.02, 0.04, 0.06, 0.08])
     s.set_defaults(func=cmd_triangle)
@@ -2825,8 +2846,13 @@ def main() -> None:
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--rot", type=int, default=6)
     s.add_argument("--target", type=float, default=TYPE_EDGE_TARGET)
+    # **必殺技をオンにすると相性表が変わる。** 技オフで較正した表を技オンの盤面へ
+    # 持ち込むと 弓兵→歩兵 が負のまま残る。どちらで較正した表かを明示すること。
+    s.add_argument("--skills", action="store_true")
     s.set_defaults(func=cmd_calibrate)
     s = sub.add_parser("price")
+    s.add_argument("--skills", action="store_true")
+    s.add_argument("--iters", type=int, default=5)
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--rot", type=int, default=6)
     s.set_defaults(func=cmd_price)
