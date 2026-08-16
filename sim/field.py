@@ -533,7 +533,11 @@ def _type_share(army: "Army") -> Dict[str, float]:
 # 自由なパラメータ（結論に使う前に必ず振って符号の安定を確かめること）
 # ============================================================================
 
-TYPE_BONUS = 0.0        # 旧: 攻撃ごとの % 補正。推移成分が混ざるため無効化した
+# 【死んだつまみ】攻撃ごとの % 補正。推移成分が混ざるため無効化した。いまは
+# `_legacy_panel` からしか読まれておらず、主エンジン（simulate）は見ていない。
+# 0.00〜0.08 のどこに置いても総当たり表が1桁も動かないので、**三すくみの強さを
+# 調整するつまみではない**。調整するのは TYPE_EDGE_COST。
+TYPE_BONUS = 0.0
 # 兵種相性の表。有利な向きごとに係数を持つ（`field.py calibrate` が較正する）。
 #
 # 1つの値では揃わない。**コスト点→勝敗の感度が対戦ごとに違う**ため、同じ 1.0 を
@@ -2667,17 +2671,25 @@ def cmd_triangle(args) -> None:
     print()
     print("【本測定】単位はコスト点（総コスト30に対して）。")
     print("  3つが正で、かつ互いに揃っていれば本物の三すくみ。")
+    print()
+    print("  振るのは **TYPE_EDGE_COST の倍率**。以前ここは TYPE_BONUS（攻撃ごとの")
+    print("  %補正）を振っていたが、あれは主エンジンでは使われていない旧経路の")
+    print("  つまみで、0.00〜0.08 のどこでも表が1桁も動かなかった。**同じ値が")
+    print("  並んだら計器を疑う**（§13）。相性は攻撃倍率ではなくコスト点で与える。")
+    print()
     print("  {:<8}{:>10}{:>10}{:>10}{:>11}{:>11}".format(
-        "兵種補正", "歩→騎", "騎→弓", "弓→歩", "巡回c", "推移の幅"))
-    for bo in args.bonus:
-        TYPE_BONUS = bo
+        "相性倍率", "歩→騎", "騎→弓", "弓→歩", "巡回c", "推移の幅"))
+    keep_e = dict(TYPE_EDGE_COST)
+    for k in args.scale:
+        TYPE_EDGE_COST.update({e: v * k for e, v in keep_e.items()})
         M, r, cyc = type_table(args.dt, args.rot)
-        print("  {:<8.3f}{:>+10.3f}{:>+10.3f}{:>+10.3f}{:>+11.4f}{:>11.3f}".format(
-            bo, M[(0, 1)], M[(1, 2)], M[(2, 0)], cyc, max(r) - min(r)))
+        print("  {:<8.2f}{:>+10.3f}{:>+10.3f}{:>+10.3f}{:>+11.4f}{:>11.3f}".format(
+            k, M[(0, 1)], M[(1, 2)], M[(2, 0)], cyc, max(r) - min(r)))
+    TYPE_EDGE_COST.update(keep_e)
     TYPE_BONUS = keep
     print()
     print("  推移の幅が 0 に近いほど「単にどれかが強い」成分が無い。")
-    print("  巡回c が兵種補正に比例して動けば、補正が三すくみを作れている。")
+    print("  巡回c が倍率に比例して動けば、相性表が三すくみを作れている。")
 
 
 def cmd_formation(args) -> None:
@@ -2836,8 +2848,8 @@ def main() -> None:
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--rot", type=int, default=6)
     s.add_argument("--skills", action="store_true")
-    s.add_argument("--bonus", type=float, nargs="*",
-                   default=[0.0, 0.02, 0.04, 0.06, 0.08])
+    s.add_argument("--scale", type=float, nargs="*",
+                   default=[0.0, 0.5, 1.0, 1.5, 2.0])
     s.set_defaults(func=cmd_triangle)
     s = sub.add_parser("narrate")
     s.add_argument("--dt", type=float, default=0.25)
