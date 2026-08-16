@@ -643,7 +643,7 @@ SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大に
 # つまり結合は「矢の予算をどう数えるか」から来ていない。**弓が前倒しであること自体**
 # が原因で、物差しを替えても前倒しは残る。既定は秒方式に戻す。
 # （attrition モードは比較用に残す）
-AMMO_MODE = "time"        # "time" | "attrition"（下の実測を参照）
+AMMO_MODE = "volley"      # "time" | "attrition" | "volley"
 AMMO_SPAN = 0.30          # 敵をこの割合まで削るぶんの矢を持つ
 AMMO_TAIL_P = 0.12        # 尽きたあとの減衰（消耗割合の単位）
 AMMO_TIME = 40.0
@@ -1346,8 +1346,17 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 rb_ = max(sum(u.men for u in ub) / men0b, 1e-6)
                 ta = (rb_ / ra_) ** TAPER
                 tb = (ra_ / rb_) ** TAPER
-            # 矢の消費。attrition では**敵の消耗割合**をそのまま使う。
-            if AMMO_MODE == "attrition":
+            # 矢の消費。
+            #
+            # volley: **自分が実際に撃った量**で数える。矢を減らすのは射撃であって
+            # 時計でも敵の損耗でもない。射撃量は自分の兵力に比例するので、半壊した
+            # 部隊は撃つ量も矢の減りも半分になる。attrition では敵の損耗に紐づけて
+            # いたため、撃つ量が半分でも矢は満額で減っていた（物理的に不整合）。
+            if AMMO_MODE == "volley":
+                for x in ua + ub:
+                    if x.rng > 0.0 and x.men0 > 0.0:
+                        x.shot += (x.men / x.men0) * dt
+            elif AMMO_MODE == "attrition":
                 wa = 1.0 - sum(y.men for y in ub) / men0b
                 wb = 1.0 - sum(y.men for y in ua) / men0a
                 for x in ua:
