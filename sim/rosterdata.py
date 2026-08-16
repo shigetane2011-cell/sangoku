@@ -153,10 +153,15 @@ def check() -> int:
         v = D.derive(to_design(g))
         if v["効果超過"] > 1e-9:
             over.append((g["名前"], g["必殺技"], g["固有特性"], v["効果超過"]))
-    print("  効果予算の超過: {}".format(len(over) if over else "なし"))
+    ng = [r for r in over if r[3] > D.EFFECT_OVER_OK]
+    print("  効果予算の超過: {}（許容 {:.1f}点を超えるもの {}）".format(
+        len(over) if over else "なし", D.EFFECT_OVER_OK, len(ng)))
     for n, s_, t_, x in sorted(over, key=lambda r: -r[3]):
-        print("    {:<16}{:<10}{:<10}超過 {:.2f}コスト点".format(n, s_, t_, x))
-    print("    （式ではなくデータ側で直す。技を弱くするかコストを上げる）")
+        print("    {:<16}{:<10}{:<10}超過 {:.2f}コスト点{}".format(
+            n, s_, t_, x, "  ★許容超え" if x > D.EFFECT_OVER_OK else ""))
+    if over:
+        print("    （許容内は設計上の見逃し。超えたらデータ側で直す）")
+    bad += len(ng)
 
     # --- 能力値 + 効果 = コスト か（§4.6 の本体） --------------------------
     # **総合値そのものを ±8% で見てはいけない。** 効果予算を導入した以上、同じ
