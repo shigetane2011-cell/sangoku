@@ -314,9 +314,35 @@ TIER_OF_COST = {50: "手数", 75: "手数", 100: "標準", 125: "標準",
                 150: "大技", 175: "大技"}
 
 
+def tilt_coef(skill_kind: str, typ: str, tilt: str) -> float:
+    """知力の傾きが必殺技の係数を何倍にするか（中庸を1.0とする）。
+
+    技の係数は 武力(1-v) + 知力·v、攻撃力は 武力(1-w) + 知力·w なので、傾き k に
+    対して比は **(1-v+kv) / (1-w+kw)** になる。新しい定数は要らない。
+
+        v = SKILL_WITS[技種]      武技0.00 / 範囲0.50 / 計略0.85
+        w = INT_WEIGHT[兵種]      歩騎0.10 / 弓0.35
+
+    実測（計略・歩兵・対戦15通りの平均、技の値段に対する比）:
+
+        傾き    式      実測
+        智将   1.619   1.507
+        勇将   0.647   0.613
+
+    **効くのは |v - w| の大きさである。** 攻撃力がすでに9割方は武力なので、
+    武力へ寄せる余地は1割しかなく、知力側には7割5分ある。知力は効く軸、武力は
+    効かない軸、という非対称は式の形から出る。
+    """
+    v = F.SKILL_WITS[skill_kind]
+    w = F.INT_WEIGHT[typ]
+    k = WITS_TILT[tilt]
+    return (1.0 - v + k * v) / (1.0 - w + k * w)
+
+
 def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
                  gauge_init: float = 0.0, kisei: float = 1.0,
-                 cost: float = F.BASE_COST) -> float:
+                 cost: float = F.BASE_COST, typ: str = F.INF,
+                 tilt: str = "中庸") -> float:
     """必殺技1つの値段（**1枚のコスト点**）。`field.Skill` と対象文を受ける。
 
     実カード36種で当てた式。絶対誤差は平均 0.062・最大 0.298 コスト点。
@@ -345,12 +371,14 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     # 動かない）。総コスト固定ではコスト5を頂点に両側へ落ちる。予想は単調増加。
     # §13「パラメータを振って符号が変わらないものだけを結論に使う」に従い、補正は
     # 入れない。cost 引数は残してあるが値段には効かない。
+    # 打撃と回復だけが技の係数（武力・知力の配合）に乗る。状態効果は率なので乗らない。
+    tc = tilt_coef(skill.kind, typ, tilt)
     v = 0.0
     if skill.dur > 0.0 and skill.power > 0.0:
-        v += EFFECT_PRICE["dot"] * skill.power * skill.dur
+        v += EFFECT_PRICE["dot"] * skill.power * skill.dur * tc
     elif skill.power > 0.0:
-        v += damage_price(skill.power)
-    v += EFFECT_PRICE["heal"] * skill.heal
+        v += damage_price(skill.power * tc)
+    v += EFFECT_PRICE["heal"] * skill.heal * tc
     for key, amt, secs in skill.mods:
         if key == "stun":
             v += EFFECT_PRICE["stun"] * secs * n

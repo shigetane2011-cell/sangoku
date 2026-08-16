@@ -290,7 +290,8 @@ def to_design(g: Dict[str, str]):
     sk = F.SKILL_INFO.get(g["必殺技"])
     # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
     eff = (D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi,
-                          cost=float(g["コスト"])) if sk else 0.0)
+                          cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
+                          tilt=tilt_of(g)) if sk else 0.0)
     eff += D.trait_value(g["固有特性"])
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
@@ -593,6 +594,7 @@ def rebalance_big() -> int:
             continue
         cost = float(G[name]["コスト"])
         target = _skill_target_value(G[name], cost)
+        tc = D.tilt_coef(sk.kind, TYPE_MAP[G[name]["兵種"]], tilt_of(G[name]))
         nt = D.target_n(r["対象"])
         # 状態効果ぶん（威力とは無関係な部分）を先に引く
         mods = 0.0
@@ -603,7 +605,7 @@ def rebalance_big() -> int:
                 mods += D.EFFECT_PRICE[k] * abs(a) * 100.0 * sec * nt
         want = target * D.CARD_COST_RATE / max(fr, 1e-9) - mods
         if sk.dur > 0.0:            # 継続。威力は毎秒の量
-            power = want / D.EFFECT_PRICE["dot"] / sk.dur
+            power = want / D.EFFECT_PRICE["dot"] / sk.dur / max(tc, 1e-6)
         else:
             # 打ち切りは折れ線なので、折れ点の前後で分けて解く
             knee = D.EFFECT_PRICE["damage"] * D.DAMAGE_KNEE
@@ -611,7 +613,11 @@ def rebalance_big() -> int:
                 power = want / D.EFFECT_PRICE["damage"]
             else:
                 power = D.DAMAGE_KNEE + (want - knee) / D.DAMAGE_SLOPE_HI
-        power = max(power, 0.5)     # 状態効果だけで予算を超える技は最低限に
+            power /= max(tc, 1e-6)   # 傾きで係数が上がるぶん威力を下げる
+        # 下限。**継続と打ち切りで桁が違う**（継続の威力は毎秒の量なので、
+        # 威力50%×13秒 は総威力650%にあたる）。打ち切りと同じ 0.5 を当てると
+        # 継続系がすべて下限に張り付き、目標より 0.34〜0.49 コスト点も高く出ていた。
+        power = max(power, 0.05 if sk.dur > 0.0 else 0.5)
         r["効果"] = re.sub(r"威力\d+%", "威力{:.0f}%".format(power * 100.0),
                           r["効果"], count=1)
         n += 1
@@ -646,7 +652,8 @@ def rebalance_std() -> int:
             continue
         cost = float(G[name]["コスト"])
         target = _skill_target_value(G[name], cost)
-        cur = D.effect_value(sk, r["対象"], gc, gi)
+        cur = D.effect_value(sk, r["対象"], gc, gi,
+                             typ=TYPE_MAP[G[name]["兵種"]], tilt=tilt_of(G[name]))
         if cur <= 1e-9:
             continue
         m = target / cur
