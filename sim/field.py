@@ -616,6 +616,20 @@ SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大に
 # 要らなくなる**。増幅（§6.1 案A〜D）を直して決着を速くするときは、この表を見て
 # 25秒ぶんあたりへ詰め直すこと。ただし矢を絞るほど戦闘は停滞する（速い設定で
 # 時間切れが 33% → 72% へ増える）ので、決着とは別のところで釣り合いが要る。
+# 【改良】矢数を**秒**ではなく**敵の消耗割合**で数える。
+#
+# 秒で数えると、速い戦闘ほど弓の取り分が相対的に増える（40秒ぶんの矢が、60秒の
+# 戦闘では全体の2/3、90秒の戦闘では4/9を占める）。これが決着と兵種バランスの結合の
+# 正体だった。敵がどれだけ削れたかで数えれば、**「戦闘のどの段階か」が速い遅いに
+# 関わらず同じ尺度**になるので、原理的に結合が切れる。
+#
+#   進捗 = 1 - (敵の現在兵力 / 敵の最大兵力)      … 0 で開戦、1 で敵全滅
+#   AMMO_SPAN ぶん敵を削るまで撃てて、それ以降は指数的に減衰する。
+#
+# 状態の比だけで決まり、時刻を含まないので時間刻みにも依存しない。
+AMMO_MODE = "attrition"   # "time" | "attrition"
+AMMO_SPAN = 0.30          # 敵をこの割合まで削るぶんの矢を持つ
+AMMO_TAIL_P = 0.12        # 尽きたあとの減衰（消耗割合の単位）
 AMMO_TIME = 40.0
 AMMO_TAIL = 20.0        # 尽きたあとの減衰の時定数（秒）
 
@@ -1241,7 +1255,10 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
     if u.rng <= 0.0 or not gaps:
         return 1.0
     sup = 1.0 - SUPPRESS_MAX * smooth_gate(min(gaps), 0.0, SUPPRESS_R)
-    if AMMO_TIME > 0.0 and u.shot > AMMO_TIME:
+    if AMMO_MODE == "attrition":
+        if AMMO_SPAN > 0.0 and u.shot > AMMO_SPAN:
+            sup *= math.exp(-(u.shot - AMMO_SPAN) / AMMO_TAIL_P)
+    elif AMMO_TIME > 0.0 and u.shot > AMMO_TIME:
         sup *= math.exp(-(u.shot - AMMO_TIME) / AMMO_TAIL)
     return sup
 
@@ -1313,9 +1330,18 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 rb_ = max(sum(u.men for u in ub) / men0b, 1e-6)
                 ta = (rb_ / ra_) ** TAPER
                 tb = (ra_ / rb_) ** TAPER
-            for x in ua + ub:
-                if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
-                    x.shot += dt
+            # 矢の消費。attrition では**敵の消耗割合**をそのまま使う。
+            if AMMO_MODE == "attrition":
+                wa = 1.0 - sum(y.men for y in ub) / men0b
+                wb = 1.0 - sum(y.men for y in ua) / men0a
+                for x in ua:
+                    x.shot = wa
+                for x in ub:
+                    x.shot = wb
+            else:
+                for x in ua + ub:
+                    if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
+                        x.shot += dt
                 if x.disrupt > 0.0:
                     x.disrupt *= math.exp(-dt / DISRUPT_TAU)
             if CHARGE_BONUS > 0.0:
