@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""sim/data/*.csv（武将80枚・必殺技80種・固有特性19種）の読み込みと検算。
+"""sim/data/*.csv（武将・必殺技・固有特性）の読み込みと検算。
 
 **使う前に必ず `python3 sim/rosterdata.py` を通すこと。** データが狂っていると、
 その上で測る勝率も値付けも全部嘘になる（§13 の「測定が嘘をついた」事例と同じ形）。
@@ -307,7 +307,7 @@ def to_design(g: Dict[str, str]):
 
 
 def to_cards(names=None):
-    """武将名のリストから field.Card を作る。名前を省くと全80枚を返す。
+    """武将名のリストから field.Card を作る。名前を省くと全部を返す。
 
     **CSV が一次、設計式は生成器。** 能力値は CSV の 武力・知力・能力値コスト を
     そのまま渡す。手で1枚だけ調整したいときは CSV を直せばよく、全体を引き直したい
@@ -316,6 +316,12 @@ def to_cards(names=None):
     """
     from . import field as F
     idx = {g["名前"]: g for g in generals()}
+    if names:
+        # **無い名前は全部まとめて出す。** KeyError を1件ずつ潰させると、札の
+        # 入れ替えで名指しリスト（実況の題材など）を直すのに何往復もかかる。
+        miss = [n for n in names if n not in idx]
+        if miss:
+            raise KeyError("武将が見つからない: " + "、".join(miss))
     picks = [idx[n] for n in names] if names else list(idx.values())
     return [F.Card(
         cost=float(g["コスト"]),
@@ -417,6 +423,132 @@ def regenerate() -> int:
         w.writeheader()
         w.writerows(out)
     return len(out)
+
+
+# ============================================================================
+# 同期（カードを増やしたら、まずこれを走らせる）
+# ============================================================================
+#
+# **手で書く列と、計算で決まる列を分ける。** 分けないと1枚足すたびに13列の導出値と
+# 他ファイルの集計を手で合わせることになり、枚数が増えるほど破綻する。
+#
+#   手で書く（設計者の選択）
+#     generals.csv  名前 人物 字号 勢力 コスト 兵種 役割 必殺技 固有特性
+#                   知力傾き ゲージ上昇率
+#     skills.csv    技名 武将 対象 効果
+#     traits.csv    キー 名前 型 効果 備考
+#
+#   `sync()` が決める（手で触らない）
+#     generals.csv  帯 兵力 武力 知力 攻撃力 防御力 消費ゲージ% 初期ゲージ
+#                   効果予算 能力値コスト 総合値 実力比%
+#     skills.csv    コスト 消費ゲージ% 効果数
+#     traits.csv    採用枚数 持つ武将
+#
+# 導出値が空でも読めるようにしてあるので（`_num`）、**新しい札は手で書く列だけ
+# 埋めて `sync()` を走らせればよい**。
+BAND_OF = ((3.0, "低"), (6.0, "中"), (99.0, "高"))
+
+
+def band_of(cost: float) -> str:
+    for hi, name in BAND_OF:
+        if cost <= hi:
+            return name
+    return BAND_OF[-1][1]
+
+
+def _effect_count(text: str) -> int:
+    """効果文に入っている効果の数。区切りは**前後に空白のある「 + 」だけ**。
+
+    `\s*\+\s*` で切ってはいけない。「攻撃力 +9%（41秒）」の符号の + まで区切りに
+    見えて、1つの効果が2つに数えられる（実際に数えた）。
+    """
+    return len([x for x in (text or "").split(" + ") if x.strip()])
+
+
+def sync() -> Dict[str, int]:
+    """導出値をすべて引き直す。**カードを増やしたら最初にこれ。**
+
+    generals.csv だけでなく skills.csv・traits.csv の集計列も直す。片方だけ直すと
+    `check()` が「必殺技とコストが不一致」「固有特性の採用枚数が不一致」を出すが、
+    それはデータの誤りではなく**同期していないだけ**なので、人手で追わせない。
+
+    戻り値は書き直した行数（generals / skills / traits）。
+    """
+    from . import design as D
+    load_skills_into_field()
+    load_traits_into_field()
+
+    G = generals()
+    owner = {g["必殺技"]: g for g in G if g.get("必殺技")}
+
+    # --- skills.csv: コスト・消費ゲージ%・効果数 は武将側と段から決まる -------
+    S = skills()
+    for r in S:
+        g = owner.get(r["技名"])
+        if g is not None:
+            r["コスト"] = g["コスト"]
+        r["効果数"] = str(_effect_count(r.get("効果", "")))
+        sk = _parse_for_tier(r)
+        if sk is not None:
+            gc, _gi = D.GAUGE_TIER[tier_of(sk)]
+            r["消費ゲージ%"] = "{:.0f}".format(gc)
+    _write("skills.csv", S)
+    load_skills_into_field()
+
+    # --- generals.csv: 帯・ゲージ・能力値一式 -------------------------------
+    smap = {r["技名"]: r for r in S}
+    for g in G:
+        g["帯"] = band_of(float(g["コスト"]))
+        r = smap.get(g.get("必殺技", ""))
+        if r is not None:
+            sk = _parse_for_tier(r)
+            if sk is not None:
+                gc, gi = D.GAUGE_TIER[tier_of(sk)]
+                g["消費ゲージ%"] = "{:.0f}".format(gc)
+                g["初期ゲージ"] = "{:.0f}".format(gi)
+        g.setdefault("ゲージ上昇率", "100")
+        if not str(g.get("ゲージ上昇率", "")).strip():
+            g["ゲージ上昇率"] = "100"
+    _write("generals.csv", G, COLUMNS)
+    n_g = regenerate()
+
+    # --- traits.csv: 採用枚数・持つ武将 は武将側から数える -------------------
+    G = generals()
+    T = traits()
+    cnt = Counter(g.get("固有特性", "") for g in G)
+    who: Dict[str, List[str]] = {}
+    for g in G:
+        k = g.get("固有特性", "")
+        if k:
+            who.setdefault(k, []).append(g["名前"])
+    for r in T:
+        k = r["キー"]
+        r["採用枚数"] = str(cnt.get(k, 0))
+        r["持つ武将"] = "、".join(who.get(k, []))
+    _write("traits.csv", T)
+    return {"generals": n_g, "skills": len(S), "traits": len(T)}
+
+
+def _parse_for_tier(r: Dict[str, str]):
+    from . import field as F
+    try:
+        return F._parse_skill(r.get("効果", ""), r.get("対象", ""))
+    except Exception:
+        return None
+
+
+def _write(name: str, rows: List[Dict[str, str]], cols=None) -> None:
+    """CSV を書き戻す。**列の順序は元のファイルを正とする**（勝手に並べ替えない）。"""
+    if not rows:
+        return
+    if cols is None:
+        cols = list(rows[0].keys())
+    path = os.path.join(DATA, name)
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in cols})
 
 
 def _retire_gauge(text: str) -> str:
@@ -740,4 +872,12 @@ def by_cost(cost: int):
 
 
 if __name__ == "__main__":
+    import sys as _sys
+    # `sync` … カードを増やしたら最初にこれ。導出値と集計列を全部引き直す。
+    # 引数なし … 検算だけ（データは書き換えない）。
+    if len(_sys.argv) > 1 and _sys.argv[1] == "sync":
+        n = sync()
+        print("同期した: 武将{generals}枚 / 必殺技{skills}種 / 固有特性{traits}種"
+              .format(**n))
+        raise SystemExit(1 if _main() else 0)
     raise SystemExit(1 if _main() else 0)

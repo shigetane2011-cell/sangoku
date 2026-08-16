@@ -1623,6 +1623,41 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         who, name, where, amount, mins(secs))
 
 
+# 技のフェーズ中だけ有効な兵力の蓄積器。**None なら即時に反映する。**
+#
+# 通常ダメージは da/db に貯めてティックの最後にまとめて引く（§5.1 の同時解決）が、
+# 必殺技と固有特性はその場で men を書き換えていた。`_fire_skills(ua, ub)` を撃ち
+# きってから `_fire_skills(ub, ua)` を撃つので、**先に撃った側が相手の撃ち手を倒すと
+# 相手は撃てない**。同じ登録どうしのマッチで A が3回・B が2回撃ち、零点が
+# 0.0166 になっていた（1部隊戦の合成カードでは技が当たらず表に出なかった）。
+_SKILL_DELTA = None
+
+
+def _men_add(f: Unit, d: float) -> None:
+    """兵力を増減する。技のフェーズ中なら蓄積器へ回す。"""
+    if _SKILL_DELTA is None:
+        f.men = max(min(f.men + d, f.men0), 0.0)
+    else:
+        _SKILL_DELTA[id(f)] = (f, _SKILL_DELTA.get(id(f), (f, 0.0))[1] + d)
+
+
+def _open_men_window() -> None:
+    """技のフェーズを開く。**関数越しにするのは、simulate の中で代入すると
+    ローカル変数になって黙って効かなくなるため。**"""
+    global _SKILL_DELTA
+    _SKILL_DELTA = {}
+
+
+def _flush_men() -> None:
+    """溜めた増減をまとめて反映する。**両側が撃ち終わってから呼ぶ。**"""
+    global _SKILL_DELTA
+    if _SKILL_DELTA is None:
+        return
+    for f, d in _SKILL_DELTA.values():
+        f.men = max(min(f.men + d, f.men0), 0.0)
+    _SKILL_DELTA = None
+
+
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                  src: str = "", ev=None, seen=None, name: str = "",
                  kind_jp: str = "必殺技") -> None:
@@ -1711,9 +1746,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 f.overtime.append((t + sk.dur, "heal", amt))
                 done += amt * sk.dur
             else:
-                before = f.men
-                f.men = min(f.men0, f.men + amt)
-                done += f.men - before      # 満タンぶんは実況でも数えない
+                # 満タンぶんは実況でも数えない。**スナップショットに対して測る**
+                # ので、同じティックで他が撃っていても量が変わらない。
+                gain = min(amt, f.men0 - f.men)
+                _men_add(f, gain)
+                done += gain
         if done > 0.0:
             say("heal", done, sk.dur, mag=done)
         return
@@ -1728,9 +1765,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             f.overtime.append((t + sk.dur, "dot", dmg))
             done += dmg
         else:
-            before = f.men
-            f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
-            done += before - f.men          # 防御ぶんを引いた実害を出す
+            take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), f.men)
+            _men_add(f, -take)
+            done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
             mag=done * (sk.dur or 1.0))
@@ -2091,6 +2128,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
+            _open_men_window()
             fired = _fire_skills(ua, ub, t + dt, events, seen)
             fired |= _fire_skills(ub, ua, t + dt, events, seen)
 
@@ -2103,6 +2141,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             else:
                 retired["new"] = set()
             _fire_traits(ua, ub, t + dt, retired, events, seen, fired)
+
+        # **技と特性を撃ち終えてから、まとめて兵力へ反映する。**
+        if SKILLS_ON or TRAITS_ON:
+            _flush_men()
 
         if SKILLS_ON or TRAITS_ON:
             _expire(ua + ub, t + dt)
@@ -2991,7 +3033,24 @@ def cmd_narrate(args) -> None:
     SKILLS_ON = TRAITS_ON = True
     print("実況の出力例（§9.3）。実際のシミュレーションから生成している。")
     print("◆ は挿絵を差す場所（三幕の 序＝布陣 / 破＝最大の出来事 / 急＝決着）。")
+    # **札が入れ替わっても落ちないようにする。** 題材は名指しのリストなので、
+    # 札を1枚改名しただけで KeyError で全部止まっていた（実際に止まった）。
+    # 欠けた枠は同じ勢力の札で埋め、埋まらない題材だけを飛ばす。
+    have = {c.name: c for c in R.to_cards()}
+    by_fac = {}
+    for c in have.values():
+        by_fac.setdefault(c.faction, []).append(c.name)
+    def fill(fac, names):
+        out = [n for n in names if n in have]
+        spare = [n for n in by_fac.get(fac, []) if n not in out]
+        while len(out) < len(names) and spare:
+            out.append(spare.pop(0))
+        return out
     for title, fa, na, fb, nb in NARRATE_CARDS:
+        na, nb = fill(fa, na), fill(fb, nb)
+        if len(na) < 6 or len(nb) < 6:
+            print("\n（題材「{}」は札が足りないので省略）".format(title))
+            continue
         a = Army(tuple(R.to_cards(na)), FORM_STANDARD, 1)
         b = Army(tuple(R.to_cards(nb)), FORM_DEEP, 0)
         ca = sum(c.cost for c in a.cards)
