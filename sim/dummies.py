@@ -48,25 +48,31 @@ class Persona:
 
 
 PERSONAS: Tuple[Persona, ...] = (
-    Persona("鉄壁", {F.INF: 3.0, F.CAV: 1.0, F.ARC: 1.0},
-            {F.TANK: 3.0, F.SUP: 1.5, F.BAL: 1.0, F.DPS: 0.5, F.BURST: 0.3},
+    Persona("鉄壁", {F.INF: 1.8, F.CAV: 0.9, F.ARC: 0.9},
+            {F.TANK: 2.5, F.SUP: 1.5, F.BAL: 1.0, F.DPS: 0.6, F.BURST: 0.4},
             "狭く深い", 0.3),
-    Persona("疾風", {F.CAV: 3.5, F.INF: 1.0, F.ARC: 0.5},
-            {F.BURST: 3.0, F.DPS: 2.0, F.BAL: 1.0, F.TANK: 0.5, F.SUP: 0.3},
+    Persona("疾風", {F.CAV: 1.8, F.INF: 1.0, F.ARC: 0.7},
+            {F.BURST: 2.5, F.DPS: 2.0, F.BAL: 1.0, F.TANK: 0.6, F.SUP: 0.4},
             "標準", 0.7),
-    Persona("斉射", {F.ARC: 3.5, F.INF: 1.2, F.CAV: 0.4},
-            {F.DPS: 2.5, F.SUP: 2.0, F.BAL: 1.0, F.TANK: 0.8, F.BURST: 0.5},
+    Persona("斉射", {F.ARC: 1.8, F.INF: 1.1, F.CAV: 0.7},
+            {F.DPS: 2.0, F.SUP: 2.0, F.BAL: 1.0, F.TANK: 0.9, F.BURST: 0.6},
             "広く浅い", 0.5),
     Persona("均衡", {F.INF: 1.0, F.CAV: 1.0, F.ARC: 1.0},
             {F.BAL: 2.0, F.TANK: 1.0, F.DPS: 1.0, F.SUP: 1.0, F.BURST: 1.0},
             "標準", 0.5),
-    Persona("軍師", {F.ARC: 2.5, F.INF: 1.5, F.CAV: 0.6},
-            {F.SUP: 3.0, F.BAL: 1.5, F.TANK: 1.0, F.DPS: 0.8, F.BURST: 0.4},
+    Persona("軍師", {F.ARC: 1.5, F.INF: 1.2, F.CAV: 0.8},
+            {F.SUP: 2.5, F.BAL: 1.5, F.TANK: 1.0, F.DPS: 0.9, F.BURST: 0.5},
             "狭く深い", 0.4),
-    Persona("猛攻", {F.CAV: 2.0, F.INF: 2.0, F.ARC: 0.5},
-            {F.DPS: 3.0, F.BURST: 2.5, F.BAL: 0.8, F.TANK: 0.4, F.SUP: 0.2},
+    Persona("猛攻", {F.CAV: 1.4, F.INF: 1.4, F.ARC: 0.7},
+            {F.DPS: 2.5, F.BURST: 2.0, F.BAL: 0.9, F.TANK: 0.5, F.SUP: 0.3},
             "広く浅い", 0.8),
 )
+# **兵種は「寄せる」程度にとどめる。** 最初は 3.5倍まで重みを付けていたが、
+# それだと単一兵種に近い編成ができ、相性だけで 0%/100% に振り切れた。さらに
+# 純兵種どうしは膠着して時間切れになる（騎6対弓6 で diff=-0.037・t=400、
+# 1枚ずつ歩兵を混ぜると diff=+0.127・245で決着。**1枚でコスト7.7点ぶん動く**）。
+# 乱数 σ=0.15 のばらつきは 0.0156 なので、±0.05 を超える差はもう覆らない。
+# 乱数は僅差を面白くするものであって、大差を覆すものではない。
 
 
 def _score(card: F.Card, p: Persona, want: float) -> float:
@@ -89,13 +95,15 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
     used: set = set()
     units: List[F.Army] = []
     for label, cap in M.REGULATIONS:
-        want = cap / M.UNIT_SIZE
         pick: List[F.Card] = []
         cand = [c for c in pool if M.person_of(c) not in used]
         cheap = sorted(c.cost for c in cand)
         while len(pick) < M.UNIT_SIZE and cand:
             left = M.UNIT_SIZE - len(pick) - 1
             spent = sum(x.cost for x in pick)
+            # **残り予算を残り枠で割り直す。** 固定の目安（上限÷6）だと、性格の
+            # 偏りが強い札から先に取ったときに安い側へ寄って予算が余る。
+            want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
             ok = []
             for c in cand:
                 # 自分を除いた安い順 left 枚を確保できるか（残り枠が埋まるか）
@@ -111,8 +119,55 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
             used.add(M.person_of(c))
             cheap.remove(c.cost)
             cand = [x for x in cand if M.person_of(x) not in used]
-        units.append(F.Army(tuple(pick), FORM_BY_NAME[p.form]))
+        pick = _spend_rest(pick, pool, used, p, cap)
+        units.append(F.Army(tuple(_order(pick)), FORM_BY_NAME[p.form]))
     return M.Entry(tuple(units), name=p.name)
+
+
+def _order(pick: List[F.Card]) -> List[F.Card]:
+    """部隊内の並び。**先頭から前衛に置かれる**ので、硬い札を前へ出す。
+
+    `_stations` は Army.cards の先頭 n_front 枚を前衛に置く。生成した順（性格の
+    重み順）のまま渡すと、**瞬発や支援が最前列に立つ**。実際のプレイヤーは
+    そんな置き方をしない。並べ替えないだけで性格どうしの勝敗が 0%/100% に
+    振り切れていた（前衛の質が編成の総合値と無関係に効くため）。
+
+    硬さは `field.ROLE_MEN`（役割ごとの兵力の倍率）で測る。射程を持つ弓兵は
+    同じ硬さなら後ろへ回す（前に出しても射程を活かせない）。
+    """
+    return sorted(pick, key=lambda c: (-F.ROLE_MEN[c.role],
+                                       1 if c.typ == F.ARC else 0, c.name))
+
+
+def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
+                p: Persona, cap: float) -> List[F.Card]:
+    """余った予算で札を入れ替える。**使い残しはラダーの測定を壊す。**
+
+    実測で斉射が合計8点、軍師が4点を余らせていた。8点は兵種相性（0.85点）の
+    9個ぶんで、これでは順位が「性格の強さ」ではなく「生成器の無駄」を映す。
+    余剰は初期ゲージへ変わる（§4.5 案A）が上限が +10% なので、埋め合わせに
+    ならない。
+
+    安い札から順に、**同じ性格の好みで、より高くて枠に収まる札**へ入れ替える。
+    改善が無くなるまで繰り返す。
+    """
+    for _ in range(M.UNIT_SIZE * 2):
+        left = cap - sum(x.cost for x in pick)
+        if left < 1.0:
+            break
+        i = min(range(len(pick)), key=lambda k: pick[k].cost)
+        cur = pick[i]
+        room = cur.cost + left
+        cands = [c for c in pool
+                 if M.person_of(c) not in used and c.cost <= room + 1e-9
+                 and c.cost > cur.cost]
+        if not cands:
+            break
+        best = max(cands, key=lambda c: (c.cost, _score(c, p, room)))
+        used.discard(M.person_of(cur))
+        used.add(M.person_of(best))
+        pick[i] = best
+    return pick
 
 
 def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24

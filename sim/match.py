@@ -125,14 +125,20 @@ def with_surplus(army: F.Army, cap: float) -> F.Army:
     return dataclasses.replace(army, cards=cards)
 
 
-def play(a: Entry, b: Entry, dt: float = 0.5) -> Dict:
-    """1マッチ。3戦を独立に走らせ、2勝した側を勝者にする（§8.3）。"""
+def play(a: Entry, b: Entry, dt: float = 0.5,
+         seed: "int | None" = None) -> Dict:
+    """BO3。**毎時00分の自動参加**（§3）。3戦を独立に走らせ2勝で勝者。
+
+    §8.3 の「各部隊戦は独立した乱数シードを持つ（マッチシードから決定論的に
+    導出する）」に従い、戦ごとに種をずらす。**同じ種を3戦で使い回さないこと**
+    （3戦が同じ揺れ方をして、独立でなくなる）。
+    """
     games = []
     wa = wb = 0.0
     for i, (label, cap) in enumerate(REGULATIONS):
         ua = with_surplus(a.unit(i), cap)
         ub = with_surplus(b.unit(i), cap)
-        r = F.simulate(ua, ub, dt)
+        r = F.simulate(ua, ub, dt, seed=None if seed is None else seed * 3 + i)
         wa += r["score"]
         wb += 1.0 - r["score"]
         games.append({
@@ -145,6 +151,28 @@ def play(a: Entry, b: Entry, dt: float = 0.5) -> Dict:
             "winner": "A" if wa > wb else ("B" if wb > wa else "引き分け"),
             # 3戦の差の合計。**勝敗の数より先にこちらを見る**（勝率は飽和する）。
             "diff": sum(g["結果"]["diff"] for g in games)}
+
+
+def play_one(a: Entry, b: Entry, reg: int, dt: float = 0.5,
+             seed: "int | None" = None) -> Dict:
+    """BO1。**レートを動かすのはこちら**（自動参加の BO3 とは別物）。
+
+    reg はレギュレーションの番号（0=低 / 1=中 / 2=高）。登録した3部隊が
+    そのまま3つの「デッキ」になり、挑むときはどれか1つを選ぶ。
+
+    **レートは帯ごとに別で持つ**のが設計（§7.30）。1本にまとめると「いちばん
+    強い1部隊」へ収束して、残り2部隊が飾りになる。
+
+    種を渡すと乱数が入る（§6.4）。**実戦では必ず渡すこと。** 渡さないと
+    同じ編成どうしが毎回同じ結果になり、挑み直す意味が無くなる。
+    """
+    label, cap = REGULATIONS[reg]
+    ua = with_surplus(a.unit(reg), cap)
+    ub = with_surplus(b.unit(reg), cap)
+    r = F.simulate(ua, ub, dt, seed=seed)
+    return {"規定": label, "上限": cap, "結果": r,
+            "winner": "A" if r["diff"] > 0 else ("B" if r["diff"] < 0 else "引き分け"),
+            "diff": r["diff"]}
 
 
 def match_yardstick(entry: Entry, dt: float = 0.5) -> float:
