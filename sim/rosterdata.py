@@ -149,3 +149,29 @@ def check() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(1 if check() else 0)
+
+
+# ============================================================================
+# field.py への橋渡し
+# ============================================================================
+#
+# **実カードはバランス測定に使わない。** 実編成をサンプルした勝率パネルは飽和して
+# 測れない（§13）。統制した合成カードで測る。ここで作るのは実況・リプレイ用である。
+
+ROLE_MAP = {"耐久": "tank", "均衡": "bal", "火力": "dps",
+            "瞬発": "dps", "支援": "bal"}
+TYPE_MAP = {"歩兵": "inf", "騎兵": "cav", "弓兵": "arc"}
+
+
+def to_cards(names=None):
+    """武将名のリストから field.Card を作る。名前を省くと全80枚を返す。"""
+    from . import field as F  # 遅延 import（rosterdata 単体でも検算できるように）
+    idx = {g["名前"]: g for g in generals()}
+    picks = [idx[n] for n in names] if names else list(idx.values())
+    return [F.Card(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
+                   role=ROLE_MAP[g["役割"]], name=g["名前"],
+                   trait=g["固有特性"], faction=g["勢力"]) for g in picks]
+
+
+def by_cost(cost: int):
+    return [g["名前"] for g in generals() if int(g["コスト"]) == cost]

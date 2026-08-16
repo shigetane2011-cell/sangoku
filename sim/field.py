@@ -262,10 +262,43 @@ sim/engine.py はレーン（3本の平行通路）を前提とした旧実装�
    小さい 1.0 コスト点（3.3%）」のように狙って置ける。既定は 0.07 とした。
 
 ================================================================================
+ 4. 決着の速さと兵種バランスは結合している（未解決・最重要）
+================================================================================
+実カードで実況を出そうとして分かった。**時間切れ100%では誘発型の固有特性が一度も
+発火しない**（遺志・弔旗は味方の撤退、執念は敵の撤退が条件）。決着を早めたいが、
+早めると兵種の値付けが壊れる。しかも**経路によらない**。
+
+    LETHALITY 開始s 最終倍率  戦闘中央値 時間切れ%  弓を公平にするのに要る係数
+      0.024     50    3.0       90.0s     100%          1.66
+      0.024     30    8.0       84.6s      37%          3.08
+      0.024     20   14.0       68.2s       7%          5.19
+      0.035     30    8.0       77.0s      17%          4.33
+      0.090     50    3.0       72.8s      13%          4.93
+
+消耗を上げても決着促進を強めても、**時間切れ率が下がると必ず弓の係数が上がる**。
+係数4.7は「素の能力を79%削らないと公平にならない」という意味で、調整ではなく破綻。
+
+原因は §6.1 が既に記録している増幅である。「毎ティックの与ダメージ差が生存時間の
+差を生み、生存時間の差がさらに与ダメージ差を生む」。**時間切れは複利を途中で
+打ち切るので、増幅を隠していただけ**だった。弓兵は接敵前に無償で撃てるぶん序盤に
+わずかな差を作り、決着させるとそれが最後まで複利で効く。
+
+したがって「決着を良くする」は単独では達成できない。**先に §6.1 案A〜D（増幅の
+緩和）を決める必要がある。** ここでは壊れていない側（LETHALITY 0.024、§8.2 の
+決着促進 50秒/3.0倍）を採り、時間切れが多い状態を受け入れている。
+
+実況への影響も大きい。潰走の行と誘発型の行は、決着しなければ出ない。**実況の
+締まりは増幅の問題に直結している。**
+
+================================================================================
  残課題
 ================================================================================
  - 較正済み係数のばらつき（0.57/1.25/1.12）の原因である射程の効き方の非対称を、
    実況の見え方と揃えるか、表のままにするか決める（上の 2）。
+ - **増幅の緩和（§6.1 案A〜D）を決める。** 上の 4 のとおり、決着・実況・兵種
+   バランスがすべてここで詰まっている。**次に着手すべきはここ。**
+ - 必殺技はゲージ機構が要る。誘発型のうち列指定（殿・鼓舞）とゲージ依存
+   （呼応・号令・弔い合戦）も保留。実装済みは 遺志・背水・執念・死守・血路・弔旗。
  - 陣形の係数を素のダメージではなく**迂回・接敵抑制などの名前のある出来事**へ
    付け替える（実況のため。上の 3）。いまは素のダメージに掛けている。
  - 前後の距離（rear_gap）に見返りを付けて、単調でない軸にする。
@@ -282,6 +315,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
+from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Dict, List, Sequence, Tuple
 
@@ -324,7 +358,7 @@ RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
 # この盤面で測り直した値（`field.py price` が再現する）。旧値 1.00/0.90/1.12 は
 # 旧レーンエンジンのもので、入れたままだと兵種補正を 0〜0.15、FOCUS を 0〜3 まで
 # 振っても三すくみが 0/100/0 から一切動かなかった（係数だけで勝敗が決まっていた）。
-ACT_COEF = {INF: 1.0000, CAV: 1.0377, ARC: 1.4402}
+ACT_COEF = {INF: 1.0000, CAV: 1.0411, ARC: 1.6442}
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
@@ -375,8 +409,21 @@ TYPE_BONUS = 0.0        # 旧: 攻撃ごとの % 補正。推移成分が混ざ�
 # 1つの値では揃わない。**コスト点→勝敗の感度が対戦ごとに違う**ため、同じ 1.0 を
 # 与えても 歩/騎 では +1.918、騎/弓 では +0.762 にしかならない（実測）。
 # 対戦ごとに較正して初めて、狙った量が3方向に揃って出る。
-TYPE_EDGE_COST = {(INF, CAV): 0.8094, (CAV, ARC): 1.5797, (ARC, INF): 1.4988}
+TYPE_EDGE_COST = {(INF, CAV): 0.6788, (CAV, ARC): 2.1546, (ARC, INF): 2.0549}
 TYPE_EDGE_TARGET = 1.0  # 有利側に持たせたい優位（総コスト30に対するコスト点）
+# 【重要】決着の速さと兵種バランスは、この戦闘モデルの増幅（§6.1）を通じて
+# **構造的に結合している**。0.024 は時間切れ100%で実況の山が消えるので上げたく
+# なるが、決着させると弓兵の値付けが壊れる。経路によらない:
+#
+#   LETHALITY 開始s 最終倍率  戦闘中央値 時間切れ%  弓を公平にするのに要る係数
+#     0.024     50    3.0       90.0s     100%          1.66
+#     0.024     20   14.0       68.2s       7%          5.19
+#     0.090     50    3.0       72.8s      13%          4.93
+#
+# 時間切れ率が下がると必ず弓の係数が上がる。時間切れは複利を途中で打ち切るので
+# **増幅を隠していただけ**だった。係数4.7は「素の能力を79%削らないと公平に
+# ならない」という意味で、調整ではなく破綻である。したがって決着を良くするには
+# 先に §6.1 案A〜D（増幅の緩和）を決める必要がある。ここでは壊れていない側を採る。
 LETHALITY = 0.024       # ダメージ係数
 FOCUS = 0.0             # 射撃の集中度。§5.2「残兵力の少ない方を狙う」を連続化した
                         # もの。0 なら射程内へ均等配分（ランチェスター線形則）、
@@ -414,6 +461,24 @@ LEGACY_REACH = 1.6      # 【旧実装の再現用】斥力の届く距離（札
 # 既定 0.07 ≒ 1.0 コスト点 ＝ 総コスト30 の 3.3%（札1枚のコスト5＝16.7% より十分小さい）。
 FORM_BONUS = 0.07
 
+# 誘発型の固有特性（§6.6）。ゲージにもレーンにも依存しないものだけを実装する。
+# 常在型（陣頭・対勢力）は戦闘中の瞬間を持たないので、実装しても実況には出ない
+# （§9.3）。ゲージ依存（呼応・号令・弔い合戦）と列指定（殿・鼓舞）は保留。
+#
+# **測定では既定オフ。** 閾値をまたぐ発火は分岐なので時間刻みに弱い。統制した
+# 合成カードで測るときに入れると、測っているものが変わる（§13）。
+TRAITS_ON = False
+LOW_HP = 0.40           # self_low_hp の閾値（§6.6 の背水）
+TRAITS = {
+    # key:      (条件,            種別,  量,    秒,   回数上限, 表示名)
+    "legacy":    ("ally_retreat",  "atk", 0.15, 20.0, 3, "遺志"),
+    "laststand": ("self_low_hp",   "atk", 0.25, 90.0, 1, "背水"),
+    "pursuit":   ("enemy_retreat", "atk", 0.12, 20.0, 3, "執念"),
+    "diehard":   ("self_low_hp",   "def", 0.40, 90.0, 1, "死守"),
+    "bloodpath": ("self_low_hp",   "atk", 0.10, 90.0, 1, "血路"),
+    "banner":    ("ally_retreat",  "all", 0.06, 20.0, 2, "弔旗"),
+}
+
 ROUT_RATIO = 0.20       # 残存兵力率がこれを割ったら潰走（総大将の置き換え）
 # 【重要・計器】§8.2 の「残存兵力率の差が1%未満なら引き分け」は**見せ方の規則**で
 # あって、測定に使ってはいけない。1% を測定へ持ち込むと、近い編成どうしが全部
@@ -425,6 +490,19 @@ ROUT_RATIO = 0.20       # 残存兵力率がこれを割ったら潰走（総大
 # band を 0 近くまで下げても零点は 0.00 のまま出る。
 DRAW_BAND = 1e-9        # 測定用。完全同値のときだけ引き分け
 T_MAX = 90.0            # §8.2 上限90秒
+# 決着促進（§8.2）。一定時刻から与ダメージを線形に逓増させる。
+# これが無いと戦闘が時間切ればかりになり、**誘発型の固有特性が一度も発火しない**
+# （遺志・弔旗は味方の撤退、執念は敵の撤退が条件のため）。実況の山も消える。
+# 時刻だけの関数なので、状態の閾値と違って時間刻みに依存しない。
+RAMP_START = 50.0   # §8.2
+RAMP_END_MULT = 3.0
+
+
+def damage_ramp(t: float) -> float:
+    if t <= RAMP_START:
+        return 1.0
+    f = (t - RAMP_START) / max(T_MAX - RAMP_START, 1e-9)
+    return 1.0 + (RAMP_END_MULT - 1.0) * min(f, 1.0)
 
 
 # ============================================================================
@@ -494,8 +572,13 @@ class Card:
     cost: float
     typ: str
     role: str = BAL
+    name: str = ""          # 実カードの武将名（実況用。測定には使わない）
+    trait: str = ""         # 固有特性のキー（sim/data/traits.csv）
+    faction: str = ""       # 勢力（魏/蜀/呉/群雄）。実況の呼称に使う
 
     def label(self) -> str:
+        if self.name:
+            return self.name
         return f"{TYPE_JP[self.typ]}{ROLE_JP[self.role]}{self.cost:g}"
 
 
@@ -547,6 +630,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -587,6 +671,12 @@ class Unit:
         self.total_len = 0.0
         self.progress = 0.0
         self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
+        self.name = card.name
+        self.trait = card.trait
+        self.atk_mult = 1.0
+        self.def_mult = 1.0
+        self.fired = 0      # 誘発型が何回発火したか
+        self.effects: List[Tuple[float, str, float]] = []  # (失効時刻, 種別, 量)
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -748,6 +838,57 @@ def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
     return out
 
 
+def _fire_traits(ua, ub, t, retired, ev, seen) -> None:
+    """誘発型を発火させる。条件は §6.6 の表に従う。
+
+    閾値をまたぐ判定なので**分岐**であり、時間刻みに弱い。移動の規則と違って
+    連続化できない（「撤退した」は本質的に離散）ので、dt を振って結論の符号が
+    変わらないかを別途確かめること。
+    """
+    for own, foe in ((ua, ub), (ub, ua)):
+        newly_own = [x for x in own if x in retired["new"]]
+        newly_foe = [x for x in foe if x in retired["new"]]
+        for u in own:
+            spec = TRAITS.get(u.trait)
+            if spec is None or u.men <= 0.0:
+                continue
+            cond, kind, amt, dur, cap, jp = spec
+            if u.fired >= cap:
+                continue
+            hit = ((cond == "ally_retreat" and any(x is not u for x in newly_own))
+                   or (cond == "enemy_retreat" and newly_foe)
+                   or (cond == "self_low_hp" and u.ratio() < LOW_HP))
+            if not hit:
+                continue
+            u.fired += 1
+            targets = own if kind == "all" else [u]
+            for x in targets:
+                x.effects.append((t + dur, "def" if kind == "def" else "atk", amt))
+            if ev is not None and ("誘", u.trait, u.side) not in seen:
+                seen.add(("誘", u.trait, u.side))
+                ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
+                    "{}が{}を発する。".format(_who(u), jp)))
+
+
+def _expire(units, t: float) -> None:
+    """持続時間の切れた効果を落として倍率を組み直す。
+
+    §6.6 は効果に秒数を持たせている（遺志は20秒、背水は戦闘終了まで）。
+    掛けっぱなしにすると、短い効果と長い効果の区別が消えて価格付けが狂う。
+    """
+    for u in units:
+        if not u.effects:
+            continue
+        u.effects = [e for e in u.effects if e[0] > t]
+        a = d = 1.0
+        for _, kind, amt in u.effects:
+            if kind == "def":
+                d += amt
+            else:
+                a += amt
+        u.atk_mult, u.def_mult = a, d
+
+
 def _suppress(u: Unit, gaps: List[float]) -> float:
     """接敵抑制。射程を持つ札は、敵に近づかれるほど出力が落ちる。
 
@@ -787,6 +928,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     _plan_paths(ub, ua, b.form, a.form)
 
     seen = set()
+    retired = {"all": set(), "new": set()}
     if events is not None:
         _log_open(events, seen, a, b, ua, ub)
 
@@ -817,6 +959,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
 
         # --- 射撃（同時解決。片側を先に処理すると左右非対称になる） ---------
         if damage:
+            ramp = damage_ramp(t)
             da = [0.0] * na
             db = [0.0] * nb
             for i, u in enumerate(ua):
@@ -825,12 +968,13 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                base = (u.men * LETHALITY * (u.atk / BASE_ATK) / u.interval
-                        * gate / tot * dt * _suppress(u, gap[i]) * fa)
+                base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
+                        / u.interval * gate / tot * dt
+                        * _suppress(u, gap[i]) * fa * ramp)
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
-                    db[j] += base * w * (100.0 / (100.0 + f.dfn))
+                    db[j] += base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
             for j, u in enumerate(ub):
                 col = [gap[i][j] for i in range(na)]
                 ws = _weights(u, ua, col)
@@ -838,16 +982,28 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                base = (u.men * LETHALITY * (u.atk / BASE_ATK) / u.interval
-                        * gate / tot * dt * _suppress(u, col) * fb)
+                base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
+                        / u.interval * gate / tot * dt
+                        * _suppress(u, col) * fb * ramp)
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
-                    da[i] += base * w * (100.0 / (100.0 + f.dfn))
+                    da[i] += base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
             for u, d in zip(ub, db):
                 u.men = max(u.men - d, 0.0)
+
+        if TRAITS_ON:
+            newly = {u for u in ua + ub
+                     if u.ratio() < ROUT_UNIT and u not in retired["all"]}
+            if newly:
+                retired["new"] = newly
+                retired["all"] |= newly
+            else:
+                retired["new"] = set()
+            _fire_traits(ua, ub, t + dt, retired, events, seen)
+            _expire(ua + ub, t + dt)
 
         t += dt
         ra = sum(u.men for u in ua) / men0a
@@ -939,7 +1095,14 @@ def _legacy_repulse(units: List[Unit], dt: float, strength: float) -> None:
 #     出どころが動く（§8.2 の引き分け帯と同じ失敗の形）。
 #  3. 同じ秒に起きた出来事は1行へ合流させる。合流は表示だけの操作。
 
+# 軍の呼称。実カードなら勢力の最多数から取り、合成カードなら曹/孫を仮に使う。
+# 固定にすると 蜀 対 魏 の戦いが「曹軍 対 孫軍」と表示される（実際に出た）。
 _JP = {"A": "曹", "B": "孫"}
+
+
+def _army_name(army: "Army", fallback: str) -> str:
+    c = Counter(x.faction for x in army.cards if x.faction)
+    return c.most_common(1)[0][0] if c else fallback
 
 # 種類ごとの行数上限（§9.3）。合流したぶんは1行として数える。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
@@ -967,12 +1130,18 @@ def _wing(u: Unit) -> str:
 
 
 def _who(u: Unit) -> str:
-    """札の呼び名。同じ翼に2枚あるので前衛/後衛まで入れて一意にする。"""
+    """札の呼び名。実カードなら武将名、合成カードなら位置と兵種で呼ぶ。"""
+    if u.name:
+        return u.name
     return "{}軍{}{}の{}".format(_JP["A" if u.side > 0 else "B"], _wing(u),
                                  "前衛" if u.is_front else "後衛", TYPE_JP[u.typ])
 
 
 def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
+    _JP["A"] = _army_name(a, "曹")
+    _JP["B"] = _army_name(b, "孫")
+    if _JP["A"] == _JP["B"]:            # 同勢力どうしは区別が付かないので添字
+        _JP["A"], _JP["B"] = _JP["A"] + "(先)", _JP["B"] + "(後)"
     def shape(army: Army) -> str:
         return {2: "狭く深い", 3: "標準", 4: "広く浅い"}.get(
             army.form.n_front, f"前衛{army.form.n_front}枚")
@@ -982,10 +1151,14 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
             c[card.typ] = c.get(card.typ, 0) + 1
         return "・".join(f"{TYPE_JP[t]}{c[t]}" for t in TYPES if c.get(t))
     # 布陣は時刻を持たない（t = -1）。合流させず必ず先頭に置く。
-    ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"],
-        "{}軍は{}（{}）、{}軍は{}（{}）。両軍とも{:,.0f}人。".format(
-            _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b),
-            sum(u.men0 for u in ua))))
+    line = "{}軍は{}（{}）、{}軍は{}（{}）。".format(
+        _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b))
+    # 常在型はタイムラインに瞬間を持たないので、ここで触れる（§9.3）
+    for side, us in (("A", ua), ("B", ub)):
+        vg = [u.name for u in us if u.name and u.trait == "vanguard" and u.is_front]
+        if vg:
+            line += "{}軍は{}が陣頭。".format(_JP[side], "・".join(vg))
+    ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
     # 迂回の予告。所要時間も捨てる攻撃量も経路長から確定している（§9.3）
     bets = [u for u in list(ua) + list(ub)
             if u.typ == CAV and u.detour > DETOUR_SHOW and u.total_len > 1.0]
@@ -1052,7 +1225,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
                 "{}が敵後衛に到達（{:.0f}秒を要した）。{}の側背を突く。"
                 "この時点で残り{:.0f}%。".format(
-                    _who(u), t, TYPE_JP[tgt.typ] if tgt else "後衛",
+                    _who(u), t, _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
     # 弓の抑制
     for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
@@ -1067,7 +1240,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
                     "{}、{}に{:.0f}mまで詰められ斉射が鈍る（威力{:.0f}%）。".format(
-                        _who(u), TYPE_JP[near.typ], min(g), 100 * sup)))
+                        _who(u), _who(near), min(g), 100 * sup)))
     # 壊滅
     for u in list(ua) + list(ub):
         k = ("滅", id(u))
