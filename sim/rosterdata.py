@@ -521,6 +521,22 @@ BIG_BASE = 0.15
 BIG_SLOPE = 0.12
 
 
+def _skill_target_value(g: Dict[str, str], cost: float) -> float:
+    """その札の必殺技に持たせたい値段（コスト点）。
+
+    **固有特性のぶんを先に引く。** 特性は札ごとに固定のデータなので、あふれたときに
+    譲れるのは技の側しかない。陣頭（1.35コスト点）を持つコスト3の札は、上限
+    （0.45×3 ＋ 許容0.5 ＝ 1.85）のうち技に回せるのが 0.50 しかない。
+    ここを見ないと、引き直したあとに予算超過が出る（実測で陳到が +0.51 で超えた）。
+    """
+    from . import design as D
+    # 許容ぎりぎりに置くと、効果文を整数へ丸めたぶんで超える（実測 +0.51）。
+    # 少し余裕を残す。
+    room = (D.EFFECT_CAP * cost + D.EFFECT_OVER_OK * 0.85
+            - D.trait_value(g["固有特性"]))
+    return max(min(BIG_BASE + BIG_SLOPE * cost, room), 0.0)
+
+
 def rebalance_big() -> int:
     """大技40種の威力を、人物の格（コスト）に見合う値へ引き直す。
 
@@ -543,7 +559,7 @@ def rebalance_big() -> int:
         if tier_of(sk) != "大技" or name not in G:
             continue
         cost = float(G[name]["コスト"])
-        target = BIG_BASE + BIG_SLOPE * cost
+        target = _skill_target_value(G[name], cost)
         nt = D.target_n(r["対象"])
         # 状態効果ぶん（威力とは無関係な部分）を先に引く
         mods = 0.0
@@ -565,6 +581,43 @@ def rebalance_big() -> int:
         power = max(power, 0.5)     # 状態効果だけで予算を超える技は最低限に
         r["効果"] = re.sub(r"威力\d+%", "威力{:.0f}%".format(power * 100.0),
                           r["効果"], count=1)
+        n += 1
+    with open(os.path.join(DATA, "skills.csv"), "w",
+              encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    return n
+
+
+def rebalance_std() -> int:
+    """標準の段（強化・妨害・回復）の効果量を、大技と同じ線へ乗せる。
+
+    段ごとに別の線を引くと、段をまたいだところで値段が不連続になる。技の値段は
+    **段によらず 0.15 + 0.12 × コスト** に揃える。
+
+    解くのは秒数（と回復量）。**％ではなく秒数で払う**のは §7.13 と同じ理由で、
+    §6.5 の ±50% 上限に当たると量を増やしても価値が増えないためである。
+    """
+    from . import design as D
+    from . import field as F
+    load_skills_into_field()
+    rows = skills()
+    G = {g["必殺技"]: g for g in generals()}
+    gc, gi = D.GAUGE_TIER["標準"]
+    n = 0
+    for r in rows:
+        name = r["技名"]
+        sk = F.SKILL_INFO[name]
+        if tier_of(sk) != "標準" or name not in G:
+            continue
+        cost = float(G[name]["コスト"])
+        target = _skill_target_value(G[name], cost)
+        cur = D.effect_value(sk, r["対象"], gc, gi)
+        if cur <= 1e-9:
+            continue
+        m = target / cur
+        r["効果"] = _scale_effect(r["効果"], m)
         n += 1
     with open(os.path.join(DATA, "skills.csv"), "w",
               encoding="utf-8-sig", newline="") as f:
