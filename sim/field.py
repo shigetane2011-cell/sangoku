@@ -704,6 +704,17 @@ GAUGE_PER_DEAL = 20.0   # 与ダメージ ÷ 対象の最大兵力 × これ
 GAUGE_PER_TAKE = 15.0   # 被ダメージ ÷ 自分の最大兵力 × これ
 GAUGE_ON_ROUT = 10.0    # 敵を撤退させたとき
 
+# 勝敗を消耗だけで決めない（§6.1 案C）。
+#
+# いまは総残存兵力率だけで決めている。すると「早い段階の与ダメージ差」がそのまま
+# 勝敗へ直結するので、増幅の出口が1本しかない。押し込み（戦列がどれだけ前へ出たか）
+# を足すと、削られていても地を保っていれば拾える形になり、出口が分かれる。
+#
+#   判定 = (残存兵力率の差) + GROUND_WEIGHT × (押し込みの差 / 盤面の奥行)
+#
+# 位置だけで決まる連続量で、閾値も分岐も持たない。0 で無効（＝従来）。
+GROUND_WEIGHT = 0.0
+
 ROUT_RATIO = 0.20       # 残存兵力率がこれを割ったら潰走（総大将の置き換え）
 # 【重要・計器】§8.2 の「残存兵力率の差が1%未満なら引き分け」は**見せ方の規則**で
 # あって、測定に使ってはいけない。1% を測定へ持ち込むと、近い編成どうしが全部
@@ -1233,6 +1244,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
 
     seen = set()
     retired = {"all": set(), "new": set()}
+    y0a = sum(u.y for u in ua) / len(ua)
+    y0b = sum(u.y for u in ub) / len(ub)
     if events is not None:
         _log_open(events, seen, a, b, ua, ub)
 
@@ -1369,7 +1382,13 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     rb = sum(u.men for u in ub) / men0b
     if events is not None:
         _log_close(events, seen, t, reason, ua, ub, ra, rb)
-    score = 0.5 if abs(ra - rb) < DRAW_BAND else (1.0 if ra > rb else 0.0)
+    diff = ra - rb
+    if GROUND_WEIGHT > 0.0:
+        # 押し込み。A は +y へ、B は -y へ進むのが前進。
+        push_a = (sum(u.y for u in ua) / len(ua)) - y0a
+        push_b = y0b - (sum(u.y for u in ub) / len(ub))
+        diff += GROUND_WEIGHT * (push_a - push_b) / BOARD_D
+    score = 0.5 if abs(diff) < DRAW_BAND else (1.0 if diff > 0 else 0.0)
     return {"score": score, "ra": ra, "rb": rb, "t": t, "reason": reason,
             "width_start": start_width, "width_end": _front_width(ua),
             "fires_a": [(u.name or u.typ, u.fires) for u in ua],
