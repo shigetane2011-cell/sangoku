@@ -1361,11 +1361,13 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
             if not hit:
                 continue
             u.fired += 1
-            _apply_skill(u, sk, target, own, foe, t, src=u.trait)
-            if ev is not None and ("誘", u.trait, u.side) not in seen:
+            # 同じ特性は1戦に1回だけ実況へ出す（何度も発動するので）
+            show = ev is not None and ("誘", u.trait, u.side) not in seen
+            if show:
                 seen.add(("誘", u.trait, u.side))
-                ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
-                    "{}が{}を発する。".format(_who(u), jp)))
+            _apply_skill(u, sk, target, own, foe, t, src=u.trait,
+                         ev=ev if show else None, seen=seen, name=jp,
+                         kind_jp="誘発")
 
 
 def x_rate(u: Unit) -> float:
@@ -1502,8 +1504,37 @@ def _vs_faction(u: Unit, f: Unit) -> bool:
     return want is not None and f.faction in (want, "群雄")
 
 
+def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
+                amount: float, secs: float = 0.0) -> str:
+    """必殺技・固有特性の実況行。**数値ではなく出来事として書く**（§9.3）。"""
+    who = _who(u)
+    n = len(tgts)
+    side = "敵" if not ("味方" in tstr or "自分" in tstr) else "味方"
+    if n == 1 and tgts[0] is u:
+        where = "自身"
+    elif n == 1:
+        where = _who(tgts[0])
+    else:
+        where = "{}{}隊".format(side, n)
+    if kind == "dot":
+        return "{}、{}。{}が燃え続ける（毎秒{:,.0f}人・{:.0f}秒）。".format(
+            who, name, where, amount, secs)
+    if kind == "damage":
+        return "{}、{}。{}に{:,.0f}人の損害。".format(who, name, where, amount)
+    if kind == "heal":
+        return "{}、{}。{}が{:,.0f}人を立て直す。".format(who, name, where, amount)
+    if kind == "stun":
+        return "{}、{}。{}の足が{:.0f}秒止まる。".format(who, name, where, secs)
+    if kind == "buff":
+        return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}秒）。".format(
+            who, name, where, amount, secs)
+    return "{}、{}。{}の動きが鈍る（{:+.0%}・{:.0f}秒）。".format(
+        who, name, where, amount, secs)
+
+
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
-                 src: str = "") -> None:
+                 src: str = "", ev=None, seen=None, name: str = "",
+                 kind_jp: str = "必殺技") -> None:
     """必殺技1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
 
     src は §6.5 の同名判定に使う出どころ（技名または特性キー）。
@@ -1514,23 +1545,45 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     v = SKILL_WITS[sk.kind]
     coef = u.might * (1.0 - v) + u.wits * v
     n = max(len(tgts), 1)
+    name = name or src
+
+    def say(kind, amount, secs=0.0, mag=0.0, jp=None):
+        """実況行を1本積む。**効いた量をそのまま持たせる**（行の取捨に使う）。"""
+        if ev is None or not name:
+            return
+        k = jp or kind_jp
+        ev.append(Event(t, k, LINE_PRIO[k],
+                        _skill_line(u, name, tstr, tgts, kind, amount, secs),
+                        mag))
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
     ally = "味方" in tstr or "自分" in tstr
+    best = None                 # 1回の発動につき実況は1行。いちばん大きい成分で書く
     for key, amt, secs in sk.mods:
         if key == "stun":
-            for f in ([] if ally else tgts):
-                if f.men > 0.0:
-                    f.effects.append((t + secs, "stun", amt, src))
+            hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
+            for f in hit:
+                f.effects.append((t + secs, "stun", amt, src))
+            if hit:
+                m = secs * len(hit) * 10.0
+                if best is None or m > best[3]:
+                    best = ("stun", 1.0, secs, m)
             continue
         if key == "gauge":
             for f in (tgts if ally else [u]):
                 f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
-        for f in dst:
-            if f.men > 0.0:
-                f.effects.append((t + secs, key, amt, src))
+        hit = [f for f in dst if f.men > 0.0]
+        for f in hit:
+            f.effects.append((t + secs, key, amt, src))
+        if hit:
+            m = abs(amt) * secs * len(hit)
+            if best is None or m > best[3]:
+                best = ("buff" if amt > 0.0 else "debuff", amt, secs, m)
+    if best is not None:
+        say(best[0], best[1], best[2], best[3],
+            jp="計略" if kind_jp == "必殺技" else kind_jp)
     if sk.mods:
         _expire(own + foe, t)
 
@@ -1539,24 +1592,38 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if sk.heal > 0.0:
         # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
         amt = HEAL_SCALE * sk.heal * coef / n
+        done = 0.0
         for f in tgts:
             if f.men <= 0.0:
                 continue
             if sk.dur > 0.0:
                 f.overtime.append((t + sk.dur, "heal", amt))
+                done += amt * sk.dur
             else:
+                before = f.men
                 f.men = min(f.men0, f.men + amt)
+                done += f.men - before      # 満タンぶんは実況でも数えない
+        if done > 0.0:
+            say("heal", done, sk.dur, mag=done)
         return
     # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
     dmg = SKILL_SCALE * sk.power * coef / n
+    done = 0.0
     for f in tgts:
         if sk.dur > 0.0:
             # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
             # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
             # 総量が 1/14 になる。実際に踏んだ。
             f.overtime.append((t + sk.dur, "dot", dmg))
+            done += dmg
         else:
+            before = f.men
             f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
+            done += before - f.men          # 防御ぶんを引いた実害を出す
+    if done > 0.0:
+        say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
+            mag=done * (sk.dur or 1.0))
+        return
 
 
 def _fire_skills(own, foe, t: float, ev, seen) -> set:
@@ -1579,8 +1646,13 @@ def _fire_skills(own, foe, t: float, ev, seen) -> set:
             sk = SKILL_INFO.get(u.skill)
             if not sk:
                 continue
+            # 同じ技は1戦に1回だけ実況へ出す（3回撃つと同じ行が3本並ぶ）
+            show = ev is not None and ("技", u.skill, u.side) not in seen
+            if show:
+                seen.add(("技", u.skill, u.side))
             _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
-                         src=u.skill)
+                         src=u.skill, ev=ev if show else None, seen=seen,
+                         name=u.skill)
     return fired
 
 
@@ -1999,10 +2071,14 @@ def _army_name(army: "Army", fallback: str) -> str:
     return c.most_common(1)[0][0] if c else fallback
 
 # 種類ごとの行数上限（§9.3）。合流したぶんは1行として数える。
+# **打撃と計略を別の種類にする。** 同じ「必殺技」に混ぜると、行の取り合いで
+# 補助技が勝ってダメージ技が一行も出なくなる（実測: 火計も無双乱舞も消えた）。
+# 大きさの単位が違うもの（人数 と %×秒×枚数）を1つの物差しで比べていたのが原因で、
+# 係数を調整して釣り合わせるより、枠を分けるほうが素直である。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
-             "必殺技": 2, "誘発": 2, "突撃": 1, "壊滅": 2, "決着": 1}
+             "必殺技": 2, "計略": 2, "誘発": 2, "突撃": 1, "壊滅": 2, "決着": 1}
 # 優先順位（小さいほど先に確保する）
-LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "誘発": 3,
+LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3, "誘発": 3,
              "突撃": 4, "壊滅": 4, "接敵": 5, "抑制": 6, "布陣": 7}
 LINE_BUDGET = 12
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
@@ -2016,6 +2092,9 @@ class Event:
     kind: str
     prio: int
     text: str
+    # 出来事の大きさ（人数など）。**行を選ぶときに種類の中での順位を決める。**
+    # 必殺技は1戦に18回ほど飛ぶので、先に起きたものから採ると小物ばかり並ぶ。
+    mag: float = 0.0
 
 
 def _wing(u: Unit) -> str:
@@ -2187,9 +2266,16 @@ def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
     simulate(a, b, dt=dt, events=ev)
 
     # 種類ごとの上限と全体の予算で絞る。**大きさではなく種類で選ぶ。**
-    ev.sort(key=lambda e: (e.prio, e.t))
-    kept, used = [], {}
+    # 種類の優先順（§9.3）→ 同じ種類なら大きい順 → 同着なら早い順
+    ev.sort(key=lambda e: (e.prio, -e.mag, e.t))
+    # 布陣と決着は枠に関係なく必ず出す。**予算で落ちると誰と誰の話か分からなくなる**
+    # （実測で虎牢関の布陣行が消えた）。優先順位が低いのは「先に確保しない」という
+    # 意味であって、「無くてよい」ではない。
+    kept = [e for e in ev if e.kind in ("布陣", "決着")][:2]
+    used = {e.kind: 1 for e in kept}
     for e in ev:
+        if e in kept:
+            continue
         if used.get(e.kind, 0) >= LINE_CAPS.get(e.kind, 1):
             continue
         if len(kept) >= LINE_BUDGET:
@@ -2649,20 +2735,41 @@ def cmd_price(args) -> None:
     TYPE_BONUS = keep_b
 
 
+# 実況の見本に使う対戦。**実カードで回す。** 必殺技と固有特性が効いた場面を拾うのが
+# 目的なので、合成カードでは意味がない（技も特性も持っていない）。
+# 合計コストは両軍で揃える（差が付くと決着の理由が編成ではなく点差になる）。
+NARRATE_CARDS = (
+    ("赤壁", "呉", ["周瑜〔赤壁〕", "黄蓋〔苦肉〕", "魯粛〔塌上策〕",
+                    "呂蒙〔白衣〕", "甘寧〔錦帆賊〕", "凌統〔断金〕"],
+     "魏", ["曹操〔魏王〕", "張遼〔逍遥津〕", "徐晃〔長駆〕",
+            "郭嘉〔鬼才〕", "于禁〔毅重〕", "典韋〔古之悪来〕"]),
+    ("五丈原", "蜀", ["諸葛亮〔臥龍〕", "姜維〔幼麟〕", "魏延〔子午〕",
+                      "黄忠〔定軍山〕", "馬超〔錦馬超〕", "龐統〔鳳雛〕"],
+     "魏", ["司馬懿〔冢虎〕", "夏侯惇〔独眼〕", "張郃〔巧変〕",
+            "許褚〔虎痴〕", "郭嘉〔鬼才〕", "張遼〔逍遥津〕"]),
+    ("虎牢関", "群雄", ["呂布〔飛将〕", "董卓〔暴虐〕", "顔良〔河北の驍〕",
+                        "文醜〔河北の勇〕", "高順〔陥陣〕", "陳宮〔公台〕"],
+     "蜀", ["関羽〔漢寿亭侯〕", "張飛〔当陽橋〕", "劉備〔徳将〕",
+            "趙雲〔長坂坡〕", "陳到〔白毦〕", "簡雍〔憲和〕"]),
+)
+
+
 def cmd_narrate(args) -> None:
+    """実況の出力例（§9.3）。**実カードを実際に走らせて生成する。**"""
+    global SKILLS_ON, TRAITS_ON
+    from . import rosterdata as R
+    R.load_skills_into_field()
+    R.load_traits_into_field()
+    SKILLS_ON = TRAITS_ON = True
     print("実況の出力例（§9.3）。実際のシミュレーションから生成している。")
-    for na, a, nb, b in (
-        ("鶴翼の混成", Army(mixed_role_army([INF, INF, CAV, ARC, ARC, CAV]).cards,
-                            FORM_WIDE, 1),
-         "魚鱗の混成", Army(mixed_role_army([INF, CAV, INF, ARC, CAV, ARC]).cards,
-                            FORM_DEEP, 0)),
-        ("騎馬主体", Army(mixed_role_army([CAV, CAV, INF, CAV, ARC, INF]).cards,
-                          FORM_STANDARD, 0),
-         "弓主体", Army(mixed_role_army([ARC, INF, ARC, ARC, INF, CAV]).cards,
-                        FORM_STANDARD, 2)),
-    ):
+    for title, fa, na, fb, nb in NARRATE_CARDS:
+        a = Army(tuple(R.to_cards(na)), FORM_STANDARD, 1)
+        b = Army(tuple(R.to_cards(nb)), FORM_DEEP, 0)
+        ca = sum(c.cost for c in a.cards)
+        cb = sum(c.cost for c in b.cards)
         print()
-        print(f"── {na} 対 {nb} " + "─" * 30)
+        print("── {} （{} {:g}コスト 対 {} {:g}コスト） ".format(
+            title, fa, ca, fb, cb) + "─" * 20)
         for line in narrate(a, b, args.dt):
             print("  " + line)
 
