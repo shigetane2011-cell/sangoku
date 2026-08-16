@@ -2600,10 +2600,16 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
                              _JP["B"], 100 * rb, lost_b, _JP[win])))
 
 
-def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
-    """1部隊戦の実況行を返す。8〜12行（§9.3）。"""
+def narrate(a: Army, b: Army, dt: float = 0.25,
+            seed: "int | None" = None) -> List[str]:
+    """1部隊戦の実況行を返す。8〜12行（§9.3）。
+
+    **種は必ず本番と同じものを渡すこと。** 渡さないと乱数の無い戦いを語ることに
+    なり、実況が「実際に起きた戦い」と別物になる（§8.4 はリプレイを戦闘イベント
+    ログの正とすると決めている）。
+    """
     ev: List[Event] = []
-    simulate(a, b, dt=dt, events=ev)
+    simulate(a, b, dt=dt, events=ev, seed=seed)
 
     # 時刻帯の行を**ここで合成する**。盤面から受け取るのではなく、終わった戦いの
     # 長さだけを見て足す。決着の直前に帯をまたいだ場合は出さない（DAY_BAND_MARGIN）。
