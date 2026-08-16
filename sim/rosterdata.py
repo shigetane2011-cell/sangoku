@@ -160,6 +160,11 @@ if __name__ == "__main__":
 
 ROLE_MAP = {"耐久": "tank", "均衡": "bal", "火力": "dps",
             "瞬発": "dps", "支援": "bal"}
+
+# 知力の暫定導出。**CSV に知力の列が無いので、役割から仮に置いている。**
+# 本来はカードごとに手で置くべき値であり、これは足場にすぎない。
+# 支援型（軍師）を高く、火力・瞬発型（猛将）を低くする。
+WITS_BY_ROLE = {"支援": 1.45, "均衡": 1.05, "耐久": 0.85, "火力": 0.70, "瞬発": 0.65}
 TYPE_MAP = {"歩兵": "inf", "騎兵": "cav", "弓兵": "arc"}
 
 
@@ -171,6 +176,8 @@ def to_cards(names=None):
     return [F.Card(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                    role=ROLE_MAP[g["役割"]], name=g["名前"],
                    trait=g["固有特性"], faction=g["勢力"],
+                   might=float(g["攻撃力"]),
+                   wits=float(g["攻撃力"]) * WITS_BY_ROLE[g["役割"]],
                    skill=g["必殺技"], gauge_cost=float(g["消費ゲージ%"]),
                    gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
                    gauge_init=float(g["初期ゲージ"])) for g in picks]
