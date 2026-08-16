@@ -96,6 +96,7 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
     units: List[F.Army] = []
     for label, cap in M.REGULATIONS:
         pick: List[F.Card] = []
+        caps = _type_caps(FORM_BY_NAME[p.form].n_front)
         cand = [c for c in pool if M.person_of(c) not in used]
         cheap = sorted(c.cost for c in cand)
         while len(pick) < M.UNIT_SIZE and cand:
@@ -104,8 +105,11 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
             # **残り予算を残り枠で割り直す。** 固定の目安（上限÷6）だと、性格の
             # 偏りが強い札から先に取ったときに安い側へ寄って予算が余る。
             want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
+            have = {t: sum(1 for x in pick if x.typ == t) for t in (F.CAV, F.ARC)}
             ok = []
             for c in cand:
+                if c.typ in caps and have[c.typ] >= caps[c.typ]:
+                    continue        # あり得ない配置になる兵種は取らない
                 # 自分を除いた安い順 left 枚を確保できるか（残り枠が埋まるか）
                 rest = list(cheap)
                 rest.remove(c.cost)
@@ -119,28 +123,56 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
             used.add(M.person_of(c))
             cheap.remove(c.cost)
             cand = [x for x in cand if M.person_of(x) not in used]
-        pick = _spend_rest(pick, pool, used, p, cap)
-        units.append(F.Army(tuple(_order(pick)), FORM_BY_NAME[p.form]))
+        nf = FORM_BY_NAME[p.form].n_front
+        pick = _spend_rest(pick, pool, used, p, cap, caps)
+        units.append(F.Army(tuple(_order(pick, nf)), FORM_BY_NAME[p.form]))
     return M.Entry(tuple(units), name=p.name)
 
 
-def _order(pick: List[F.Card]) -> List[F.Card]:
-    """部隊内の並び。**先頭から前衛に置かれる**ので、硬い札を前へ出す。
+def _order(pick: List[F.Card], n_front: int) -> List[F.Card]:
+    """部隊内の並び。**先頭から前衛に置かれる**ので、あり得ない配置を作らない。
 
     `_stations` は Army.cards の先頭 n_front 枚を前衛に置く。生成した順（性格の
-    重み順）のまま渡すと、**瞬発や支援が最前列に立つ**。実際のプレイヤーは
-    そんな置き方をしない。並べ替えないだけで性格どうしの勝敗が 0%/100% に
-    振り切れていた（前衛の質が編成の総合値と無関係に効くため）。
+    重み順）のまま渡すと**瞬発や支援が最前列に立ち**、弓兵が前、騎兵が後ろに
+    並ぶ。実際のプレイヤーはそんな置き方をしない。
 
-    硬さは `field.ROLE_MEN`（役割ごとの兵力の倍率）で測る。射程を持つ弓兵は
-    同じ硬さなら後ろへ回す（前に出しても射程を活かせない）。
+      前衛 … 騎兵と歩兵。硬い順（`field.ROLE_MEN`）
+      後衛 … 弓兵と、前衛に入りきらなかった歩兵
+
+    **弓を前に出さない**（射程を活かせない）。**騎兵を後ろに置かない**（突撃と
+    迂回が死ぬ）。枚数の制約は `_type_caps` が生成の段階で保証する。
     """
-    return sorted(pick, key=lambda c: (-F.ROLE_MEN[c.role],
-                                       1 if c.typ == F.ARC else 0, c.name))
+    front = [c for c in pick if c.typ != F.ARC]
+    rear = [c for c in pick if c.typ == F.ARC]
+    front.sort(key=lambda c: (-F.ROLE_MEN[c.role], c.name))
+    rear.sort(key=lambda c: (-F.ROLE_MEN[c.role], c.name))
+    # 前衛が余ったら後ろへ回す（回すのは歩兵。騎兵は前に残す）
+    while len(front) > n_front:
+        spare = [c for c in front if c.typ == F.INF] or front
+        c = spare[-1]
+        front.remove(c)
+        rear.insert(0, c)
+    # 前衛が足りなければ後衛から歩兵を戻す
+    while len(front) < n_front and rear:
+        cand = [c for c in rear if c.typ != F.ARC] or rear
+        c = cand[0]
+        rear.remove(c)
+        front.append(c)
+    front.sort(key=lambda c: (-F.ROLE_MEN[c.role], c.name))
+    return front + rear
+
+
+def _type_caps(n_front: int) -> Dict[str, int]:
+    """兵種の上限。**あり得ない配置が構造的に作れないようにする。**
+
+    騎兵 ≤ 前衛の数、弓兵 ≤ 後衛の数。この2つを守れば、騎兵を全部前に、弓兵を
+    全部後ろに置ける（残りは歩兵で埋まる）。片方だけでは足りない。
+    """
+    return {F.CAV: n_front, F.ARC: M.UNIT_SIZE - n_front}
 
 
 def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
-                p: Persona, cap: float) -> List[F.Card]:
+                p: Persona, cap: float, caps: Dict[str, int]) -> List[F.Card]:
     """余った予算で札を入れ替える。**使い残しはラダーの測定を壊す。**
 
     実測で斉射が合計8点、軍師が4点を余らせていた。8点は兵種相性（0.85点）の
@@ -158,9 +190,12 @@ def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
         i = min(range(len(pick)), key=lambda k: pick[k].cost)
         cur = pick[i]
         room = cur.cost + left
+        have = {t: sum(1 for x in pick if x.typ == t and x is not cur)
+                for t in (F.CAV, F.ARC)}
         cands = [c for c in pool
                  if M.person_of(c) not in used and c.cost <= room + 1e-9
-                 and c.cost > cur.cost]
+                 and c.cost > cur.cost
+                 and not (c.typ in caps and have[c.typ] >= caps[c.typ])]
         if not cands:
             break
         best = max(cands, key=lambda c: (c.cost, _score(c, p, room)))
