@@ -1551,6 +1551,14 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         """実況行を1本積む。**効いた量をそのまま持たせる**（行の取捨に使う）。"""
         if ev is None or not name:
             return
+        # **効かなかったものは語らない。** 「自身が92人を立て直す」のような行が出ると、
+        # 起きた出来事としては正しくても実況としては嘘に近い（読者は意味のある量だと
+        # 受け取る）。対象の兵力に対する割合で足切りする。
+        if kind in ("damage", "heal", "dot"):
+            base = sum(f.men0 for f in tgts) or 1.0
+            total = amount * (secs if kind == "dot" else 1.0)
+            if total / base < NARRATE_FLOOR:
+                return
         k = jp or kind_jp
         ev.append(Event(t, k, LINE_PRIO[k],
                         _skill_line(u, name, tstr, tgts, kind, amount, secs),
@@ -2083,7 +2091,14 @@ LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3,
 LINE_BUDGET = 12
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
-DETOUR_SHOW = 0.25      # これ以上の迂回だけを賭けとして予告する（表示のみ）
+# 実況に出す下限。対象の兵力に対してこれ未満のダメージ・回復は行にしない。
+NARRATE_FLOOR = 0.02
+# これ以上の迂回だけを賭けとして予告する（表示のみ）。
+# **0.25 では1戦も出なかった。** 実カード12戦の迂回は最大 0.237、平均 0.015 で、
+# 合成カードでも 0.234 止まり。§9.3 が唯一の演出装置と決めた「予告と結果」の対が
+# まるごと死んでいた。迂回そのものは連続量として効いているので、崖ではなく
+# 表示の閾値の置き方の問題である。0.12 へ下げる。
+DETOUR_SHOW = 0.12
 
 
 @dataclass
@@ -2283,6 +2298,13 @@ def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
         used[e.kind] = used.get(e.kind, 0) + 1
         kept.append(e)
 
+    # 挿絵を差す場所を決める（§9.3 の三幕）。序＝布陣、破＝いちばん大きい出来事、
+    # 急＝決着。**大きさで選ぶのは「破」だけ**で、序と急は位置で決まっている。
+    mid = [e for e in kept if e.kind in ("必殺技", "計略", "誘発", "壊滅")]
+    art = {id(e) for e in kept if e.kind in ("布陣", "決着")}
+    if mid:
+        art.add(id(max(mid, key=lambda e: e.mag)))
+
     # 同じ秒の出来事は1行へ合流させる（布陣は t=-1 なので合流しない）
     kept.sort(key=lambda e: (e.t, e.prio))
     out, i = [], 0
@@ -2294,7 +2316,8 @@ def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
             same.append(kept[i])
         head = "【布陣】" if same[0].t < 0.0 else "【{:02d}:{:02d}】".format(
             int(same[0].t) // 60, int(same[0].t) % 60)
-        out.append(head + " " + " ".join(e.text for e in same))
+        mark = "◆" if any(id(e) in art for e in same) else "　"
+        out.append(mark + head + " " + " ".join(e.text for e in same))
         i += 1
     return out
 
@@ -2762,6 +2785,7 @@ def cmd_narrate(args) -> None:
     R.load_traits_into_field()
     SKILLS_ON = TRAITS_ON = True
     print("実況の出力例（§9.3）。実際のシミュレーションから生成している。")
+    print("◆ は挿絵を差す場所（三幕の 序＝布陣 / 破＝最大の出来事 / 急＝決着）。")
     for title, fa, na, fb, nb in NARRATE_CARDS:
         a = Army(tuple(R.to_cards(na)), FORM_STANDARD, 1)
         b = Army(tuple(R.to_cards(nb)), FORM_DEEP, 0)
