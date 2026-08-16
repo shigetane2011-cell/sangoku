@@ -248,6 +248,37 @@ def target_n(target: str) -> float:
 GAUGE_TOTAL = 453.0
 
 
+# 段ごとの重み。**上限時間からの逆算をやめ、対戦の集まりで直接測った値**（§7.20）。
+#
+# 相手の性格（耐久寄り／均衡／火力寄り）・兵種・陣形を振った15通りで、同じ技
+# （ダメージ 威力1000%）の値段を測った結果:
+#
+#   段    平均    中央値   最小    最大     標準比
+#   手数  3.784  2.548  1.078  11.898  1.587
+#   標準  2.385  1.286  0.510   8.506  1.000
+#   大技  1.343  0.614 -0.026   6.192  0.563
+#
+# **同じ技が対戦相手しだいで11倍開く。** 大技は短い戦闘だとマイナスにすらなる。
+# 平均と中央値が約2倍違うのは分布が右に裾を引いているためで、長い戦闘がごく一部で
+# 価値を稼いでいる。値段は**平均で取る**（何戦もすれば合計は平均×戦数に寄るので、
+# 通貨としてはこれが正しい）。ただし**幅は設計上の情報なので必ず併記する**。
+#
+# 上限時間から逆算していたときの重みは 手数2.00 / 標準1.00 / 大技0.33 で、
+# 大技を6割ほど過小に、手数を2割ほど過大に見ていた。
+TIER_WEIGHT = {"手数": 1.587, "標準": 1.000, "大技": 0.563}
+# 値段の幅（最小/最大 ÷ 平均）。相手依存の強さ。設計時の目安。
+TIER_SPREAD = {"手数": (0.28, 3.14), "標準": (0.21, 3.57), "大技": (-0.02, 4.61)}
+
+
+def tier_weight(gauge_cost: float, gauge_init: float = 0.0) -> float:
+    """消費ゲージと初期ゲージから段を引き当てて重みを返す。"""
+    for name, (gc, gi) in GAUGE_TIER.items():
+        if abs(gc - gauge_cost) < 1e-6:
+            return TIER_WEIGHT[name]
+    # 段の外の値は、標準を基準に消費の比で見積もる（暫定）
+    return TIER_WEIGHT["標準"] * GAUGE_TIER["標準"][0] / max(gauge_cost, 1e-6)
+
+
 def fires(gauge_cost: float, gauge_init: float = 0.0,
           kisei: float = 1.0, t_max: float = 90.0) -> float:
     """90秒で何回撃てるか。**切り捨てる。**
@@ -325,7 +356,8 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
             v += EFFECT_PRICE["stun"] * secs * n
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * n
-    v *= fires(gauge_cost, gauge_init, kisei) / PRICE_FIRES
+    # **上限時間の仮定を持たない。** 段の重みは対戦の集まりで測った実測値。
+    v *= tier_weight(gauge_cost, gauge_init)
     return v / CARD_COST_RATE
 
 

@@ -515,9 +515,9 @@ def retier() -> int:
         F.SKILL_INFO[r["技名"]] = sk
         t = tier_of(sk)
         gc, gi = D.GAUGE_TIER[t]
-        old_fires = D.fires(float(r["消費ゲージ%"]))
-        new_fires = D.fires(gc, gi)
-        m = max(old_fires, 1.0) / max(new_fires, 1.0)
+        old_w = D.tier_weight(float(r["消費ゲージ%"]))
+        new_w = D.tier_weight(gc, gi)
+        m = max(old_w, 1e-6) / max(new_w, 1e-6)
         r["効果"] = _scale_effect(r["効果"], m)
         r["消費ゲージ%"] = "{:.0f}".format(gc)
         n += 1
@@ -584,7 +584,7 @@ def rebalance_big() -> int:
     rows = skills()
     G = {g["必殺技"]: g for g in generals()}
     gc, gi = D.GAUGE_TIER["大技"]
-    fr = D.fires(gc, gi) / D.PRICE_FIRES
+    fr = D.tier_weight(gc, gi)
     n = 0
     for r in rows:
         name = r["技名"]
