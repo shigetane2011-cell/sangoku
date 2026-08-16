@@ -174,10 +174,26 @@ def derive(d: Design) -> Dict[str, float]:
 # 対象範囲はほぼ効かない（敵1体を1.00として 1列0.88・全体0.86・後列0.96）。
 # ダメージが対象数で割られるので、広く撒くと薄まって相殺される。§7.5 の旧記述
 # 「強さを決めているのは対象範囲 × 継続時間」は、割り算を入れる前の話である。
+# 打ち切りダメージの値段は**威力1600%で折れる**。それより上では、1発が相手の札を
+# まるごと落とせるようになり、落とした札のぶん相手の火力も消えるので複利で効く。
+# 大技の段（消費300・初期140・1回）で測った値（1枚だけが持つ・コスト点）:
+#
+#   威力%   200    400    800   1200   1600   2100   2600   3200
+#   値段  0.082  0.163  0.322  0.478  0.671  1.256  1.843  2.548
+#   /100% .0408  .0406  .0403  .0399  .0420  .0598  .0709  .0796
+#
+# 1200%までは 0.0403 で一直線、1600%を境に傾きが約3倍になる。
+# **単価1本で通すと、安い大技を6割ほど過大請求する。** 折れ線で持つ。
+DAMAGE_KNEE = 16.0          # 威力1600%（power の単位で 16.0）
+DAMAGE_SLOPE_HI = 0.4469    # 折れたあとの傾き（威力100% あたり）
+
+# 継続ダメージは折れない。総威力 400〜3600% で 0.0879〜0.0881 と完全に線形だった。
+# 毎秒に薄く割られるので、1ティックで札を落とすことがないためである。
+
 # 消費ゲージの段を入れ替えたあと（§7.13）に当て直した値。
 EFFECT_PRICE = {
-    "damage": 0.2428,   # 打ち切り 威力100% あたり
-    "dot":    0.2477,   # 継続の総威力100% あたり
+    "damage": 0.1535,   # 打ち切り 威力100% あたり（折れる前の傾き）
+    "dot":    0.3353,   # 継続の総威力100% あたり
     "heal":   0.2668,   # 回復100% あたり
     "atk":    0.00179,  # 攻撃力・命中率 1% × 1秒 × 1体 あたり
     "def":    0.00054,  # 防御力 1% × 1秒 × 1体（攻撃の1/3。防御は逓減する）
@@ -199,6 +215,14 @@ PRICE_FIRES = 3.0
 # 効果の値段は「軍全体の物差し」で測っているので、1枚から引くときはこれで割る。
 # 割り忘れると全部の技が過大請求になる（実測で平均 -0.50 コスト点まで振れた）。
 CARD_COST_RATE = 1.27
+
+
+def damage_price(power: float) -> float:
+    """打ち切りダメージの値段。**威力1600%で折れる**（上の注記）。"""
+    if power <= DAMAGE_KNEE:
+        return EFFECT_PRICE["damage"] * power
+    return (EFFECT_PRICE["damage"] * DAMAGE_KNEE
+            + DAMAGE_SLOPE_HI * (power - DAMAGE_KNEE))
 
 
 def target_n(target: str) -> float:
@@ -284,7 +308,7 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     if skill.dur > 0.0 and skill.power > 0.0:
         v += EFFECT_PRICE["dot"] * skill.power * skill.dur
     elif skill.power > 0.0:
-        v += EFFECT_PRICE["damage"] * skill.power
+        v += damage_price(skill.power)
     v += EFFECT_PRICE["heal"] * skill.heal
     for key, amt, secs in skill.mods:
         if key == "stun":

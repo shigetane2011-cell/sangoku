@@ -556,7 +556,12 @@ def rebalance_big() -> int:
         if sk.dur > 0.0:            # 継続。威力は毎秒の量
             power = want / D.EFFECT_PRICE["dot"] / sk.dur
         else:
-            power = want / D.EFFECT_PRICE["damage"]
+            # 打ち切りは折れ線なので、折れ点の前後で分けて解く
+            knee = D.EFFECT_PRICE["damage"] * D.DAMAGE_KNEE
+            if want <= knee:
+                power = want / D.EFFECT_PRICE["damage"]
+            else:
+                power = D.DAMAGE_KNEE + (want - knee) / D.DAMAGE_SLOPE_HI
         power = max(power, 0.5)     # 状態効果だけで予算を超える技は最低限に
         r["効果"] = re.sub(r"威力\d+%", "威力{:.0f}%".format(power * 100.0),
                           r["効果"], count=1)
