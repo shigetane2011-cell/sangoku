@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 ~$*.docx
+
+# 登録者の DB。個人情報が入るので追跡しない
+sim/data/*.db
