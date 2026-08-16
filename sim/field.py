@@ -1571,18 +1571,18 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     else:
         where = "{}{}隊".format(side, n)
     if kind == "dot":
-        return "{}、{}。{}が燃え続ける（毎秒{:,.0f}人・{:.0f}秒）。".format(
+        return "{}、{}。{}が燃え続ける（毎分{:,.0f}人・{:.0f}分）。".format(
             who, name, where, amount, secs)
     if kind == "damage":
         return "{}、{}。{}に{:,.0f}人の損害。".format(who, name, where, amount)
     if kind == "heal":
         return "{}、{}。{}が{:,.0f}人を立て直す。".format(who, name, where, amount)
     if kind == "stun":
-        return "{}、{}。{}の足が{:.0f}秒止まる。".format(who, name, where, secs)
+        return "{}、{}。{}の足が{:.0f}分止まる。".format(who, name, where, secs)
     if kind == "buff":
-        return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}秒）。".format(
+        return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}分）。".format(
             who, name, where, amount, secs)
-    return "{}、{}。{}の動きが鈍る（{:+.0%}・{:.0f}秒）。".format(
+    return "{}、{}。{}の動きが鈍る（{:+.0%}・{:.0f}分）。".format(
         who, name, where, amount, secs)
 
 
@@ -2146,6 +2146,28 @@ LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3,
 LINE_BUDGET = 12
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
+# 実況の時間表現。**盤面の1秒を戦場の1分として読ませる。**
+#
+# 盤面の時間はティックの単位であって、戦場で流れた時間ではない。1秒＝1分にすると、
+# 中央値137ティックの戦闘が「2時間17分の戦い」になり、上限400ティックでも6時間40分
+# に収まる。古代の会戦の尺としてはこのあたりが自然である。
+#
+# **単位の付け替えだけで済むのが利点。** 「毎秒317人」は「毎分317人」、「3秒止まる」は
+# 「3分止まる」で、数字はそのまま使える。刻みを 0.5 にしても表示は変わらない。
+#
+# 開始時刻は夜明けの6時。上限400ティックなら 12:40 までに終わる。
+# **夜戦・払暁・日没の表現は別途決める（未着手）。** いまは上限に当たった行を
+# 「決着つかず、両軍とも兵を退く」とだけ書く。6時開始・上限400分では日没に届かない
+# ので「日没」とは書けない。夜まで戦う型を作るなら、上限か1ティックの尺のどちらかを
+# 決め直す必要がある。
+BATTLE_START_H = 6      # 開戦の時刻（時）
+BATTLE_START_M = 0      # 同（分）
+
+
+def clock(t: float) -> str:
+    """盤面の経過（秒）を戦場の時刻（24時間表記）へ直す。"""
+    m = BATTLE_START_H * 60 + BATTLE_START_M + int(t)
+    return "{:02d}:{:02d}".format((m // 60) % 24, m % 60)
 # 実況に出す下限。対象の兵力に対してこれ未満のダメージ・回復は行にしない。
 NARRATE_FLOOR = 0.02
 # これ以上の迂回だけを賭けとして予告する（表示のみ）。
@@ -2217,7 +2239,7 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         seen.add(("賭", id(u)))
         ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
             "{}、戦列を離れて大きく回り込む。{:.0f}mの迂回、"
-            "およそ{:.0f}秒ぶんの攻撃を捨てる賭け。".format(
+            "およそ{:.0f}分ぶんの攻撃を捨てる賭け。".format(
                 _who(u), u.total_len, u.total_len / u.speed)))
 
 
@@ -2266,7 +2288,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             tgt = min((f for f in foes if not f.is_front),
                       key=lambda f: math.hypot(f.x - u.x, f.y - u.y), default=None)
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
-                "{}が敵後衛に到達（{:.0f}秒を要した）。{}の側背を突く。"
+                "{}が敵後衛に到達（{:.0f}分を要した）。{}の側背を突く。"
                 "この時点で残り{:.0f}%。".format(
                     _who(u), t, _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
@@ -2325,7 +2347,8 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
     lost_b = sum(u.men0 - u.men for u in ub)
     win = "A" if ra > rb else "B"
     ev.append(Event(t, "決着", LINE_PRIO["決着"],
-        "時間切れ。{}軍{:.0f}%（{:,.0f}人損失）対{}軍{:.0f}%（{:,.0f}人損失）で、"
+        "決着つかず、両軍とも兵を退く。{}軍{:.0f}%（{:,.0f}人損失）対"
+        "{}軍{:.0f}%（{:,.0f}人損失）で、"
         "{}軍の勝利。".format(_JP["A"], 100 * ra, lost_a,
                              _JP["B"], 100 * rb, lost_b, _JP[win])))
 
@@ -2369,8 +2392,7 @@ def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
                and int(kept[i + 1].t) == int(kept[i].t)):
             i += 1
             same.append(kept[i])
-        head = "【布陣】" if same[0].t < 0.0 else "【{:02d}:{:02d}】".format(
-            int(same[0].t) // 60, int(same[0].t) % 60)
+        head = "【布陣】" if same[0].t < 0.0 else "【{}】".format(clock(same[0].t))
         mark = "◆" if any(id(e) in art for e in same) else "　"
         out.append(mark + head + " " + " ".join(e.text for e in same))
         i += 1
