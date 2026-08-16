@@ -410,6 +410,29 @@ def regenerate() -> int:
     return len(out)
 
 
+def _retire_gauge(text: str) -> str:
+    """ゲージを操る効果を、値段の付く普通の効果へ差し替える（§7.18）。
+
+    **ゲージ軸は価値を運べない**というのが実測の結論である。1戦の発動が1〜2回しか
+    ない設計では、ゲージは資源ではなく**日程**であり、
+
+    - 付与（ゲージを直接進める）は段差になる。味方の閾値を越えれば丸ごと1回ぶん、
+      越えなければ 0。実測で消費の 2/8/16% は発動を1回も増やさず、40% で突然
+      2回になった（+2.4コスト点）。崖の上には置かない（§13）。
+    - 気勢（溜まる速さの率）は**負の値段**になる。実測 -0.049（+10%・30秒）〜
+      -0.167（+40%）。秒数を倍にしても値は動かない（30秒と60秒が同値）ので、
+      効いているのは「発動が早まる」ことだけである。大技を早く撃たせると、相手が
+      まだ健在なぶん取りこぼす。**支援のつもりが妨害になっている。**
+
+    そこで、攻撃力の強化へ移す。量は `rebalance_std` が値段に合わせて解く。
+    """
+    m = re.search(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", text)
+    if not m:
+        return text
+    return re.sub(r"ゲージ付与\s*自然増加の\d+秒ぶん",
+                  "攻撃力 +{:.0f}%（20秒）".format(float(m.group(1))), text)
+
+
 def tier_of(skill) -> str:
     """必殺技をゲージの段へ割り当てる（`design.GAUGE_TIER`）。
 
@@ -421,8 +444,10 @@ def tier_of(skill) -> str:
         return "大技"
     if skill.heal > 0.0:
         return "標準"
-    if any(k == "gauge" for k, _, _ in skill.mods):
-        return "手数"
+    # ゲージ付与は**手数の段に置いてはいけない**。安く何度も撃てる札が高い札の
+    # ゲージを進めると、進めたぶんがまた技になって返ってくる。実測で「消費の40%を
+    # 味方全体へ」を手数の段（4回）に置くと 5.80コスト点、80%なら 21.8 まで飛んだ。
+    # 標準（2回）に置き、割合を小さく持つ。
     return "標準"
 
 
@@ -445,6 +470,10 @@ def _scale_effect(text: str, m: float) -> str:
     def gauge(mo):
         return "ゲージ付与 自然増加の{:.0f}秒ぶん".format(float(mo.group(1)) * m)
 
+    def kisei(mo):
+        return "気勢 {}{:.0f}%（{:.0f}秒）".format(
+            mo.group(1), float(mo.group(2)), float(mo.group(3)) * m)
+
     def mod(mo):
         # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ技を何度撃っても
         # 効果は重ならず「大きい方」だけが残る。だから回数を減らしたぶん量を
@@ -458,6 +487,7 @@ def _scale_effect(text: str, m: float) -> str:
     text = re.sub(r"回復\s*攻撃力の(\d+)%", hp, text)
     text = re.sub(r"行動阻害\s*(\d+)秒", stun, text)
     text = re.sub(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", gauge, text)
+    text = re.sub(r"気勢\s*([+-])(\d+)%（(\d+)秒）", kisei, text)
     text = re.sub(r"(攻撃力|命中率|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
                   mod, text)
     return text
@@ -479,7 +509,10 @@ def retier() -> int:
     gs = {g["必殺技"]: g for g in generals()}
     n = 0
     for r in rows:
-        sk = F.SKILL_INFO[r["技名"]]
+        # 旧「ゲージ付与」を気勢へ移してから段を決める（§7.18）
+        r["効果"] = _retire_gauge(r["効果"])
+        sk = F._parse_skill(r["効果"], r["対象"])
+        F.SKILL_INFO[r["技名"]] = sk
         t = tier_of(sk)
         gc, gi = D.GAUGE_TIER[t]
         old_fires = D.fires(float(r["消費ゲージ%"]))
@@ -620,6 +653,23 @@ def rebalance_std() -> int:
         r["効果"] = _scale_effect(r["効果"], m)
         n += 1
     with open(os.path.join(DATA, "skills.csv"), "w",
+              encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    return n
+
+
+def retire_gauge_traits() -> int:
+    """固有特性のゲージ付与も普通の効果へ差し替える（§7.18）。号令・弔い合戦・呼応。"""
+    rows = traits()
+    n = 0
+    for t in rows:
+        new = _retire_gauge(t["効果"])
+        if new != t["効果"]:
+            t["効果"] = new
+            n += 1
+    with open(os.path.join(DATA, "traits.csv"), "w",
               encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()

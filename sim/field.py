@@ -1087,7 +1087,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1166,6 +1166,7 @@ class Unit:
         self.atk_mult = 1.0
         self.def_mult = 1.0
         self.spd_mult = 1.0
+        self.rate_mult = 1.0
         self.fired = 0      # 誘発型が何回発火したか
         # (失効時刻, 種別, 量, 出どころ)。出どころは §6.5 の同名判定に使う。
         self.effects: List[Tuple[float, str, float, str]] = []
@@ -1381,7 +1382,8 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
 
 
 def x_rate(u: Unit) -> float:
-    return u.gauge_rate
+    """ゲージの溜まる速さ。気勢の状態効果（率）を掛ける。"""
+    return u.gauge_rate * u.rate_mult
 
 
 @dataclass(frozen=True)
@@ -1438,7 +1440,8 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
 
 
 # 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
-_MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd"}
+_MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd",
+            "気勢": "rate"}
 
 
 def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
@@ -1449,17 +1452,35 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     +30% は敵の速度を上げる技ではなく、突っ込む自分の速度である。
     """
     out = []
-    for m in re.finditer(r"(攻撃力|命中率|防御力|移動速度)\s*([+-]\d+)%（(\d+)秒）",
-                         effect):
+    for m in re.finditer(
+            r"(攻撃力|命中率|防御力|移動速度|気勢)\s*([+-]\d+)%（(\d+)秒）", effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
     m = re.search(r"行動阻害\s*(\d+)秒", effect)
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
         out.append(("stun", -1.0, float(m.group(1))))
-    m = re.search(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", effect)
+    # 【廃止】ゲージ付与。**段差なので値段が付かない。**
+    # 「自然増加のN秒ぶん」でも「消費のX%」でも、受け手が1回ぶんの閾値を越えるか
+    # 越えないかで 0 か丸ごと1回ぶんになる。実測（味方全体・標準の段・2回）で
+    # 消費の 2/8/16% は味方の発動回数を1回も増やさず（値段ほぼ0）、40% で突然
+    # 2倍になった（+2.4コスト点）。§13「帯に入る値を見つけたら、その隣を測って
+    # 崖の上でないか確かめる」に照らして、崖の上には置かない。
+    # 代わりに **気勢（ゲージの溜まる速さ）を率で上げる**。連続量なので他の状態効果と
+    # 同じ形で値段が付く（§4.6「補正はすべて率で定義する」）。
+    # 旧表記は読み込みだけ残す。
+    # 旧表記「自然増加のN秒ぶん」は §4.6 の「固定値で与えるとゲージ上昇率の低い
+    # 武将ほど得をする」を避けるためだったが、**消費ゲージの段を作ったことで別の
+    # 問題が出た**。3〜6秒ぶん（10〜19）は消費150〜300 に対して数%にしかならず、
+    # 1回も発動を増やせない。実測で5種とも値段 0.00。割合なら段が変わっても意味が
+    # 保たれる（「味方全体のゲージを4割進める」）。
+    m = re.search(r"ゲージ付与\s*消費の(\d+)%", effect)
     if m:
-        out.append(("gauge", float(m.group(1)), 0.0))
+        out.append(("gauge", float(m.group(1)) / 100.0, 0.0))
+    else:
+        m = re.search(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", effect)
+        if m:      # 旧表記。自然増加ぶんを消費100に対する割合へ写す
+            out.append(("gauge", float(m.group(1)) * GAUGE_PER_SEC / 100.0, 0.0))
     return tuple(out)
 
 
@@ -1587,9 +1608,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 if best is None or m > best[3]:
                     best = ("stun", 1.0, secs, m)
             continue
-        if key == "gauge":
+        if key == "gauge":      # 旧表記。段差なので値段を持たない（上の注記）
             for f in (tgts if ally else [u]):
-                f.gauge += GAUGE_PER_SEC * x_rate(f) * amt
+                f.gauge += f.gauge_cost * amt
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
@@ -1720,7 +1741,7 @@ def _expire(units, t: float) -> None:
             k = (kind, src)
             if abs(amt) > abs(best.get(k, 0.0)):
                 best[k] = amt
-        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0}
+        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0}
         for (kind, _), amt in best.items():
             tot[kind] += amt
         for k in tot:
@@ -1729,6 +1750,7 @@ def _expire(units, t: float) -> None:
         u.atk_mult = 0.0 if stun else 1.0 + tot["atk"]
         u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
         u.def_mult = 1.0 + tot["def"]
+        u.rate_mult = 1.0 + tot["rate"]
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
