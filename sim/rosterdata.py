@@ -183,5 +183,18 @@ def to_cards(names=None):
                    gauge_init=float(g["初期ゲージ"])) for g in picks]
 
 
+def load_skills_into_field() -> int:
+    """必殺技の威力・種別・対象を field.py へ読み込む。"""
+    from . import field as F
+    n = 0
+    for sk in skills():
+        p = F._skill_power(sk["効果"])
+        k = F._skill_kind(sk["効果"], sk["対象"])
+        F.SKILL_INFO[sk["技名"]] = (p, k)
+        F.SKILL_TARGET[sk["技名"]] = sk["対象"]
+        n += 1
+    return n
+
+
 def by_cost(cost: int):
     return [g["名前"] for g in generals() if int(g["コスト"]) == cost]

@@ -444,6 +444,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Dict, List, Sequence, Tuple
@@ -595,6 +596,21 @@ ATK_BY_TYPE = {INF: 1.0, CAV: 1.0, ARC: 1.0}
 # **知力 = 武力 のとき導出値は武力に一致する**ので、合成カード（バランス測定用）は
 # 影響を受けない。較正済みの係数はそのまま使える。
 INT_WEIGHT = {INF: 0.10, CAV: 0.10, ARC: 0.35}
+
+# 必殺技の係数元。技の性質で 武力 と 知力 の配合を変える。
+#   係数 = 武力 × (1 - v) + 知力 × v
+# 単体の斬撃は武技(v=0.15)、継続・妨害は計略(v=0.85)、範囲打撃はどちらでもある
+# (v=0.50)。範囲を一律「知力」にすると呂布の無双乱舞が計略扱いになって不自然だった。
+SKILL_WITS = {"melee": 0.15, "area": 0.50, "scheme": 0.85}
+
+# 必殺技のダメージは**兵力に比例しない**。
+#
+# 通常攻撃は 兵力 × 攻撃力 なので、削られた側は火力も落ちる。これが複利の正体で、
+# 序盤の差が最後まで雪だるま式に効く（§6.1 の増幅）。必殺技を武力・知力ベースに
+# すると分母に兵力を持たないので、**劣勢側ほど必殺技の比重が上がる**。構造的な
+# 負の帰還になり、増幅に乗らない火力を作れる。設定としても、劣勢の軍師が計略で
+# 盤面をひっくり返すのは三国志そのものである。
+SKILL_SCALE = 0.0       # 必殺技ダメージの倍率（0 で無効）
 USE_TYPE_DEF = True
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
@@ -1236,6 +1252,41 @@ def x_rate(u: Unit) -> float:
     return u.gauge_rate
 
 
+def _skill_kind(effect: str, target: str) -> str:
+    if "継続ダメージ" in effect or "ダメージ" not in effect:
+        return "scheme"
+    return "melee" if "1体" in target else "area"
+
+
+def _skill_power(effect: str) -> float:
+    """効果文から「威力X%」を取り出す。継続は秒数を掛けて総量にする。"""
+    m = re.search(r"威力(\d+)%", effect)
+    if not m:
+        return 0.0
+    p = float(m.group(1)) / 100.0
+    if "継続ダメージ" in effect:
+        d = re.search(r"（(\d+)秒）", effect)
+        p *= float(d.group(1)) if d else 10.0
+    return p
+
+
+def _skill_targets(target: str, foe, own):
+    if "自分" in target or "味方" in target:
+        return []                       # 支援系は未実装
+    if "全体" in target:
+        return list(foe)
+    if "後列" in target:
+        r = [x for x in foe if not x.is_front]
+        return r or list(foe)
+    if "残兵力が最少" in target:
+        alive = [x for x in foe if x.men > 0]
+        return [min(alive, key=lambda x: x.ratio())] if alive else []
+    if "1列" in target:                  # レーンは無いので「最も近い3枚」へ写す
+        return sorted(foe, key=lambda x: x.men, reverse=True)[:3]
+    alive = [x for x in foe if x.men > 0]
+    return [max(alive, key=lambda x: x.men)] if alive else []
+
+
 def _fire_skills(own, foe, t: float, ev, seen) -> None:
     """ゲージが消費量に達した札の必殺技を発動する（§7.2）。
 
@@ -1250,6 +1301,23 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
         if u.gauge >= u.gauge_cost:
             u.gauge -= u.gauge_cost
             u.fires += 1
+            if SKILL_SCALE <= 0.0:
+                continue
+            info = SKILL_INFO.get(u.skill)
+            if not info:
+                continue
+            power, kind = info
+            if power <= 0.0:
+                continue
+            v = SKILL_WITS[kind]
+            coef = u.might * (1.0 - v) + u.wits * v
+            tgts = _skill_targets(SKILL_TARGET.get(u.skill, ""), foe, own)
+            if not tgts:
+                continue
+            # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
+            dmg = SKILL_SCALE * power * coef / max(len(tgts), 1)
+            for f in tgts:
+                f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
 
 
 def _expire(units, t: float) -> None:
@@ -1596,6 +1664,9 @@ def _legacy_repulse(units: List[Unit], dt: float, strength: float) -> None:
 
 # 軍の呼称。実カードなら勢力の最多数から取り、合成カードなら曹/孫を仮に使う。
 # 固定にすると 蜀 対 魏 の戦いが「曹軍 対 孫軍」と表示される（実際に出た）。
+SKILL_INFO = {}     # 技名 -> (威力, 種別)   rosterdata が埋める
+SKILL_TARGET = {}   # 技名 -> 対象文字列
+
 _JP = {"A": "曹", "B": "孫"}
 
 
@@ -1822,15 +1893,32 @@ def narrate(a: Army, b: Army, dt: float = 0.25) -> List[str]:
 # 合成カード（統制された編成。実カードのサンプルは使わない）
 # ============================================================================
 
+# 合成カード用の標準必殺技。**実カードは使わない**（実編成のパネルは飽和する、§13）。
+# 統制した条件で必殺技の効果を測るために、全札に同じ技を持たせる。
+SYNTH_SKILL = "＿標準技"
+SYNTH_SKILL_POWER = 3.0
+SYNTH_SKILL_KIND = "melee"
+SYNTH_SKILL_TARGET = "敵1体（最前）"
+
+
+def _synth(cost: float, typ: str, role: str = BAL) -> Card:
+    """合成カード。SKILLS_ON のとき標準技を持つ。"""
+    if SKILLS_ON:
+        SKILL_INFO[SYNTH_SKILL] = (SYNTH_SKILL_POWER, SYNTH_SKILL_KIND)
+        SKILL_TARGET[SYNTH_SKILL] = SYNTH_SKILL_TARGET
+        return Card(cost, typ, role, skill=SYNTH_SKILL)
+    return Card(cost, typ, role)
+
+
 def flat_army(cost: float = BASE_COST, typ: str = INF, n: int = 6,
               form: Formation = FORM_STANDARD, roles=None) -> Army:
     roles = roles or [BAL] * n
-    return Army(tuple(Card(cost, typ, r) for r in roles[:n]), form)
+    return Army(tuple(_synth(cost, typ, r) for r in roles[:n]), form)
 
 
 def type_army(typ: str, form: Formation = FORM_STANDARD) -> Army:
     """三すくみ用。役割を混ぜ、合計コストを 30 に揃えた単一兵種の編成（§5.3）。"""
-    return Army(tuple(Card(BASE_COST, typ, r) for r in MIXED_ROLES), form)
+    return Army(tuple(_synth(BASE_COST, typ, r) for r in MIXED_ROLES), form)
 
 
 def split_army(delta: float, i: int, j: int, typ: str = INF,
@@ -1839,7 +1927,7 @@ def split_army(delta: float, i: int, j: int, typ: str = INF,
     costs = [BASE_COST] * 6
     costs[i] += delta
     costs[j] -= delta
-    return Army(tuple(Card(c, typ) for c in costs), form)
+    return Army(tuple(_synth(c, typ) for c in costs), form)
 
 
 def mixed_army(typs: Sequence[str], cost: float = BASE_COST,
@@ -1848,7 +1936,7 @@ def mixed_army(typs: Sequence[str], cost: float = BASE_COST,
 
 
 def mixed_role_army(typs: Sequence[str], form: Formation = FORM_STANDARD) -> Army:
-    return Army(tuple(Card(BASE_COST, t, r)
+    return Army(tuple(_synth(BASE_COST, t, r)
                       for t, r in zip(typs, MIXED_ROLES)), form)
 
 
