@@ -2134,6 +2134,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         for u, s in newpos:
             u.progress = s
             u.x, u.y = u.pos_at(s)
+        # 前衛が薄くなったぶん後衛を前へ出す。**両軍を同時に評価してから反映**
+        # するので、片側だけが先に詰めることはない。
+        if FILL_IN > 0.0:
+            off = [(u, _fill_offset(u, ua)) for u in ua]
+            off += [(u, _fill_offset(u, ub)) for u in ub]
+            for u, d in off:
+                if d > 0.0:
+                    u.y += d if u.side > 0 else -d
 
         if repulse > 0.0:
             _legacy_repulse(ua + ub, dt, repulse)
@@ -2324,6 +2332,34 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "traits_b": sum(u.fired for u in ub),
             "routed_a": sum(1 for u in ua if u.ratio() < ROUT_UNIT),
             "routed_b": sum(1 for u in ub if u.ratio() < ROUT_UNIT)}
+
+
+# 後衛の繰り上がり（§7.33）。**前衛が薄くなったぶんだけ後衛が前へ出る。**
+#
+# 前衛・後衛の兵種を規則にした（後衛は弓兵だけ）ことで、前衛が全滅しても後衛が
+# 無傷のまま残り、**軍全体の残存率が潰走の閾値まで下がらなくなった**（実測で
+# 前衛0%・後衛95%、軍の残存 68%。閾値30%には構造的に届かない）。決着が
+# 起きなくなった原因はこれで、殺傷率を3.75倍にしても上限到達は 80%→73% しか
+# 動かなかった。
+#
+# **判定を置かない。** 「前衛が全滅したら前へ出る」と書くと閾値をまたぐ分岐に
+# なり、時間刻みに依存する（§13）。前衛の残り具合で前進量が**連続に**決まる形に
+# する。前衛が満員なら 0、全滅なら前衛の位置まで、その間はなめらかに繋がる。
+FILL_IN = 1.0           # 繰り上がりの強さ。1.0 で前衛の位置まで詰める
+
+
+def _fill_offset(u: Unit, own: List[Unit]) -> float:
+    """後衛が前へ出る量（m）。自軍の前衛の残り具合だけで決まる。"""
+    if FILL_IN <= 0.0 or u.is_front:
+        return 0.0
+    fr = [x for x in own if x.is_front]
+    if not fr:
+        return 0.0
+    tot = sum(x.men0 for x in fr)
+    if tot <= 0.0:
+        return 0.0
+    gone = 1.0 - sum(x.men for x in fr) / tot
+    return FILL_IN * gone * (REAR_Y - FRONT_Y)
 
 
 def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],
