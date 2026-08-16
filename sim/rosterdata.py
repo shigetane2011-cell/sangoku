@@ -475,6 +475,14 @@ def _scale_effect(text: str, m: float) -> str:
         return "気勢 {}{:.0f}%（{:.0f}秒）".format(
             mo.group(1), float(mo.group(2)), float(mo.group(3)) * m)
 
+    def chaos(mo):
+        # 混乱も**秒数で払う**。理由は下の mod と同じ（同名は重ならず大きい方が
+        # 残る）ことに加えて、値段が量に対して線形でないため。混乱の値段は
+        # `design.chaos_equiv` を通してから線形になるので、量を m 倍しても
+        # 価値は m 倍にならない。秒数なら値段はそのまま比例する。
+        return "混乱 {:g}%（{:.0f}秒）".format(float(mo.group(1)),
+                                             float(mo.group(2)) * m)
+
     def mod(mo):
         # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ技を何度撃っても
         # 効果は重ならず「大きい方」だけが残る。だから回数を減らしたぶん量を
@@ -489,6 +497,7 @@ def _scale_effect(text: str, m: float) -> str:
     text = re.sub(r"行動阻害\s*(\d+)秒", stun, text)
     text = re.sub(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", gauge, text)
     text = re.sub(r"気勢\s*([+-])(\d+)%（(\d+)秒）", kisei, text)
+    text = re.sub(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", chaos, text)
     text = re.sub(r"(攻撃力|命中率|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
                   mod, text)
     return text
