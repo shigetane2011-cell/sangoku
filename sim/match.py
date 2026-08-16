@@ -73,6 +73,39 @@ def person_of(card: F.Card) -> str:
     return n.split("〔")[0] if "〔" in n else n
 
 
+# 前衛と後衛に置ける兵種（§4.1）。**入れ子の配置を禁じる。**
+#
+#   前衛 … 歩兵・騎兵（近接）
+#   後衛 … 弓兵（射撃）
+#
+# こうすると **陣形を選ぶことが弓兵の枚数を選ぶこと**になる。
+#
+#   広く浅い 前4/後2 → 弓兵2枚 ／ 標準 前3/後3 → 弓兵3枚 ／ 狭く深い 前2/後4 → 弓兵4枚
+#
+# 陣形が「単に標準が強い」だけの飾り（推移0.820 / 巡回0.202）だった問題が、これで
+# 射撃寄りか近接寄りかの選択そのものになる。
+#
+# 後衛の歩兵を禁じる実利もある。**歩兵は射程も迂回も無いので、自軍の前衛が接敵を
+# 抱え込むと届く相手がいなくなる**（実測で1200部隊中8件、いずれも後衛歩兵。§7.31）。
+# 置けなくすれば、まれに丸ごと無駄になる枠が消える。
+FRONT_TYPES = (F.INF, F.CAV)
+REAR_TYPES = (F.ARC,)
+
+
+def placement_errors(army: F.Army) -> List[str]:
+    """前衛・後衛の兵種が規則どおりか。**並び順がそのまま配置である。**"""
+    errs: List[str] = []
+    nf = min(army.form.n_front, len(army.cards))
+    for i, c in enumerate(army.cards):
+        if i < nf and c.typ not in FRONT_TYPES:
+            errs.append("{} は{}なので前衛に置けない".format(
+                c.name or c.typ, F.TYPE_JP[c.typ]))
+        elif i >= nf and c.typ not in REAR_TYPES:
+            errs.append("{} は{}なので後衛に置けない".format(
+                c.name or c.typ, F.TYPE_JP[c.typ]))
+    return errs
+
+
 def validate(entry: Entry) -> List[str]:
     """登録の不備を全部返す。**空リストなら登録できる。**
 
@@ -93,6 +126,8 @@ def validate(entry: Entry) -> List[str]:
         if cost > cap + 1e-9:
             errs.append("{}: 合計コスト {:g} が上限 {:g} を超えている".format(
                 label, cost, cap))
+        for m in placement_errors(army):
+            errs.append("{}: {}".format(label, m))
         for c in army.cards:
             p = person_of(c)
             if p in seen:

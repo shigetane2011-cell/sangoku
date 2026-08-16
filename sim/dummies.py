@@ -84,49 +84,88 @@ def _score(card: F.Card, p: Persona, want: float) -> float:
 
 
 def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
-    """性格に沿って 3部隊18人を選ぶ。**コスト上限と別人物は必ず守る。**
+    """性格に沿って 3部隊18人を選ぶ。**規則を破る編成は作らない。**
 
-    重み付きで選ぶが、選んだあとに上限を超えないかを必ず見る。超える候補は
-    飛ばす。**「選んでから直す」ではなく「入るものだけ選ぶ」**にしておくと、
-    検証が落ちる編成が出来上がらない。
+    守るもの:
+      - 各部隊6人、合計コストが上限以下、18人が別人物
+      - **弓兵はちょうど 6 - 前衛の数**（後衛は弓兵だけ・前衛は近接だけ）
+
+    枚数が兵種ごとに決まっているので、残り枠の最小コストも**兵種別に**見ないと
+    詰む（近接だけ安く残って弓兵が買えない、が起きる）。
     """
     rng = random.Random("{}/{}".format(p.name, seed))
     pool = sorted(cards, key=lambda c: (c.cost, c.name))
     used: set = set()
     units: List[F.Army] = []
     for label, cap in M.REGULATIONS:
+        nf = FORM_BY_NAME[p.form].n_front
+        want_arc = M.UNIT_SIZE - nf
         pick: List[F.Card] = []
-        caps = _type_caps(FORM_BY_NAME[p.form].n_front)
-        cand = [c for c in pool if M.person_of(c) not in used]
-        cheap = sorted(c.cost for c in cand)
-        while len(pick) < M.UNIT_SIZE and cand:
-            left = M.UNIT_SIZE - len(pick) - 1
+        for _ in range(M.UNIT_SIZE):
             spent = sum(x.cost for x in pick)
-            # **残り予算を残り枠で割り直す。** 固定の目安（上限÷6）だと、性格の
-            # 偏りが強い札から先に取ったときに安い側へ寄って予算が余る。
-            want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
-            have = {t: sum(1 for x in pick if x.typ == t) for t in (F.CAV, F.ARC)}
+            have_arc = sum(1 for x in pick if x.typ == F.ARC)
+            need_arc = want_arc - have_arc
+            need_mel = (nf) - (len(pick) - have_arc)
+            avail = [c for c in pool if M.person_of(c) not in used]
+            arc = sorted(c.cost for c in avail if c.typ == F.ARC)
+            mel = sorted(c.cost for c in avail if c.typ != F.ARC)
             ok = []
-            for c in cand:
-                if c.typ in caps and have[c.typ] >= caps[c.typ]:
-                    continue        # あり得ない配置になる兵種は取らない
-                # 自分を除いた安い順 left 枚を確保できるか（残り枠が埋まるか）
-                rest = list(cheap)
-                rest.remove(c.cost)
-                if spent + c.cost + sum(rest[:left]) <= cap + 1e-9:
+            for c in avail:
+                is_arc = c.typ == F.ARC
+                if is_arc and need_arc <= 0:
+                    continue
+                if not is_arc and need_mel <= 0:
+                    continue
+                a2 = list(arc); m2 = list(mel)
+                (a2 if is_arc else m2).remove(c.cost)
+                floor = (sum(a2[:need_arc - (1 if is_arc else 0)])
+                         + sum(m2[:need_mel - (0 if is_arc else 1)]))
+                if spent + c.cost + floor <= cap + 1e-9:
                     ok.append(c)
             if not ok:
                 break
+            want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
             w = [max(_score(c, p, want), 1e-6) for c in ok]
             c = rng.choices(ok, weights=w, k=1)[0]
             pick.append(c)
             used.add(M.person_of(c))
-            cheap.remove(c.cost)
-            cand = [x for x in cand if M.person_of(x) not in used]
-        nf = FORM_BY_NAME[p.form].n_front
-        pick = _spend_rest(pick, pool, used, p, cap, caps)
+        pick = _spend_rest(pick, pool, used, p, cap)
+        pick = _spend_last(pick, pool, used, cap)
         units.append(F.Army(tuple(_order(pick, nf)), FORM_BY_NAME[p.form]))
     return M.Entry(tuple(units), name=p.name)
+
+
+def _spend_last(pick: List[F.Card], pool: Sequence[F.Card], used: set,
+                cap: float) -> List[F.Card]:
+    """最後の端数を使い切る。**2枚の入れ替えまで許す。**
+
+    1枚ずつの入れ替え（`_spend_rest`）だと、同じ群に「ちょうどよい1段上」が
+    残っていないときに端数が残る（実測で144部隊中5部隊が1点余った）。上限に対して
+    2.5〜5%あり、ラダーの測定に効くので潰す。安い2枚を高い2枚へ替える。
+    """
+    left = cap - sum(x.cost for x in pick)
+    if left < 1.0:
+        return pick
+    order = sorted(range(len(pick)), key=lambda k: pick[k].cost)
+    for i in order:
+        cur = pick[i]
+        grp = (lambda t: t == F.ARC) if cur.typ == F.ARC else (lambda t: t != F.ARC)
+        room = cur.cost + left
+        best = None
+        for c in pool:
+            if M.person_of(c) in used or not grp(c.typ):
+                continue
+            if cur.cost < c.cost <= room + 1e-9:
+                if best is None or c.cost > best.cost:
+                    best = c
+        if best is not None:
+            used.discard(M.person_of(cur))
+            used.add(M.person_of(best))
+            pick[i] = best
+            left = cap - sum(x.cost for x in pick)
+            if left < 1.0:
+                break
+    return pick
 
 
 def _order(pick: List[F.Card], n_front: int) -> List[F.Card]:
@@ -163,16 +202,16 @@ def _order(pick: List[F.Card], n_front: int) -> List[F.Card]:
 
 
 def _type_caps(n_front: int) -> Dict[str, int]:
-    """兵種の上限。**あり得ない配置が構造的に作れないようにする。**
+    """兵種の**枚数はちょうど**決まる（§4.1 の前衛・後衛の規則）。
 
-    騎兵 ≤ 前衛の数、弓兵 ≤ 後衛の数。この2つを守れば、騎兵を全部前に、弓兵を
-    全部後ろに置ける（残りは歩兵で埋まる）。片方だけでは足りない。
+    後衛は弓兵だけ、前衛は歩兵と騎兵だけ。つまり **弓兵は必ず 6 - 前衛の数**。
+    陣形を選ぶことが弓兵の枚数を選ぶことになる。
     """
-    return {F.CAV: n_front, F.ARC: M.UNIT_SIZE - n_front}
+    return {F.ARC: M.UNIT_SIZE - n_front, F.INF: n_front, F.CAV: n_front}
 
 
 def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
-                p: Persona, cap: float, caps: Dict[str, int]) -> List[F.Card]:
+                p: Persona, cap: float) -> List[F.Card]:
     """余った予算で札を入れ替える。**使い残しはラダーの測定を壊す。**
 
     実測で斉射が合計8点、軍師が4点を余らせていた。8点は兵種相性（0.85点）の
@@ -190,12 +229,14 @@ def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
         i = min(range(len(pick)), key=lambda k: pick[k].cost)
         cur = pick[i]
         room = cur.cost + left
-        have = {t: sum(1 for x in pick if x.typ == t and x is not cur)
-                for t in (F.CAV, F.ARC)}
+        # 入れ替えは**同じ兵種の中だけ**にする。枚数が規則で決まっているので、
+        # 兵種をまたぐと配置が壊れる。
+        # 入れ替えは**同じ群の中だけ**（近接どうし／弓どうし）。兵種の枚数は
+        # 規則で決まっているので、群をまたぐと配置が壊れる。
+        same = (lambda t: t == F.ARC) if cur.typ == F.ARC else (lambda t: t != F.ARC)
         cands = [c for c in pool
                  if M.person_of(c) not in used and c.cost <= room + 1e-9
-                 and c.cost > cur.cost
-                 and not (c.typ in caps and have[c.typ] >= caps[c.typ])]
+                 and c.cost > cur.cost and same(c.typ)]
         if not cands:
             break
         best = max(cands, key=lambda c: (c.cost, _score(c, p, room)))
