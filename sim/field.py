@@ -2862,9 +2862,16 @@ def cmd_selftest(args) -> None:
 
     # (1) 片側だけ能力を上げる … 検出できなければならない
     orig = Unit.__init__
-    for pct in (0.1, 0.001):
-        def patched(u, side, card, form, station, is_front, _p=pct):
-            orig(u, side, card, form, station, is_front)
+    # **`cost_mult` を落とさないこと。** `Unit.__init__` には7番目の引数
+    # `cost_mult` がある。ここに `_p=pct` のような既定引数を足すと、そこへ
+    # `cost_mult` が入って `_p` が常に 1.0 になり、**どの行も +1% を注入する**
+    # ようになる。以前は 0.1% と 0.001% の2行がどちらも +1% を測っていて、
+    # 「+0.001% でも検出できる」という主張が**一度も試されていなかった**。
+    # 注入する量は名前付き専用（`*` の後ろ）で渡す。
+    for pct in (0.1, 0.01, 0.001, 0.0001):
+        def patched(u, side, card, form, station, is_front, cost_mult=1.0, *,
+                    _p=pct):
+            orig(u, side, card, form, station, is_front, cost_mult)
             if side > 0:
                 u.atk *= (1.0 + _p / 100.0)
         Unit.__init__ = patched
