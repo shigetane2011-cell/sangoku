@@ -117,7 +117,15 @@ def derive(d: Design) -> Dict[str, float]:
     k = WITS_TILT[d.tilt]
     might = atk / (1.0 - w + k * w)
     wits = k * might
-    atk = might * (1.0 - w) + wits * w      # 導出しなおす（保持しない）
+
+    # 武力・知力は**その武将個人の力**なので、兵力の規模ぶんだけ持ち上げる。
+    # 攻撃力は「その力を兵へ配ったもの」＝ 配合 ÷ (兵力/CARD_MEN) で戻る。
+    # これでコストが武力にも見えるようになる（コスト2と8で武力85と141）。
+    # 盤面（field.Unit）が同じ割り算をするので、攻撃力は一致する。
+    f = men / F.CARD_MEN
+    might *= f
+    wits *= f
+    atk = (might * (1.0 - w) + wits * w) / f     # 導出しなおす（保持しない）
 
     return {"兵力": men, "攻撃力": atk, "武力": might, "知力": wits,
             "防御力": F.DEF_BY_TYPE[d.typ], "気勢": KISEI[d.kisei],

@@ -1052,13 +1052,26 @@ class Unit:
         # 武力・知力の指定が無い合成カードは、コスト曲線から出した値を両方へ入れる
         # （知力 = 武力 なら攻撃力は武力に一致するので、従来と同じ値になる）。
         scale = BASE_ATK * (s ** (1.0 - SPLIT_EXP)) / rm * ATK_BY_TYPE[card.typ]
+        # **武力・知力はその武将個人の力**であって、兵1人あたりの打撃力ではない。
+        # 攻撃力は「武将の力を率いる兵へ配ったもの」なので、兵力の規模で割る。
+        #
+        #   攻撃力 = ( 武力(1-w) + 知力·w ) / (兵力 / CARD_MEN)
+        #
+        # こうしないと、コストが全部 兵力 に乗る（SPLIT_EXP=1.0）ぶん武力がコストで
+        # 伸びなくなり、コスト2の札とコスト10の札が同じ武力175になる。数字としては
+        # 総合値が曲線に乗っているので正しいが、カード面の見え方と合わない。
+        # **割り算はここだけ。** 必殺技は武力・知力をそのまま使うので、技の威力は
+        # コストに比例する（消費ゲージだけが技の格を表していた状態を直す）。
+        f = self.men0 / CARD_MEN
         if card.might > 0.0:
             self.might = card.might
             self.wits = card.wits or card.might
         else:
-            self.might = self.wits = scale
+            # 合成カードは指定なし。攻撃力が scale になるよう逆算して入れる
+            # （知力 = 武力 なら配合は武力に一致するので、従来と同じ値になる）。
+            self.might = self.wits = scale * f
         w = INT_WEIGHT[card.typ]
-        self.atk = self.might * (1.0 - w) + self.wits * w
+        self.atk = (self.might * (1.0 - w) + self.wits * w) / f
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
         self.interval = INTERVAL[card.typ]
         self.speed = SPEED[card.typ]
