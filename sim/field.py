@@ -1644,6 +1644,12 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
 # 相手は撃てない**。同じ登録どうしのマッチで A が3回・B が2回撃ち、零点が
 # 0.0166 になっていた（1部隊戦の合成カードでは技が当たらず表に出なかった）。
 _SKILL_DELTA = None
+# 状態効果（攻撃力・防御力などの倍率）と混乱も同じ窓で遅らせる。
+# **兵力だけ遅らせても足りない。** 倍率はその場で効くので、先に撃った側のバフが
+# 後から撃つ側のダメージ計算に見え、逆は見えない。同じ登録どうしのマッチで
+# 零点が +0.0005 になっていた（余剰コストで初期ゲージが上がり、複数の技が同じ
+# ティックに重なったときだけ出る）。
+_SKILL_FX = None
 
 
 def _men_add(f: Unit, d: float) -> None:
@@ -1654,16 +1660,41 @@ def _men_add(f: Unit, d: float) -> None:
         _SKILL_DELTA[id(f)] = (f, _SKILL_DELTA.get(id(f), (f, 0.0))[1] + d)
 
 
+def _fx_add(f: Unit, eff) -> None:
+    """状態効果を積む。技のフェーズ中なら蓄積器へ回す。"""
+    if _SKILL_FX is None:
+        f.effects.append(eff)
+    else:
+        _SKILL_FX.append((f, "eff", eff))
+
+
+def _chaos_add(f: Unit, amt: float, until: float) -> None:
+    if _SKILL_FX is None:
+        f.chaos = max(f.chaos, amt)
+        f.chaos_until = max(f.chaos_until, until)
+    else:
+        _SKILL_FX.append((f, "chaos", (amt, until)))
+
+
 def _open_men_window() -> None:
     """技のフェーズを開く。**関数越しにするのは、simulate の中で代入すると
     ローカル変数になって黙って効かなくなるため。**"""
-    global _SKILL_DELTA
+    global _SKILL_DELTA, _SKILL_FX
     _SKILL_DELTA = {}
+    _SKILL_FX = []
 
 
 def _flush_men() -> None:
     """溜めた増減をまとめて反映する。**両側が撃ち終わってから呼ぶ。**"""
-    global _SKILL_DELTA
+    global _SKILL_DELTA, _SKILL_FX
+    if _SKILL_FX is not None:
+        for f, kind, v in _SKILL_FX:
+            if kind == "eff":
+                f.effects.append(v)
+            else:
+                f.chaos = max(f.chaos, v[0])
+                f.chaos_until = max(f.chaos_until, v[1])
+        _SKILL_FX = None
     if _SKILL_DELTA is None:
         return
     for f, d in _SKILL_DELTA.values():
@@ -1712,8 +1743,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
                 r = (u.wits / max(f.wits, 1e-6)) ** CHAOS_WITS
-                f.chaos = max(f.chaos, amt * r)
-                f.chaos_until = max(f.chaos_until, t + secs)
+                _chaos_add(f, amt * r, t + secs)
             if hit:
                 m = amt * secs * len(hit)
                 if best is None or m > best[3]:
@@ -1722,7 +1752,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         if key == "stun":
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
-                f.effects.append((t + secs, "stun", amt, src))
+                _fx_add(f, (t + secs, "stun", amt, src))
             if hit:
                 m = secs * len(hit) * 10.0
                 if best is None or m > best[3]:
@@ -1735,7 +1765,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
         for f in hit:
-            f.effects.append((t + secs, key, amt, src))
+            _fx_add(f, (t + secs, key, amt, src))
         if hit:
             m = abs(amt) * secs * len(hit)
             if best is None or m > best[3]:
