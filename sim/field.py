@@ -565,6 +565,13 @@ BASE_DEF = 50.0
 # 遠くから撃てる代わりに打たれ弱い、という交換が消えていたため、弓兵の強さを
 # 一律の係数（ACT_COEF 1.64）で抑えるしかなく、決着が速くなると破綻していた。
 DEF_BY_TYPE = {INF: 56.6, CAV: 42.3, ARC: 34.0}
+# 兵種ごとの攻撃力の係数。
+#
+# **ACT_COEF とは効き方が違う。** SPLIT_EXP=1.0 なのでコストは全部「兵力」に乗って
+# おり、ACT_COEF で弓を下げると**兵が減るだけで一人あたりの火力は変わらない**。
+# こちらは一人あたりの火力そのものを下げる。結合の原因は弓の序盤の火力なので、
+# 頭数ではなく火力を削るほうが素直に効く可能性がある（測定用に分離した）。
+ATK_BY_TYPE = {INF: 1.0, CAV: 1.0, ARC: 1.0}
 USE_TYPE_DEF = True
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
@@ -960,7 +967,7 @@ class Unit:
         rm = ROLE_MEN[card.role]
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm
         self.men = self.men0
-        self.atk = BASE_ATK * (s ** (1.0 - SPLIT_EXP)) / rm
+        self.atk = BASE_ATK * (s ** (1.0 - SPLIT_EXP)) / rm * ATK_BY_TYPE[card.typ]
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
         self.interval = INTERVAL[card.typ]
         self.speed = SPEED[card.typ]
