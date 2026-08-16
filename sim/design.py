@@ -475,29 +475,25 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
 #
 # **新しい特性を足したら `python3 -m sim.field traits` で測って書き直すこと。**
 TRAIT_PRICE = {
-    # 常在型。陣頭が飛び抜けている
-    "vanguard":  0.7097,    # 前衛の兵力 +4.5%
-    "vs_wei":    0.4627,    # 該当勢力への与ダメージ +10%
-    "vs_shu":    0.4627,
-    "vs_go":     0.4627,
-    # 誘発型
-    "banner":    0.3694,
-    "rearguard": 0.3137,
-    "cheer":     0.2383,
-    "relief":    0.2179,
-    "disrupt":   0.2141,
-    "diehard":   0.1633,
-    "double":    0.1618,
-    "legacy":    0.1443,
-    "sustain":   0.1379,
-    "pursuit":   0.1153,
-    "laststand": 0.0959,
-    "bloodpath": 0.0377,
-    "chain":     0.0479,
-    # ゲージ付与だった3種（呼応・号令・弔い合戦）は攻撃力の強化へ差し替えた（§7.18）。
-    # ゲージ軸は値段を運べない（付与は段差、気勢は負）。
-    "order":     0.1856,
-    "avenge":    0.2472,
+    'vanguard': 0.5296,
+    'vs_wei': 0.4487,
+    'vs_shu': 0.4487,
+    'vs_go': 0.4487,
+    'rearguard': 0.2934,
+    'cheer': 0.2879,
+    'banner': 0.2327,
+    'disrupt': 0.2249,
+    'diehard': 0.1655,
+    'relief': 0.1582,
+    'order': 0.1577,
+    'avenge': 0.1555,
+    'sustain': 0.1391,
+    'double': 0.1170,
+    'laststand': 0.0966,
+    'pursuit': 0.0645,
+    'legacy': 0.0613,
+    'bloodpath': 0.0387,
+    'chain': 0.0302,
 }
 
 
