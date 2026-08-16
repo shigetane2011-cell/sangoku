@@ -632,6 +632,18 @@ SKILL_WITS = {"melee": 0.15, "area": 0.50, "scheme": 0.85}
 # 【計器】最初 150/300/600 で測って完全に同じ値が並んだ。1発45,000ダメージで札
 # （兵力10,000）が一撃で消えていたため。**同じ値の並びはゼロに限らず計器を疑う合図。**
 SKILL_SCALE = 5.0       # 必殺技ダメージの倍率（1発が札の兵力の約15%）
+# 回復の倍率。**測ったら6倍ではなく約0.6倍だった**（`sim/field.py heal`）。
+# 旧盤面の「回復はダメージの6倍必要」は総大将撤退が決着の88%を占めていたからで、
+# 1枚を落とせば即勝ちなら回復では買えない価値がダメージにあった。いまの決着条件は
+# 軍全体の残存20%なので、削るのと戻すのは同じ量を同じ向きに動かす。
+#
+# その上で回復のほうが**強い**。回復は防御力を通らないからである（減った兵を戻す
+# だけで殴られてはいない）。歩兵の防御56.6なら 1.566倍ぶん効率がよく、実測の
+# 5.0/2.87 = 1.74倍とほぼ一致する。
+#
+# 実測の帯は 2.77〜3.50（兵種・潰走閾値・消費ゲージ・時間刻みを振った）。
+# 帯の中で、やや削る側に寄せて 3.0 を採る。
+HEAL_SCALE = 3.0
 USE_TYPE_DEF = True
 BASE_COST = 5.0
 SPLIT_EXP = 1.0         # コストを兵力側へ割る指数（上の Unit.__init__ を参照）
@@ -1017,7 +1029,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits",
+        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1092,6 +1104,11 @@ class Unit:
         self.def_mult = 1.0
         self.fired = 0      # 誘発型が何回発火したか
         self.effects: List[Tuple[float, str, float]] = []  # (失効時刻, 種別, 量)
+        # 時間つきの効果（継続ダメージ・継続回復）。(失効時刻, 種別, 毎秒の量)。
+        # **総量ではなく毎秒で持つ。** 総量を1発で入れると、14秒かけて削る技と
+        # 同じ量を初手で入れる技の区別が消える。前者は相手が先に潰走すれば
+        # 取りこぼすし、回復は相手の火力と競争になる。そこが技の性格である。
+        self.overtime: List[Tuple[float, str, float]] = []
         self.shot = 0.0     # 累積の射撃時間（矢数の代理）
         self.melee = 0.0    # 敵と噛み合っている累積時間（突撃の勢いの逆）
         self.disrupt = 0.0  # 受けている混乱の量
@@ -1303,21 +1320,57 @@ def _skill_kind(effect: str, target: str) -> str:
     return "melee" if "1体" in target else "area"
 
 
-def _skill_power(effect: str) -> float:
-    """効果文から「威力X%」を取り出す。継続は秒数を掛けて総量にする。"""
+def _skill_power(effect: str) -> Tuple[float, float]:
+    """効果文から「威力X%」と持続秒数を取り出す。
+
+    戻り値は (威力, 秒数)。秒数 0 は打ち切り（1発で入る）。秒数 > 0 のときの威力は
+    **毎秒の量**である。総量は 威力 × 秒数 なので、以前の「秒数を掛けて1発にする」
+    実装と総量は同じだが、入り方が違う。
+    """
     m = re.search(r"威力(\d+)%", effect)
     if not m:
-        return 0.0
+        return 0.0, 0.0
     p = float(m.group(1)) / 100.0
     if "継続ダメージ" in effect:
         d = re.search(r"（(\d+)秒）", effect)
-        p *= float(d.group(1)) if d else 10.0
-    return p
+        return p, float(d.group(1)) if d else 10.0
+    return p, 0.0
 
 
-def _skill_targets(target: str, foe, own):
-    if "自分" in target or "味方" in target:
-        return []                       # 支援系は未実装
+def _skill_heal(effect: str) -> Tuple[float, float]:
+    """効果文から回復量と持続秒数を取り出す。戻り値は (量, 秒数)。
+
+    CSV は「回復 攻撃力の260%」の形。攻撃力ではなく**武力・知力から引く**
+    （ダメージと同じ係数）。攻撃力から引くと兵力の多い札ほど回復が薄くなり、
+    耐久役の回復技だけが弱くなる。
+    """
+    m = re.search(r"回復\s*攻撃力の(\d+)%", effect)
+    if not m:
+        return 0.0, 0.0
+    p = float(m.group(1)) / 100.0
+    d = re.search(r"継続回復.*?（(\d+)秒）", effect)
+    return (p, float(d.group(1))) if d else (p, 0.0)
+
+
+def _skill_targets(target: str, u, foe, own):
+    """技の対象を返す。味方対象なら own の側から選ぶ。
+
+    レーンが無いので「1列」は**盤面上で近い3枚**へ写す（旧実装は兵力の多い順に
+    3枚だった。位置と無関係なので、前衛を守る技が後衛に飛ぶことがあった）。
+    """
+    if "味方" in target or "自分" in target:
+        pool = [x for x in own if x.men > 0.0]
+        if not pool:
+            return []
+        if "自分" in target:
+            return [u] if u.men > 0.0 else []
+        if "全体" in target:
+            return pool
+        if "残兵力が最少" in target:
+            return [min(pool, key=lambda x: x.ratio())]
+        if "1列" in target:
+            return sorted(pool, key=lambda x: _d2(u, x))[:3]
+        return [min(pool, key=lambda x: x.ratio())]
     if "全体" in target:
         return list(foe)
     if "後列" in target:
@@ -1327,9 +1380,14 @@ def _skill_targets(target: str, foe, own):
         alive = [x for x in foe if x.men > 0]
         return [min(alive, key=lambda x: x.ratio())] if alive else []
     if "1列" in target:                  # レーンは無いので「最も近い3枚」へ写す
-        return sorted(foe, key=lambda x: x.men, reverse=True)[:3]
+        alive = [x for x in foe if x.men > 0]
+        return sorted(alive, key=lambda x: _d2(u, x))[:3]
     alive = [x for x in foe if x.men > 0]
     return [max(alive, key=lambda x: x.men)] if alive else []
+
+
+def _d2(a, b) -> float:
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
 
 
 def _fire_skills(own, foe, t: float, ev, seen) -> None:
@@ -1351,18 +1409,56 @@ def _fire_skills(own, foe, t: float, ev, seen) -> None:
             info = SKILL_INFO.get(u.skill)
             if not info:
                 continue
-            power, kind = info
-            if power <= 0.0:
+            power, kind, dur, heal = info
+            if power <= 0.0 and heal <= 0.0:
                 continue
             v = SKILL_WITS[kind]
             coef = u.might * (1.0 - v) + u.wits * v
-            tgts = _skill_targets(SKILL_TARGET.get(u.skill, ""), foe, own)
+            tgts = _skill_targets(SKILL_TARGET.get(u.skill, ""), u, foe, own)
             if not tgts:
                 continue
+            n = max(len(tgts), 1)
+            if heal > 0.0:
+                # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
+                amt = HEAL_SCALE * heal * coef / n
+                for f in tgts:
+                    if f.men <= 0.0:
+                        continue
+                    if dur > 0.0:
+                        f.overtime.append((t + dur, "heal", amt / dur))
+                    else:
+                        f.men = min(f.men0, f.men + amt)
+                continue
             # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
-            dmg = SKILL_SCALE * power * coef / max(len(tgts), 1)
+            dmg = SKILL_SCALE * power * coef / n
             for f in tgts:
-                f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
+                if dur > 0.0:
+                    # 継続ダメージ。**総量は同じだが取りこぼす。** 相手が先に
+                    # 潰走すれば残りは入らないし、回復と競争になる。
+                    f.overtime.append((t + dur, "dot", dmg / dur))
+                else:
+                    f.men = max(f.men - dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), 0.0)
+
+
+def _overtime(units, t: float, dt: float) -> None:
+    """時間つきの効果を dt ぶん進める。
+
+    **量に dt を掛けるだけの連続な形にする**（§13「移動の規則に分岐を入れると
+    時間刻みに依存する」と同じ理由）。発動時刻の端数で1ティックぶん多く/少なく
+    入るのは避けられないが、刻みを細かくすれば消える。
+    """
+    for u in units:
+        if not u.overtime:
+            continue
+        u.overtime = [e for e in u.overtime if e[0] > t]
+        if u.men <= 0.0:
+            continue
+        for _, kind, per_sec in u.overtime:
+            if kind == "heal":
+                u.men = min(u.men0, u.men + per_sec * dt)
+            else:
+                u.men = max(u.men - per_sec * dt
+                            * (100.0 / (100.0 + u.dfn * u.def_mult)), 0.0)
 
 
 def _expire(units, t: float) -> None:
@@ -1610,6 +1706,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
             _fire_skills(ua, ub, t + dt, events, seen)
             _fire_skills(ub, ua, t + dt, events, seen)
+            # **発動より後に進める。** 先に進めると、いま乗った継続効果が
+            # 同じティックで1回ぶん入ってしまう。
+            _overtime(ua + ub, t + dt, dt)
 
         t += dt
         ra = sum(u.men for u in ua) / men0a
@@ -1952,7 +2051,7 @@ SYNTH_SKILL_TARGET = "敵1体（最前）"
 def _synth(cost: float, typ: str, role: str = BAL) -> Card:
     """合成カード。SKILLS_ON のとき標準技を持つ。"""
     if SKILLS_ON:
-        SKILL_INFO[SYNTH_SKILL] = (SYNTH_SKILL_POWER, SYNTH_SKILL_KIND)
+        SKILL_INFO[SYNTH_SKILL] = (SYNTH_SKILL_POWER, SYNTH_SKILL_KIND, 0.0, 0.0)
         SKILL_TARGET[SYNTH_SKILL] = SYNTH_SKILL_TARGET
         return Card(cost, typ, role, skill=SYNTH_SKILL)
     return Card(cost, typ, role)
@@ -2477,6 +2576,107 @@ def cmd_formation(args) -> None:
         print("  → 循環成分が推移成分に匹敵する。三すくみとして機能している。")
 
 
+def cmd_heal(args) -> None:
+    """回復とダメージの交換レートを測る。
+
+    **零点は「同じ技どうしで 0.00」。** 回復側とダメージ側で技が違うので、
+    倍率を振って margin が 0 を切る点を探す。技が一度も撃たれない条件では
+    どんな倍率でも差が出ないため、まず発動回数を出して計器を確かめる。
+    """
+    global HEAL_SCALE, ROUT_RATIO, SKILLS_ON
+    keep_h, keep_r, keep_s = HEAL_SCALE, ROUT_RATIO, SKILLS_ON
+    SKILLS_ON = True        # **これを忘れると全部 0.00 が並ぶ**（§13）
+
+    def army(power, heal, typ=INF, gc=100.0):
+        n = "＿測" + repr((power, heal, typ, gc))
+        SKILL_INFO[n] = (power, "melee", 0.0, heal)
+        SKILL_TARGET[n] = "敵1体（最前）" if power > 0 else "味方1体（残兵力が最少）"
+        return Army(tuple(Card(BASE_COST, typ, r, skill=n, gauge_cost=gc)
+                          for r in MIXED_ROLES), FORM_STANDARD)
+
+    def solve(typ=INF, gc=100.0, dt=1.0):
+        # **nonlocal ではなく global。** ここを書き忘れると HEAL_SCALE が
+        # solve のローカルになり、盤面へ伝わらないまま二分探索が端まで走る
+        # （0.05 と 300.00 が並ぶ。実際に踏んだ）。
+        global HEAL_SCALE
+        lo, hi = 0.05, 300.0
+        for _ in range(40):
+            HEAL_SCALE = (lo + hi) / 2
+            if simulate(army(0.0, 2.0, typ, gc), army(2.0, 0.0, typ, gc),
+                        dt)["diff"] < 0:
+                lo = HEAL_SCALE
+            else:
+                hi = HEAL_SCALE
+        return (lo + hi) / 2
+
+    print("回復とダメージの交換レート（ダメージ側は SKILL_SCALE = {:.1f}）".format(
+        SKILL_SCALE))
+    print()
+    print("【計器】技が実際に撃たれているか。撃たれない条件では何を測っても嘘。")
+    print("  {:<12}{:>14}".format("消費ゲージ", "1枚あたり発動"))
+    for gc in (50.0, 100.0, 175.0, 250.0):
+        a = army(2.0, 0.0, INF, gc)
+        n = sum(x for _, x in simulate(a, a, 1.0)["fires_a"]) / 6.0
+        print("  {:<12g}{:>14.2f}{}".format(
+            gc, n, "   ★撃っていない" if n < 0.5 else ""))
+    print()
+    print("【本測定】回復がダメージと釣り合う倍率。")
+    print("  {:<20}{:>12}{:>14}".format("条件", "必要倍率", "ダメージ比"))
+    rows = []
+    for lab, kw in (("歩兵", {}), ("騎兵", {"typ": CAV}), ("弓兵", {"typ": ARC}),
+                    ("消費50（手数）", {"gc": 50.0}),
+                    ("時間刻み0.25", {"dt": 0.25})):
+        v = solve(**kw)
+        rows.append(v)
+        print("  {:<20}{:>12.2f}{:>13.2f}倍".format(lab, v, v / SKILL_SCALE))
+    print()
+    print("  帯 {:.2f}〜{:.2f}。採用値 HEAL_SCALE = {:.1f}".format(
+        min(rows), max(rows), keep_h))
+    print()
+    print("  **回復のほうが強い。** 回復は防御力を通らない（減った兵を戻すだけで")
+    print("  殴られてはいない）ぶん効率がよい。歩兵の防御{:.1f}なら {:.2f}倍。".format(
+        DEF_BY_TYPE[INF], 1.0 + DEF_BY_TYPE[INF] / 100.0))
+    print()
+    print("【説明の検証】旧盤面の「回復はダメージの6倍」は決着条件の違いでは。")
+    print("  決着が早いほどダメージの価値が上がるはず。潰走の閾値を振る。")
+    print("  {:<14}{:>12}".format("潰走の閾値", "必要倍率"))
+    for r in (0.20, 0.40, 0.60):
+        ROUT_RATIO = r
+        print("  {:<14.0%}{:>12.2f}".format(r, solve()))
+    ROUT_RATIO, HEAL_SCALE, SKILLS_ON = keep_r, keep_h, keep_s
+    print("  → 向きは合っているが、この盤面では効きが小さい（+11%）。")
+    print("    旧盤面の6倍は総大将撤退が決着の88%だったからで、1枚落とせば")
+    print("    即勝ちなら回復では買えない価値がダメージにあった。いまは無い。")
+
+
+def cmd_dot(args) -> None:
+    """継続ダメージが「総量が同じ打ち切り技」より弱いことを確かめる。"""
+    global SKILLS_ON
+    keep, SKILLS_ON = SKILLS_ON, True   # **これを忘れると全部 0.00 が並ぶ**（§13）
+
+    def army(power, dur):
+        n = "＿継" + repr((power, dur))
+        SKILL_INFO[n] = (power, "scheme", dur, 0.0)
+        SKILL_TARGET[n] = "敵1列"
+        return Army(tuple(Card(BASE_COST, INF, r, skill=n)
+                          for r in MIXED_ROLES), FORM_STANDARD)
+    print("継続ダメージ 対 打ち切り（総量は同じ）")
+    print()
+    print("  威力40% × 14秒 = 総量560% を、14秒かけて入れる場合と1発で入れる場合。")
+    print("  取りこぼし（相手が先に潰走する・回復と競争する）のぶん継続が弱いはず。")
+    print()
+    print("  {:<10}{:>14}{:>10}".format("時間刻み", "継続 - 打切", "勝敗"))
+    cont, inst = army(0.40, 14.0), army(0.40 * 14.0, 0.0)
+    for dt in (1.0, 0.5, 0.25, 0.125):
+        d = simulate(cont, inst, dt)["diff"]
+        print("  {:<10}{:>+14.4f}{:>10}".format(dt, d, "継続の勝ち" if d > 0 else "打切の勝ち"))
+    print()
+    print("  零点（同じ技どうし。0.00 でなければバグ）")
+    for lab, a in (("継続", cont), ("打切", inst)):
+        print("    {:<8}{:+.2f}".format(lab, margin(a, a, 1.0)))
+    SKILLS_ON = keep
+
+
 def cmd_calib(args) -> None:
     print("計器の素性（決着理由と戦闘時間）")
     for name, mk in ZERO_CASES[:4]:
@@ -2490,7 +2690,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description="位置ベース最小モデルの測定")
     sub = p.add_subparsers(dest="cmd", required=True)
     for name, fn in (("zero", cmd_zero), ("selftest", cmd_selftest),
-                     ("spread", cmd_spread), ("calib", cmd_calib)):
+                     ("spread", cmd_spread), ("calib", cmd_calib),
+                     ("heal", cmd_heal), ("dot", cmd_dot)):
         sub.add_parser(name).set_defaults(func=fn)
     s = sub.add_parser("cost")
     s.add_argument("--dt", type=float, default=0.5)

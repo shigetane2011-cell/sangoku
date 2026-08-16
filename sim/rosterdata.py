@@ -276,9 +276,10 @@ def load_skills_into_field() -> int:
     from . import field as F
     n = 0
     for sk in skills():
-        p = F._skill_power(sk["効果"])
+        p, dur = F._skill_power(sk["効果"])
+        heal, hdur = F._skill_heal(sk["効果"])
         k = F._skill_kind(sk["効果"], sk["対象"])
-        F.SKILL_INFO[sk["技名"]] = (p, k)
+        F.SKILL_INFO[sk["技名"]] = (p, k, dur or hdur, heal)
         F.SKILL_TARGET[sk["技名"]] = sk["対象"]
         n += 1
     return n
