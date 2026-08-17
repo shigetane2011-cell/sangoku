@@ -2341,6 +2341,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "width_start": start_width, "width_end": _front_width(ua),
             "fires_a": [(u.name or u.typ, u.fires) for u in ua],
             "fires_b": [(u.name or u.typ, u.fires) for u in ub],
+            # 診断用（勝敗に不使用）: 枚ごとの与ダメージと残兵。§7.32 の計器。
+            "dealt_a": [(u.name or u.typ, u.dealt, u.men) for u in ua],
+            "dealt_b": [(u.name or u.typ, u.dealt, u.men) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。
@@ -3345,32 +3348,56 @@ def cmd_triangle(args) -> None:
 
 
 def cmd_formation(args) -> None:
-    print("陣形（面積 500×30 を保存して、正面と奥行を交換する）")
-    print("  中身の6枚は同じ。単位はコスト点（総コスト30に対して）。")
-    print("  勝率は総コスト +0.1点で 100% に飽和するので使わない。")
+    """陣形の三すくみ（物理層・合法配置）。**ゲーム層は `sim.dummies forms` で測る。**
+
+    2つの層は答えが逆になる（§7.39）。この合成カードのパネル（技・特性なし、
+    全カード同コスト）では 広く浅い が +1.17 コスト点で単に強い。だが実カードで
+    デッキを組むと、前衛4枠を埋める近接カードの値段と、手放した弓枠の技・特性の
+    価値が逆向きに効き、実測は 標準>広く浅い 73% / 広>深 63% / 深>標 58% の
+    健全な三すくみになる。**陣形の釣り合いはゲーム層で判定すること。**
+
+    ここで測れるのは物理層の構造だけ:
+    - 推移成分（広が強い）は ACT_COEF・射程では消えない（推23 は係数を34%
+      振っても 1.17→0.97 しか動かない。原因は「同じ正面幅に4列対3列」の継ぎ目）
+    - 循環成分 c ≈ 0.62 は値付け不変量（どんなコスト調整でも消えない）
+    """
+    from dataclasses import replace as _rep
+    from . import design as D
+    dt = args.dt
+    roles = ["耐久", "耐久", "均衡", "均衡", "火力", "火力"]
+    formof = {2: FORM_DEEP, 3: FORM_STANDARD, 4: FORM_WIDE}
+
+    def legal(nf, melee):
+        typs = [melee] * nf + [ARC] * (6 - nf)
+        return Army(tuple(D.to_card(D.Design(cost=5.0, typ=t, role=r))
+                          for t, r in zip(typs, roles)), formof[nf])
+
+    keep = dict(TYPE_EDGE_COST)
+    TYPE_EDGE_COST.update({k: 0.0 for k in keep})
+    try:
+        ys = cost_yardstick(dt)
+
+        def duel(a, b):
+            return (simulate(a, b, dt)["diff"]
+                    - simulate(b, a, dt)["diff"]) / 2.0 / ys
+
+        import statistics as _st
+        e23 = _st.mean(duel(legal(4, m), legal(3, m)) for m in (INF, CAV))
+        e34 = _st.mean(duel(legal(3, m), legal(2, m)) for m in (INF, CAV))
+        e24 = _st.mean(duel(legal(4, m), legal(2, m)) for m in (INF, CAV))
+    finally:
+        TYPE_EDGE_COST.update(keep)
+    c = (e23 + e34 - e24) / 3.0
+    print("陣形の三すくみ・物理層（合法配置・合成カード・相性オフ。コスト点）")
+    print("  零点はこの測り方自体が両側平均なので 0（別途 zero で確認）")
     print()
-    M, r, cyc = form_table(FORMS, args.dt, args.rot)
-    names = [n for n, _ in FORMS]
-    print("  {:<18}".format("攻＼守") + "".join(f"{n:>16}" for n in names))
-    for i, n in enumerate(names):
-        print("  {:<18}".format(n) +
-              "".join("{:>+16.3f}".format(M[(i, j)]) for j in range(len(names))))
+    print("  広4-標3 {:+.3f} / 標3-深2 {:+.3f} / 広4-深2 {:+.3f}".format(
+        e23, e34, e24))
+    print("  分解: 推移 広-標 {:+.3f} / 標-深 {:+.3f}   循環 c {:+.3f}".format(
+        e23 - c, e34 - c, c))
     print()
-    print("  推移成分（単に強い陣形。値付け＝コストで消せる）")
-    for i, n in enumerate(names):
-        print("    {:<18}{:+.3f} コスト点 = {:+.2f}% (30点中)".format(
-            n, r[i], 100.0 * r[i] / 30.0))
-    print()
-    print("  巡回成分 c = {:+.4f} コスト点 = {:+.3f}% (30点中)".format(
-        cyc, 100.0 * cyc / 30.0))
-    span = max(r) - min(r)
-    print()
-    print("  推移の幅 {:.3f} / 巡回 {:.3f} コスト点".format(span, abs(cyc)))
-    if abs(cyc) < span / 2.0:
-        print("  → 陣形の差はほぼ「単に強い陣形がある」であって、循環ではない。")
-        print("     循環を作るには、陣形どうしの相性を生む構造が要る。")
-    else:
-        print("  → 循環成分が推移成分に匹敵する。三すくみとして機能している。")
+    print("  ※ 勝敗への影響はゲーム層（実カード・技あり・乱数あり）で測ること:")
+    print("     python3 -m sim.dummies forms")
 
 
 def cmd_heal(args) -> None:

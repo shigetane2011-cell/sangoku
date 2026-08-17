@@ -263,3 +263,57 @@ def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24
                         email="dummy{:03d}@{}".format(i, P.DUMMY_DOMAIN))
         out.append((pl.id, p, make_entry(cards, p, i)))
     return out
+
+
+def form_table(dt: float = 0.5, seeds: int = 40) -> None:
+    """陣形の三すくみ・ゲーム層（実カード・技と特性あり・乱数あり）。
+
+    §7.39: 物理層（`field.py formation`）とは**答えの向きが逆**。合成カードでは
+    広く浅いが +1.17 コスト点で単に強いが、実カードでデッキを組むと前衛4枠を
+    埋める近接カードの値段と、手放した弓枠の技・特性の価値が逆向きに効いて、
+    標準>広く浅い / 広>深 / 深>標 の三すくみになる（2026-08 実測 73/63/58%）。
+
+    **カードを増やしたらここを測り直す。** デッキ経済が変わると向きごと変わり得る。
+    ダミーの性格が交絡する（各陣形2性格の平均）ので、55〜75% の帯から大きく
+    出たときだけ動く。
+    """
+    import statistics as st
+    from collections import defaultdict
+    from . import rosterdata as R
+    R.load_skills_into_field()
+    R.load_traits_into_field()
+    F.SKILLS_ON = F.TRAITS_ON = True
+    cards = M._roster_cards()
+    es = {p.name: make_entry(cards, p, i) for i, p in enumerate(PERSONAS)}
+    formname = {p.name: p.form for p in PERSONAS}
+    names = list(es)
+    cells = defaultdict(list)
+    for x in names:
+        for y in names:
+            if x == y:
+                continue
+            w = [M.play_one(es[x], es[y], reg, dt, seed=s)["winner"] == "A"
+                 for reg in range(3) for s in range(seeds)]
+            cells[(formname[x], formname[y])].append(100.0 * st.mean(w))
+    print("陣形の三すくみ・ゲーム層（BO1・全レギュ・乱数{}種・性格2つの平均）".format(seeds))
+    print("  健全の目安: 各辺 55〜75%。同陣形のマスは性格差なので見ない。")
+    for (fx, fy), vs in sorted(cells.items()):
+        if fx == fy:
+            continue
+        print("  {:<6} 対 {:<6} {:>6.1f}%  ({}マス)".format(fx, fy, st.mean(vs), len(vs)))
+
+
+def main() -> None:
+    import argparse
+    p = argparse.ArgumentParser(description="ダミー（性格つき自動編成）")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("forms", help="陣形の三すくみをゲーム層で測る")
+    s.add_argument("--dt", type=float, default=0.5)
+    s.add_argument("--seeds", type=int, default=40)
+    s.set_defaults(fn=lambda a: form_table(a.dt, a.seeds))
+    a = p.parse_args()
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()
