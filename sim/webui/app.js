@@ -161,6 +161,7 @@ async function viewDeck(state) {
           <div class="filter-tabs" id="typetabs"></div>
           <input id="search" placeholder="名で探す">
         </div>
+        <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
       </div>
       <div class="panel">
@@ -333,13 +334,15 @@ function drawRoster() {
       cur.cards.some((n) => { const x = D.roster.find((r) => r.name === n);
                               return x && x.person === c.person && x.name !== c.name; });
     const off = u || dup;
-    return `<div class="card f${c.faction} ${off ? "used" : ""}" data-n="${esc(c.name)}"
-                 title="${esc(c.skill)}：${esc(c.skill_desc)}${c.quote ? "\n「" + esc(c.quote) + "」" : ""}">
+    return `<div class="card f${c.faction} ${off ? "used" : ""}" data-n="${esc(c.name)}">
       ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
           : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
       <div class="top"><span class="cost">${c.cost}</span>
-        <span class="typ">${c.typ.slice(0, 1)}</span></div>
+        <span class="typ">${c.typ.slice(0, 1)}</span>
+        <span class="role">${esc(c.role)}</span></div>
       <div class="name">${esc(c.name)}</div>
+      <div class="stats num">兵${(c.men / 1000).toFixed(1)}千
+        武${c.might} 知${c.wits} 防${c.dfn}</div>
       <div class="skill">【${esc(c.skill)}】</div>
     </div>`;
   }).join("");
@@ -347,6 +350,34 @@ function drawRoster() {
     if (cur.cards.length >= 6) { flashMsg("6枚まで。どれかを外してから。", true); return; }
     cur.cards.push(el.dataset.n); drawAll();
   });
+  $$("#roster .card").forEach((el) => {
+    el.onmouseenter = () => showCardInfo(el.dataset.n);
+  });
+}
+
+const TYPE_NOTES = {
+  "歩兵": "射程 近接｜足 遅め｜守り 厚い。前線を支える壁。",
+  "騎兵": "射程 近接｜足 最速｜初撃に突撃+60%。回り込みの賭けも騎兵だけ。",
+  "弓兵": "射程 遠（後衛から前衛に届く）｜守り 薄い。詰められると斉射が乱れる。",
+};
+
+function showCardInfo(name) {
+  const c = D.roster.find((x) => x.name === name);
+  if (!c) return;
+  const traits = (c.traits || []).map((t) =>
+    `<div class="ci-row"><b>特性【${esc(t.name)}】</b> ${esc(t.desc)}</div>`).join("");
+  $("#cardinfo").innerHTML = `
+    <div class="ci-head">
+      <span class="cost">${c.cost}</span>
+      <span class="ci-name">${esc(c.name)}</span>
+      <span class="muted">${esc(c.faction)}・${esc(c.typ)}・${esc(c.role)}</span>
+    </div>
+    <div class="ci-stats num">兵力 ${c.men.toLocaleString()}　武力 ${c.might}　知力 ${c.wits}　防御 ${c.dfn}</div>
+    <div class="ci-row"><b>【${esc(c.skill)}】</b> ${esc(c.skill_desc)}
+      <span class="muted">消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span></div>
+    ${traits}
+    <div class="ci-row muted">${esc(TYPE_NOTES[c.typ] || "")}</div>
+    ${c.quote ? `<div class="ci-quote">「${esc(c.quote)}」</div>` : ""}`;
 }
 
 function drawSlots() {

@@ -51,14 +51,33 @@ def _trait_names():
 
 
 def _roster_json():
+    """武将一覧（§7.47 の開示設計）。
+
+    見せるのは**プレイヤーが支払う・選ぶ判断に使う量**だけ: 能力値・技の中身・
+    特性の中身・ゲージ。内部帳簿（能力値コスト・効果予算・総合値・実力比・
+    値段表）は出さない — 正解表になって編成の探索が死ぬため。
+    """
     sk = {s["技名"]: s for s in R.skills()}
+    tr = {t["キー"]: t for t in R.traits()}
+    names_jp = _trait_names()
     out = []
     for g in R.generals():
         s = sk.get(g["必殺技"], {})
+        traits = []
+        for k in R.traits_of(g):
+            t = tr.get(k, {})
+            note = (t.get("備考") or "").split("/")[0].strip()
+            traits.append({"key": k, "name": names_jp.get(k, k),
+                           "desc": t.get("効果", "") or note})
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
-            "typ": g["兵種"], "faction": g["勢力"], "skill": g["必殺技"],
-            "skill_desc": s.get("効果", ""), "trait": g["固有特性"],
+            "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
+            "men": int(float(g["兵力"])), "might": round(float(g["武力"])),
+            "wits": round(float(g["知力"])), "dfn": round(float(g["防御力"])),
+            "skill": g["必殺技"], "skill_desc": s.get("効果", ""),
+            "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
+            "gauge_init": g["初期ゲージ"],
+            "traits": traits, "trait": g["固有特性"],
             "quote": g.get("台詞", ""),
         })
     return out

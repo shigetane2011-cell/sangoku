@@ -187,6 +187,19 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
   margin: 2px 0 0; letter-spacing: .02em; white-space: nowrap; }
 .card .skill { font-size: 11px; color: var(--sub); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
+.card .stats { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+.card .role { font-size: 10px; color: var(--faint); margin-left: auto; }
+.cardinfo { position: sticky; top: 0; z-index: 5; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 14px;
+  margin-bottom: 10px; font-size: 13px; min-height: 3.2em; }
+.ci-head { display: flex; align-items: baseline; gap: 10px; }
+.ci-head .cost { font-family: "Hiragino Mincho ProN", serif; font-size: 18px;
+  color: var(--gold); font-weight: 700; }
+.ci-name { font-family: "Hiragino Mincho ProN", serif; font-size: 15px; color: var(--ink); }
+.ci-stats { color: var(--ink); margin: 2px 0; }
+.ci-row { margin: 2px 0; color: var(--ink); }
+.ci-row b { color: #ffb08a; font-weight: 600; }
+.ci-quote { color: #e8c98a; font-family: "Hiragino Mincho ProN", serif; font-size: 12.5px; }
 .card .usedby { position: absolute; right: 8px; top: 7px; font-size: 10px; color: var(--faint); }
 
 /* ── リプレイ ───────────────────────── */
