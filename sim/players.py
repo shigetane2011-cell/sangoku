@@ -184,7 +184,31 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     cx.row_factory = sqlite3.Row
     cx.execute("PRAGMA foreign_keys = ON")
     cx.executescript(SCHEMA)
+    _migrate_names(cx)
     return cx
+
+
+# 盤面名の改名（§7.43: 低/中/高/統一 → 汜水関/官渡/赤壁/天下）。旧名の行を
+# 読み替える。冪等なので毎回流してよい。
+_NAME_MIGRATION = {"低コスト戦": "汜水関", "中コスト戦": "官渡",
+                   "高コスト戦": "赤壁", "統一(BO3)": "天下"}
+
+
+def _migrate_names(cx: sqlite3.Connection) -> None:
+    with cx:
+        for old, new in _NAME_MIGRATION.items():
+            cx.execute("UPDATE decks SET regulation = ? WHERE regulation = ?",
+                       (new, old))
+            cx.execute("UPDATE ratings SET board = ? WHERE board = ?"
+                       " AND NOT EXISTS (SELECT 1 FROM ratings r2"
+                       "  WHERE r2.board = ? AND r2.player_id = ratings.player_id)",
+                       (new, old, new))
+            cx.execute("DELETE FROM ratings WHERE board = ?", (old,))
+            cx.execute("UPDATE boards SET name = ? WHERE name = ?"
+                       " AND NOT EXISTS (SELECT 1 FROM boards b2 WHERE b2.name = ?)",
+                       (new, old, new))
+            cx.execute("DELETE FROM boards WHERE name = ?", (old,))
+            cx.execute("UPDATE matches SET board = ? WHERE board = ?", (new, old))
 
 
 def new_id() -> str:

@@ -6,12 +6,12 @@ CLI で通す。盤面・マッチ・順位表の実装は field/match/ladder �
 ここは**配線だけ**を持つ（同じ量の定義を2箇所に持たない）。
 
   python3 -m sim.play register --name 自分 --email you@example.com
-  python3 -m sim.play roster --reg 低コスト戦
-  python3 -m sim.play deck --player <id> --reg 低コスト戦 \\
+  python3 -m sim.play roster --reg 汜水関
+  python3 -m sim.play deck --player <id> --reg 汜水関 \\
       --cards "張飛、許褚、趙雲、黄忠、夏侯淵" --form 狭く深い
   python3 -m sim.play status --player <id>
-  python3 -m sim.play round --player <id> [--board 低コスト戦] [--replay]
-  python3 -m sim.play standings [--board 低コスト戦]
+  python3 -m sim.play round --player <id> [--board 汜水関] [--replay]
+  python3 -m sim.play standings [--board 汜水関]
 
 設計メモ:
 - **デッキの並び順がそのまま配置**（前衛から）。陣形が前衛の枚数を決めるので、
@@ -159,8 +159,13 @@ def cmd_register(args) -> None:
     print("次: python3 -m sim.play roster でカードを見て、deck でデッキを組む")
 
 
+def _canon_reg(name):
+    return M.REG_ALIAS.get(name, name) if name else name
+
+
 def cmd_roster(args) -> None:
     gs = R.generals()
+    args.reg = _canon_reg(args.reg)
     if args.reg:
         cap = dict(zip(REG_NAMES, (c for _, c in M.REGULATIONS)))[args.reg]
         print("{}（上限 {:g}点・6枚・弓は後衛だけ・同一人物は3部隊で1枚）"
@@ -172,6 +177,7 @@ def cmd_roster(args) -> None:
 
 def cmd_deck(args) -> None:
     cx = P.connect(args.db)
+    args.reg = _canon_reg(args.reg)
     cards = M._roster_cards()
     army, errs = parse_deck(cards, args.cards, args.form)
     if not errs:
@@ -223,7 +229,7 @@ def cmd_status(args) -> None:
             b = load_board(cx, name)
             pids = list(r)
             rank = b.order(pids).index(pl.id) + 1
-            print("  {:<10} {:.0f}点  {}位/{}人  {}戦".format(
+            print("  {:<10} 武名{:.0f}  {}位/{}人  {}戦".format(
                 name, r[pl.id][0], rank, len(pids), r[pl.id][1]))
 
 
@@ -258,7 +264,7 @@ def cmd_round(args) -> None:
     entries = ensure_dummies(cx, cards)
     entries[pl.id] = entry
     names = {p.id: p.display_name for p in P.all_players(cx)}
-    boards = [args.board] if args.board else list(L.BOARDS)
+    boards = [_canon_reg(args.board)] if args.board else list(L.BOARDS)
     for name in boards:
         b, rnd, pairs = run_round(cx, cards, entries, name, dt=args.dt)
         pids = list(entries)
@@ -283,7 +289,7 @@ def cmd_round(args) -> None:
             score = ""
         verdict = "勝ち" if won else ("負け" if won is not None else "引き分け")
         rank = b.order(pids).index(pl.id) + 1
-        print("{:<10} 第{}巡: 対 {:<8} {} {}  → {:.0f}点 {}位/{}人".format(
+        print("{:<10} 第{}巡: 対 {:<8} {} {}  → 武名{:.0f} {}位/{}人".format(
             name, rnd + 1, names.get(foe, foe), verdict, score,
             b.get(pl.id), rank, len(pids)))
         if args.replay and b.reg is not None:
@@ -385,7 +391,7 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     for line in eval_chart(series, me_first):
         print("    " + line)
     mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
-    print("    ── 戦果表（与ダメ=千人・残兵%） ──")
+    print("    ── 軍功帳（与ダメ=千人・残兵%） ──")
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
         for name, typ, dealt, men, men0 in rows:
@@ -410,7 +416,7 @@ def cmd_standings(args) -> None:
     cx = P.connect(args.db)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     kinds = {p.id: p.kind for p in P.all_players(cx)}
-    for name in ([args.board] if args.board else list(L.BOARDS)):
+    for name in ([_canon_reg(args.board)] if args.board else list(L.BOARDS)):
         r = P.board_ratings(cx, name)
         if not r:
             print("{:<10} まだ誰も戦っていない".format(name))
@@ -419,8 +425,8 @@ def cmd_standings(args) -> None:
         pids = b.order(list(r))
         print("{}（{}人・{}巡）".format(name, len(pids), P.board_round(cx, name)))
         for i, pid in enumerate(pids[:args.limit], 1):
-            tag = "" if kinds.get(pid) == P.HUMAN else "（ダミー）"
-            print("  {:>2}位 {:<10}{} {:.0f}点 {}戦".format(
+            tag = "" if kinds.get(pid) == P.HUMAN else "（在野）"
+            print("  {:>2}位 {:<10}{} 武名{:.0f} {}戦".format(
                 i, names.get(pid, pid), tag, b.get(pid), b.games.get(pid, 0)))
 
 
@@ -430,21 +436,21 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("register"); s.add_argument("--name", required=True)
     s.add_argument("--email", required=True); s.set_defaults(fn=cmd_register)
-    s = sub.add_parser("roster"); s.add_argument("--reg", choices=REG_NAMES)
+    s = sub.add_parser("roster"); s.add_argument("--reg", choices=REG_NAMES + tuple(M.REG_ALIAS))
     s.set_defaults(fn=cmd_roster)
     s = sub.add_parser("deck"); s.add_argument("--player", required=True)
-    s.add_argument("--reg", choices=REG_NAMES, required=True)
+    s.add_argument("--reg", choices=REG_NAMES + tuple(M.REG_ALIAS), required=True)
     s.add_argument("--cards", required=True)
     s.add_argument("--form", choices=tuple(FORM_BY_NAME), required=True)
     s.set_defaults(fn=cmd_deck)
     s = sub.add_parser("status"); s.add_argument("--player", required=True)
     s.set_defaults(fn=cmd_status)
     s = sub.add_parser("round"); s.add_argument("--player", required=True)
-    s.add_argument("--board", choices=L.BOARDS)
+    s.add_argument("--board", choices=L.BOARDS + tuple(M.REG_ALIAS))
     s.add_argument("--replay", action="store_true")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(fn=cmd_round)
-    s = sub.add_parser("standings"); s.add_argument("--board", choices=L.BOARDS)
+    s = sub.add_parser("standings"); s.add_argument("--board", choices=L.BOARDS + tuple(M.REG_ALIAS))
     s.add_argument("--limit", type=int, default=20)
     s.set_defaults(fn=cmd_standings)
     a = p.parse_args()

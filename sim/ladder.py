@@ -243,7 +243,7 @@ def play_ladder_round(order: List[Entrant], rnd: int, dt: float = 0.5) -> None:
 # 偵察が成立しない。**組んでから戦うまでの間に編成が変わる**のがこのゲームの
 # 読み合いなので、2つを1つの関数に混ぜないこと。
 
-BOARDS: Tuple[str, ...] = ("低コスト戦", "中コスト戦", "高コスト戦", "統一(BO3)")
+BOARDS: Tuple[str, ...] = ("汜水関", "官渡", "赤壁", "天下")
 BO3_BOARD = 3
 
 

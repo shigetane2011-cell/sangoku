@@ -28,7 +28,7 @@ function shell(state) {
     : "";
   $("#app").insertAdjacentHTML("beforebegin", `
     <header>
-      <h1><span class="tsuki">三国志</span>　卓上戦記</h1>
+      <h1><span class="tsuki">三国</span>布陣</h1>
       <nav>${nav}</nav>${chip}
     </header>`);
   const sw = $("#switch");
@@ -42,7 +42,7 @@ function renderLogin(state, force) {
     `<option value="${h.id}">${esc(h.name)}</option>`).join("");
   app.innerHTML = `
     <div class="login-panel panel fade-in">
-      <h2>名乗りを上げよ</h2>
+      <h2>名乗りを上げよ、主公</h2>
       ${state.humans.length ? `
         <div class="login-row">
           <select id="pick">${opts}</select>
@@ -72,8 +72,8 @@ async function viewHome(state) {
     const rows = b.table.slice(0, 10).map((r) => `
       <tr class="${r.me ? "me" : ""} ${r.rank === 1 ? "top1" : ""}">
         <td class="rank num">${r.rank === 1 ? "①" : r.rank + "位"}</td>
-        <td>${esc(r.name)}${r.kind === "dummy" ? '<span class="dummy">ダミー</span>' : ""}</td>
-        <td class="rating num">${Math.round(r.rating)}点</td>
+        <td>${esc(r.name)}${r.kind === "dummy" ? '<span class="dummy">在野</span>' : ""}</td>
+        <td class="rating num">武名${Math.round(r.rating)}</td>
         <td class="games num">${r.games}戦</td>
       </tr>`).join("");
     return `<div class="panel">
@@ -94,7 +94,7 @@ async function viewHome(state) {
     document.body.insertAdjacentHTML("beforeend", `
       <div id="overlay"><div class="box">
         <div class="march">出　陣</div>
-        <p class="muted">軍を進めている……</p>
+        <p class="muted">主公、軍を進めております……</p>
       </div></div>`);
     try {
       const r = await api("/api/round", {});
@@ -113,8 +113,8 @@ function showResults(results) {
       <span class="board">${esc(r.board)}</span>
       <span class="verdict ${cls}">${r.verdict}</span>
       <span class="muted">対 ${esc(r.foe)}${r.score ? "　" + r.score : ""}</span>
-      <span class="delta num ${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${d}点</span>
-      <span class="muted num">${Math.round(r.rating)}点・${r.rank}位</span>
+      <span class="delta num ${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${d}</span>
+      <span class="muted num">武名${Math.round(r.rating)}・${r.rank}位</span>
       ${r.match_id ? `<a href="/replay?id=${r.match_id}">観る</a>` : ""}
     </div>`;
   }).join("");
@@ -350,7 +350,7 @@ async function viewReplay(state) {
     <div class="replay-grid">
       <div class="log" id="log"></div>
       <div class="chart-panel">
-        <h3>形勢<small class="muted">（上=${esc(d.mine_name)}優勢）</small></h3>
+        <h3>戦況図<small class="muted">（上=${esc(d.mine_name)}優勢）</small></h3>
         <svg class="eval" id="chart" viewBox="0 0 340 180"></svg>
         <div class="report" id="report"></div>
       </div>
@@ -457,7 +457,7 @@ async function viewReplay(state) {
           <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}</span>
         </div>`;
       }).join("");
-    $("#report").innerHTML =
+    $("#report").innerHTML = '<div class="side-label">─ 軍功帳 ─</div>' +
       side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
   }
 }

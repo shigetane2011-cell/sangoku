@@ -34,7 +34,7 @@ VIEWS = {"/": "home", "/deck": "deck", "/replays": "replays", "/replay": "replay
 SHELL = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>三国志 卓上戦記</title>
+<title>三国布陣</title>
 <link rel="stylesheet" href="/static/app.css">
 <body data-view="{view}">
 <div class="wrap"><div id="app"><p class="muted">読み込み中……</p></div></div>
@@ -206,7 +206,7 @@ class App(BaseHTTPRequestHandler):
         if me is None:
             return self._json({"error": "login"}, 401)
         cards = M._roster_cards()
-        reg = body.get("reg", "")
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
         fm = body.get("form", "魚鱗")
         names = [str(x) for x in body.get("cards", [])]
         raw = F.TRAIT_SEP.join(names)      # 「、」区切り＝CLI・DB と同じ表現
