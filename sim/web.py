@@ -72,8 +72,11 @@ def _roster_json():
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
             "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
-            "men": int(float(g["兵力"])), "might": round(float(g["武力"])),
-            "wits": round(float(g["知力"])), "dfn": round(float(g["防御力"])),
+            # 武勇・知略は**歴史イメージの演出値**（1〜100・盤面に不干渉）。
+            # エンジン内部の武力・知力は帳簿なので出さない（§7.47）。
+            "men": int(float(g["兵力"])), "might": int(g["武勇"]),
+            "wits": int(g["知略"]), "atk": round(float(g["攻撃力"])),
+            "dfn": round(float(g["防御力"])),
             "skill": g["必殺技"], "skill_desc": s.get("効果", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
             "gauge_init": g["初期ゲージ"],

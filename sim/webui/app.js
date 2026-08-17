@@ -165,8 +165,9 @@ async function viewDeck(state) {
             <option value="cost-">コスト 高い順</option>
             <option value="cost+">コスト 低い順</option>
             <option value="men-">兵力 多い順</option>
-            <option value="might-">武力 高い順</option>
-            <option value="wits-">知力 高い順</option>
+            <option value="might-">武勇 高い順</option>
+            <option value="wits-">知略 高い順</option>
+            <option value="atk-">攻撃 高い順</option>
             <option value="dfn-">防御 高い順</option>
           </select>
           <input id="search" placeholder="名で探す">
@@ -364,8 +365,8 @@ function drawRoster() {
         <span class="typ">${c.typ.slice(0, 1)}</span>
         <span class="role">${esc(c.role)}</span></div>
       <div class="name">${esc(c.name)}</div>
-      <div class="stats num">兵${(c.men / 1000).toFixed(1)}千
-        武${c.might} 知${c.wits} 防${c.dfn}</div>
+      <div class="stats num">武勇${c.might} 知略${c.wits}</div>
+      <div class="stats num">兵${(c.men / 1000).toFixed(1)}千 攻${c.atk} 防${c.dfn}</div>
       <div class="skill">【${esc(c.skill)}】</div>
     </div>`;
   }).join("");
@@ -395,7 +396,8 @@ function showCardInfo(name) {
       <span class="ci-name">${esc(c.name)}</span>
       <span class="muted">${esc(c.faction)}・${esc(c.typ)}・${esc(c.role)}</span>
     </div>
-    <div class="ci-stats num">兵力 ${c.men.toLocaleString()}　武力 ${c.might}　知力 ${c.wits}　防御 ${c.dfn}</div>
+    <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
+    <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}　攻撃 ${c.atk}　防御 ${c.dfn}</div>
     <div class="ci-row"><b>【${esc(c.skill)}】</b> ${esc(c.skill_desc)}
       <span class="muted">消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span></div>
     ${traits}
