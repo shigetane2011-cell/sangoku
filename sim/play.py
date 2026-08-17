@@ -279,9 +279,22 @@ def cmd_round(args) -> None:
             cap = M.REGULATIONS[b.reg][1]
             ua = M.with_surplus(entries[mine[0]].unit(b.reg), cap)
             ub = M.with_surplus(entries[mine[1]].unit(b.reg), cap)
-            for line in F.narrate(ua, ub, args.dt, seed=seed):
-                print("    " + line)
-            print_report(ua, ub, args.dt, seed, me_first)
+            replay_one(ua, ub, args.dt, seed, me_first)
+        elif args.replay:
+            # BO3: 3戦を順に再生する。**種は play() と同じ導出**（seed*3+i・§8.3）。
+            # ずらし方を変えると「リプレイが実際に起きた戦いと別物」になる。
+            wa = wb = 0.0
+            for i, (label, cap) in enumerate(M.REGULATIONS):
+                ua = M.with_surplus(entries[mine[0]].unit(i), cap)
+                ub = M.with_surplus(entries[mine[1]].unit(i), cap)
+                g = F.simulate(ua, ub, args.dt, seed=seed * 3 + i)
+                sc = g["score"] if me_first else 1.0 - g["score"]
+                wa += sc
+                wb += 1.0 - sc
+                v = "勝ち" if sc > 0.5 else ("負け" if sc < 0.5 else "引き分け")
+                print("    ▼ 第{}戦（{}） {}　累計 {:g}-{:g}".format(
+                    i + 1, label, v, wa, wb))
+                replay_one(ua, ub, args.dt, seed * 3 + i, me_first)
 
 
 def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
@@ -349,6 +362,13 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
         print("    {}: {}".format(tag, " / ".join(cells[:3])))
         if len(cells) > 3:
             print("          {}".format(" / ".join(cells[3:])))
+
+
+def replay_one(ua, ub, dt: float, seed: int, me_first: bool) -> None:
+    """1戦ぶんのリプレイ一式（実況・形勢グラフ・戦果表）。"""
+    for line in F.narrate(ua, ub, dt, seed=seed):
+        print("    " + line)
+    print_report(ua, ub, dt, seed, me_first)
 
 
 def cmd_standings(args) -> None:
