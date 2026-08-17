@@ -50,6 +50,48 @@ def _trait_names():
             for t in R.traits()}
 
 
+_MOD_JP = {"攻撃力": "攻撃力", "命中率": "攻撃力（命中）", "防御力": "防御力",
+           "移動速度": "移動速度", "気勢": "気勢"}
+
+
+def _skill_display(g, sk_row) -> str:
+    """効果文を**プレイヤーの読める量**へ焼き直す（§7.47）。
+
+    「威力976%」は内部の武力・知力（隠した帳簿）に掛かる係数なので、そのまま
+    見せても読めない。本物の式（SKILL_SCALE × 威力 × 武知の混合）でその武将の
+    実数へ換算し、時間は実況と同じ「分」（§7.36 の表示比率）で語る。
+    """
+    import re as _re
+    sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
+    v = F.SKILL_WITS.get(sk.kind, 0.0)
+    coef = float(g["武力"]) * (1.0 - v) + float(g["知力"]) * v
+    parts = []
+    if sk.power > 0.0:
+        if sk.dur > 0.0:
+            parts.append("延焼 毎分約{:,.0f}人（{:.0f}分）".format(
+                F.per_min(F.SKILL_SCALE * sk.power * coef), F.mins(sk.dur)))
+        else:
+            parts.append("損害 約{:,.0f}人（敵の守りで目減り）".format(
+                F.SKILL_SCALE * sk.power * coef))
+    if sk.heal > 0.0:
+        total = F.HEAL_SCALE * sk.heal * coef * (sk.dur if sk.dur > 0 else 1.0)
+        parts.append("回復 約{:,.0f}人".format(total))
+    raw = sk_row.get("効果", "")
+    for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢)\s*([+-]\d+)%（(\d+)秒）", raw):
+        parts.append("{} {}%（{:.0f}分）".format(
+            _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
+    m = _re.search(r"混乱\s*(\d+)%（(\d+)秒）", raw)
+    if m:
+        parts.append("混乱 {}%（{:.0f}分）".format(m.group(1), F.mins(float(m.group(2)))))
+    m = _re.search(r"行動阻害\s*(\d+)秒", raw)
+    if m:
+        parts.append("足止め {:.0f}分".format(F.mins(float(m.group(1)))))
+    m = _re.search(r"ゲージ付与", raw)
+    if m:
+        parts.append("味方のゲージを進める")
+    return " ＋ ".join(parts) if parts else raw
+
+
 def _roster_json():
     """武将一覧（§7.47 の開示設計）。
 
@@ -98,7 +140,8 @@ def _roster_json():
             "men": int(float(g["兵力"])), "might": int(g["武勇"]),
             "wits": int(g["知略"]), "atk": round(float(g["攻撃力"])),
             "dfn": round(float(g["防御力"])),
-            "skill": g["必殺技"], "skill_desc": s.get("効果", ""),
+            "skill": g["必殺技"], "skill_desc": _skill_display(g, s),
+            "skill_target": s.get("対象", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
             "gauge_init": g["初期ゲージ"],
             "traits": traits, "trait": g["固有特性"],

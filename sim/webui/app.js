@@ -401,7 +401,7 @@ function showCardInfo(name) {
     <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}　攻撃 ${c.atk}　防御 ${c.dfn}</div>
     <div class="ci-row">
       <span class="tag skill-tag">必殺技</span>
-      <b>【${esc(c.skill)}】</b> ${esc(c.skill_desc)}
+      <b>【${esc(c.skill)}】</b> <span class="muted">対象 ${esc(c.skill_target)}｜</span>${esc(c.skill_desc)}
       <span class="muted">ゲージ: 消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span>
     </div>
     ${traits}
