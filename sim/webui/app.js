@@ -76,17 +76,33 @@ async function viewHome(state) {
         <td class="rating num">武名${Math.round(r.rating)}</td>
         <td class="games num">${r.games}戦</td>
       </tr>`).join("");
+    const next = b.next
+      ? `<div class="next-chip">次戦（第${b.next.round}巡）: 対 <b>${esc(b.next.foe)}</b>
+         <span class="form-tag">${esc(b.next.forms)}</span></div>`
+      : "";
     return `<div class="panel">
       <h2>${esc(b.name)}<span class="sub">${b.round}巡</span></h2>
+      ${next}
       <table class="std">${rows || "<tr><td class='muted'>まだ戦いがない</td></tr>"}</table>
     </div>`;
   }).join("");
+  const h = state.heifu;
+  const enough = h && h.count >= 3;
+  const heifuGauge = h ? `
+    <span class="heifu" title="兵符: BO1の3戦で3枚使う。30分に1枚回復・上限${h.cap}">
+      ${"❙".repeat(h.count)}<span class="empty">${"❙".repeat(h.cap - h.count)}</span>
+      <b>${h.count}</b>/${h.cap}
+      ${h.next_in ? `<small>次の1枚まで ${Math.ceil(h.next_in / 60)}分</small>` : ""}
+    </span>` : "";
   app.innerHTML = `
     <div class="cta">
-      <button class="primary" id="fight" ${state.entry_ok ? "" : "disabled"}>出　陣</button>
-      <span class="hint">${state.entry_ok
-        ? "4つの順位表で1巡戦う（十数秒）"
-        : '出陣には3部隊の登録が要る → <a href="/deck">編成へ</a>'}</span>
+      <button class="primary" id="fight"
+        ${state.entry_ok && enough ? "" : "disabled"}>出　陣</button>
+      <span class="hint">${!state.entry_ok
+        ? '出陣には3部隊の登録が要る → <a href="/deck">編成へ</a>'
+        : (enough ? "兵符3枚で4つの順位表を1巡（天下は自動参加・無料）"
+                  : "兵符が足りない（3枚必要）")}</span>
+      ${heifuGauge}
     </div>
     <div class="boards fade-in">${boards}</div>`;
   const btn = $("#fight");

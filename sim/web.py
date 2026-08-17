@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -158,15 +159,41 @@ class App(BaseHTTPRequestHandler):
             boards.append({"name": bn, "round": P.board_round(cx, bn),
                            "table": table})
         entry_ok = False
+        heifu = None
         if me:
             cards = M._roster_cards()
-            _, errs = PL.entry_of(cx, cards, me.id, me.display_name)
+            entry, errs = PL.entry_of(cx, cards, me.id, me.display_name)
             entry_ok = not errs
+            n, wait = P.heifu(cx, me.id, int(time.time()))
+            heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait}
+            # 告知（次の対戦相手と、その陣形）。§3 の駆け引きの入口。
+            entries = PL.ensure_dummies(cx, cards)
+            if entry_ok:
+                entries[me.id] = entry
+            names2 = {p.id: p.display_name for p in players}
+            for bd in boards:
+                rnd, pairs = PL.announce(cx, entries, bd["name"])
+                mine = next((pr for pr in pairs if me.id in pr), None)
+                if mine is None:
+                    continue
+                foe = mine[1] if mine[0] == me.id else mine[0]
+                fe = entries.get(foe)
+                reg = (PL.REG_NAMES.index(bd["name"])
+                       if bd["name"] in PL.REG_NAMES else None)
+                if fe is None:
+                    forms = "?"
+                elif reg is not None:
+                    forms = F.FORM_NAME.get(fe.unit(reg).form.n_front, "?")
+                else:
+                    forms = "・".join(F.FORM_NAME.get(u.form.n_front, "?")
+                                      for u in fe.units)
+                bd["next"] = {"foe": names2.get(foe, "?"), "forms": forms,
+                              "round": rnd + 1}
         self._json({
             "me": {"id": me.id, "name": me.display_name} if me else None,
             "humans": [{"id": p.id, "name": p.display_name}
                        for p in players if p.kind == P.HUMAN],
-            "boards": boards, "entry_ok": entry_ok,
+            "boards": boards, "entry_ok": entry_ok, "heifu": heifu,
         })
 
     def _api_login(self, body):
@@ -238,6 +265,9 @@ class App(BaseHTTPRequestHandler):
         entry, errs = PL.entry_of(cx, cards, me.id, me.display_name)
         if errs:
             return self._json({"error": "先に編成を直す: " + "／".join(errs)}, 400)
+        if not P.spend_heifu(cx, me.id, 3, int(time.time())):
+            return self._json({"error": "兵符が足りない（BO1の3戦で3枚要る。"
+                               "30分に1枚回復する）"}, 402)
         entries = PL.ensure_dummies(cx, cards)
         entries[me.id] = entry
         results = []

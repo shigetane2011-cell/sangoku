@@ -167,6 +167,21 @@ CREATE TABLE IF NOT EXISTS matches (
   played_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS ix_matches_board ON matches(board, round);
+-- 告知済みの組（§3: 組む→告知→編成期間→戦う）。resolve で消費し matches へ。
+CREATE TABLE IF NOT EXISTS pairings (
+  board      TEXT NOT NULL,
+  round      INTEGER NOT NULL,
+  pid_a      TEXT NOT NULL,
+  pid_b      TEXT NOT NULL,
+  PRIMARY KEY (board, round, pid_a)
+);
+-- 兵符（BO1挑戦権・§7.43）。**残数と最終更新だけ持ち、回復は読むときに計算**
+-- （cron が要らない。30分ごとに+1・上限10）。
+CREATE TABLE IF NOT EXISTS tokens (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  count      INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL              -- unix秒
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -390,6 +405,71 @@ def decks_of(cx: sqlite3.Connection, player_id: str) -> Dict[str, Tuple[str, str
     return {r["regulation"]: (r["cards"], r["formation"]) for r in cx.execute(
         "SELECT regulation, cards, formation FROM decks WHERE player_id = ?",
         (player_id,))}
+
+
+# ---------------------------------------------------------------- 告知の組
+def save_pairs(cx: sqlite3.Connection, board: str, rnd: int,
+               pairs) -> None:
+    with cx:
+        cx.executemany(
+            "INSERT OR IGNORE INTO pairings (board, round, pid_a, pid_b)"
+            " VALUES (?, ?, ?, ?)",
+            [(board, rnd, a, b) for a, b in pairs])
+
+
+def load_pairs(cx: sqlite3.Connection, board: str, rnd: int):
+    return [(r["pid_a"], r["pid_b"]) for r in cx.execute(
+        "SELECT pid_a, pid_b FROM pairings WHERE board = ? AND round = ?"
+        " ORDER BY pid_a", (board, rnd))]
+
+
+def clear_pairs(cx: sqlite3.Connection, board: str, rnd: int) -> None:
+    with cx:
+        cx.execute("DELETE FROM pairings WHERE board = ? AND round = ?",
+                   (board, rnd))
+
+
+# ---------------------------------------------------------------- 兵符
+HEIFU_CAP = 10
+HEIFU_REGEN_SEC = 30 * 60
+
+
+def heifu(cx: sqlite3.Connection, player_id: str, now: int) -> Tuple[int, int]:
+    """兵符の残数と、次の1枚まで何秒か。読むだけ（書かない）。"""
+    r = cx.execute("SELECT count, updated_at FROM tokens WHERE player_id = ?",
+                   (player_id,)).fetchone()
+    if r is None:
+        return HEIFU_CAP, 0
+    n = r["count"] + (now - r["updated_at"]) // HEIFU_REGEN_SEC
+    if n >= HEIFU_CAP:
+        return HEIFU_CAP, 0
+    return n, HEIFU_REGEN_SEC - (now - r["updated_at"]) % HEIFU_REGEN_SEC
+
+
+def spend_heifu(cx: sqlite3.Connection, player_id: str, amount: int,
+                now: int) -> bool:
+    """兵符を減らす。足りなければ False（何も書かない）。
+
+    updated_at は「最後に回復を数えた時刻」。回復をまず具現化（count へ足して
+    時刻を回復の刻みぶん進める）してから引く。満タンなら時刻を now に置く
+    （満タン中は回復が進まないので、使った瞬間が次の回復の起点）。"""
+    r = cx.execute("SELECT count, updated_at FROM tokens WHERE player_id = ?",
+                   (player_id,)).fetchone()
+    if r is None:
+        n, anchor = HEIFU_CAP, now
+    else:
+        ticks = (now - r["updated_at"]) // HEIFU_REGEN_SEC
+        n = min(HEIFU_CAP, r["count"] + ticks)
+        anchor = now if n >= HEIFU_CAP else r["updated_at"] + ticks * HEIFU_REGEN_SEC
+    if n < amount:
+        return False
+    with cx:
+        cx.execute("INSERT INTO tokens (player_id, count, updated_at)"
+                   " VALUES (?, ?, ?)"
+                   " ON CONFLICT(player_id) DO UPDATE SET"
+                   " count = excluded.count, updated_at = excluded.updated_at",
+                   (player_id, n - amount, anchor))
+    return True
 
 
 def record_match(cx: sqlite3.Connection, board: str, rnd: int,

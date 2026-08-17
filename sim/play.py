@@ -233,19 +233,40 @@ def cmd_status(args) -> None:
                 name, r[pl.id][0], rank, len(pids), r[pl.id][1]))
 
 
+def announce(cx, entries: Dict[str, M.Entry], board_name: str
+             ) -> Tuple[int, List[Tuple[str, str]]]:
+    """次の巡の組を告知する（§3: 組む→告知→編成期間→戦う）。
+
+    既に告知済みならそれを返す。**告知後のデッキ変更は自由**（それがこの
+    2段階の目的。相手の陣形を見て自陣を差し替える駆け引き）。組は変わらない。
+    """
+    rnd = P.board_round(cx, board_name)
+    pairs = P.load_pairs(cx, board_name, rnd)
+    if not pairs:
+        b = load_board(cx, board_name)
+        pairs = L.plan_round(b, list(entries), rnd)
+        P.save_pairs(cx, board_name, rnd, pairs)
+    return rnd, pairs
+
+
 def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
               dt: float = 0.5) -> Tuple[L.Board, int, List[Tuple[str, str]]]:
-    """1つの順位表で1巡回し、全対戦を記録する（CLI と Web の共通部）。"""
+    """1つの順位表で1巡回し、全対戦を記録する（CLI と Web の共通部）。
+
+    告知済みの組があれば**その組で**戦う（組み直さない）。終わったらすぐ
+    次の巡を告知するので、戦い終えた瞬間から次の相手が見える。
+    """
     b = load_board(cx, board_name)
-    rnd = P.board_round(cx, board_name)
-    pids = list(entries)
-    pairs = L.plan_round(b, pids, rnd)
+    rnd, pairs = announce(cx, entries, board_name)
+    pairs = [(x, y) for x, y in pairs if x in entries and y in entries]
     L.resolve_round(b, pairs, entries, rnd, dt=dt)
     save_board(cx, b)
     P.bump_board_round(cx, board_name)
+    P.clear_pairs(cx, board_name, rnd)
     for x, y in pairs:
         P.record_match(cx, board_name, rnd, x, y,
                        L.battle_seed(board_name, rnd, x, y))
+    announce(cx, entries, board_name)      # 次の巡をすぐ告知
     return b, rnd, pairs
 
 
@@ -412,6 +433,38 @@ def replay_one(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     print_report(ua, ub, dt, seed, me_first)
 
 
+def cmd_next(args) -> None:
+    """告知された次の対戦相手（と相手の陣形）を見る。"""
+    cx = P.connect(args.db)
+    cards = M._roster_cards()
+    pl = P.get(cx, args.player)
+    if pl is None:
+        print("その id の登録者が居ない"); sys.exit(1)
+    entry, errs = entry_of(cx, cards, pl.id, pl.display_name)
+    entries = ensure_dummies(cx, cards)
+    if not errs:
+        entries[pl.id] = entry
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    for bn in L.BOARDS:
+        rnd, pairs = announce(cx, entries, bn)
+        mine = next((pr for pr in pairs if pl.id in pr), None)
+        if mine is None:
+            print("{:<6} 第{}巡: （組に入っていない）".format(bn, rnd + 1))
+            continue
+        foe = mine[1] if mine[0] == pl.id else mine[0]
+        fe = entries.get(foe)
+        reg = REG_NAMES.index(bn) if bn in REG_NAMES else None
+        if fe is None:
+            forms = "?"
+        elif reg is not None:
+            forms = F.FORM_NAME.get(fe.unit(reg).form.n_front, "?")
+        else:
+            forms = "・".join(F.FORM_NAME.get(u.form.n_front, "?")
+                              for u in fe.units)
+        print("{:<6} 第{}巡: 対 {}（陣: {}）".format(
+            bn, rnd + 1, names.get(foe, foe), forms))
+
+
 def cmd_standings(args) -> None:
     cx = P.connect(args.db)
     names = {p.id: p.display_name for p in P.all_players(cx)}
@@ -450,6 +503,8 @@ def main() -> None:
     s.add_argument("--replay", action="store_true")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(fn=cmd_round)
+    s = sub.add_parser("next"); s.add_argument("--player", required=True)
+    s.set_defaults(fn=cmd_next)
     s = sub.add_parser("standings"); s.add_argument("--board", choices=L.BOARDS + tuple(M.REG_ALIAS))
     s.add_argument("--limit", type=int, default=20)
     s.set_defaults(fn=cmd_standings)

@@ -87,6 +87,16 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .cta { margin: 4px 0 20px; display: flex; gap: 14px; align-items: center; }
 .cta button { font-size: 16px; padding: 12px 30px; }
 .cta .hint { color: var(--sub); font-size: 13px; }
+.heifu { margin-left: auto; color: var(--gold); font-size: 15px; letter-spacing: 1px;
+  display: flex; align-items: baseline; gap: 6px; }
+.heifu .empty { color: var(--line); }
+.heifu b { font-size: 14px; } .heifu small { color: var(--sub); letter-spacing: 0; }
+.next-chip { font-size: 12.5px; color: var(--sub); margin: -4px 0 8px;
+  padding: 4px 10px; background: var(--panel2); border-radius: 6px; }
+.next-chip b { color: var(--ink); }
+.form-tag { display: inline-block; margin-left: 6px; padding: 0 7px;
+  border: 1px solid var(--gold); border-radius: 4px; color: var(--gold);
+  font-family: "Hiragino Mincho ProN", serif; font-size: 12px; }
 
 /* ── 出陣オーバーレイ・結果 ───────────────── */
 #overlay {
