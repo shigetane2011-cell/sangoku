@@ -1641,8 +1641,13 @@ def _vs_faction(u: Unit, f: Unit) -> bool:
 
 
 def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
-                amount: float, secs: float = 0.0) -> str:
-    """必殺技・固有特性の実況行。**数値ではなく出来事として書く**（§9.3）。"""
+                amount: float, secs: float = 0.0, stat: str = "") -> str:
+    """必殺技・固有特性の実況行。**数値ではなく出来事として書く**（§9.3）。
+
+    文体は軍記物に寄せる（テストプレイの指摘）。数字は攻略の手掛かりなので
+    括弧の中に残す。stat は状態効果の種別（atk/def/spd/rate）。**防御まで
+    「勢いが上がる」と語っていた**のを言い分けるために受け取る。
+    """
     who = _who(u)
     n = len(tgts)
     side = "敵" if not ("味方" in tstr or "自分" in tstr) else "味方"
@@ -1653,23 +1658,29 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     else:
         where = "{}{}隊".format(side, n)
     if kind == "dot":
-        return "{}、{}。{}が燃え続ける（毎分{:,.0f}人・{:.0f}分）。".format(
+        return "{}、{}。{}の陣に火の手が上がり、なお燃え広がる（毎分{:,.0f}人・{:.0f}分）。".format(
             who, name, where, per_min(amount), mins(secs))
     if kind == "damage":
-        return "{}、{}。{}に{:,.0f}人の損害。".format(who, name, where, amount)
+        return "{}、{}。{}を討ち崩し、{:,.0f}人を討ち取る。".format(
+            who, name, where, amount)
     if kind == "heal":
-        return "{}、{}。{}が{:,.0f}人を立て直す。".format(who, name, where, amount)
+        return "{}、{}。{}の傷兵{:,.0f}人が再び戦列に加わる。".format(
+            who, name, where, amount)
     if kind == "stun":
-        return "{}、{}。{}の足が{:.0f}分止まる。".format(
+        return "{}、{}。{}は足を縫い留められ、進めぬこと{:.0f}分。".format(
             who, name, where, mins(secs))
     if kind == "chaos":
-        return "{}、{}。{}の隊列が乱れ、同士討ちが始まる（{:.0f}分）。".format(
+        return "{}、{}。{}の隊列が乱れ、同士討ちの声が上がる（{:.0f}分）。".format(
             who, name, where, mins(secs))
     if kind == "buff":
-        return "{}、{}。{}の勢いが上がる（{:+.0%}・{:.0f}分）。".format(
-            who, name, where, amount, mins(secs))
-    return "{}、{}。{}の動きが鈍る（{:+.0%}・{:.0f}分）。".format(
-        who, name, where, amount, mins(secs))
+        verb = {"def": "が盾を連ね、守りを固める",
+                "spd": "の足が軽くなる",
+                "rate": "の気勢が満ちる"}.get(stat, "の士気が奮い立つ")
+        return "{}、{}。{}{}（{:+.0%}・{:.0f}分）。".format(
+            who, name, where, verb, amount, mins(secs))
+    verb = {"def": "の守りが崩れる"}.get(stat, "の刃が鈍る")
+    return "{}、{}。{}{}（{:+.0%}・{:.0f}分）。".format(
+        who, name, where, verb, amount, mins(secs))
 
 
 # 技のフェーズ中だけ有効な兵力の蓄積器。**None なら即時に反映する。**
@@ -1753,7 +1764,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     n = max(len(tgts), 1)
     name = name or src
 
-    def say(kind, amount, secs=0.0, mag=0.0, jp=None):
+    def say(kind, amount, secs=0.0, mag=0.0, jp=None, stat=""):
         """実況行を1本積む。**効いた量をそのまま持たせる**（行の取捨に使う）。"""
         if ev is None or not name:
             return
@@ -1767,7 +1778,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 return
         k = jp or kind_jp
         ev.append(Event(t, k, LINE_PRIO[k],
-                        _skill_line(u, name, tstr, tgts, kind, amount, secs),
+                        _skill_line(u, name, tstr, tgts, kind, amount, secs,
+                                    stat),
                         mag))
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
@@ -1783,7 +1795,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if hit:
                 m = amt * secs * len(hit)
                 if best is None or m > best[3]:
-                    best = ("chaos", amt, secs, m)
+                    best = ("chaos", amt, secs, m, "")
             continue
         if key == "stun":
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
@@ -1792,7 +1804,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if hit:
                 m = secs * len(hit) * 10.0
                 if best is None or m > best[3]:
-                    best = ("stun", 1.0, secs, m)
+                    best = ("stun", 1.0, secs, m, "")
             continue
         if key == "gauge":      # 旧表記。段差なので値段を持たない（上の注記）
             for f in (tgts if ally else [u]):
@@ -1805,10 +1817,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         if hit:
             m = abs(amt) * secs * len(hit)
             if best is None or m > best[3]:
-                best = ("buff" if amt > 0.0 else "debuff", amt, secs, m)
+                best = ("buff" if amt > 0.0 else "debuff", amt, secs, m, key)
     if best is not None:
         say(best[0], best[1], best[2], best[3],
-            jp="計略" if kind_jp == "必殺技" else kind_jp)
+            jp="計略" if kind_jp == "必殺技" else kind_jp, stat=best[4])
     if sk.mods:
         _expire(own + foe, t)
 
@@ -2328,7 +2340,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             if events is not None:
                 lo, hi = (("A", ra), ("B", rb)) if ra < rb else (("B", rb), ("A", ra))
                 events.append(Event(t, "決着", 1,
-                    "{}軍、残存{:.0f}%を割って潰走。{}軍の勝利。".format(
+                    "{}軍、残存{:.0f}%を割って総崩れ。{}軍、勝ち鬨を上げる。".format(
                         _JP[lo[0]], ROUT_RATIO * 100, _JP[hi[0]])))
             break
 
@@ -2587,14 +2599,14 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
             c[card.typ] = c.get(card.typ, 0) + 1
         return "・".join(f"{TYPE_JP[t]}{c[t]}" for t in TYPES if c.get(t))
     # 布陣は時刻を持たない（t = -1）。合流させず必ず先頭に置く。
-    line = "{}軍は{}（{}）、{}軍は{}（{}）。".format(
+    line = "{}軍、{}の陣を布く（{}）。対する{}軍は{}の陣（{}）。".format(
         _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b))
     # 常在型はタイムラインに瞬間を持たないので、ここで触れる（§9.3）
     for side, us in (("A", ua), ("B", ub)):
         vg = [u.name for u in us
               if u.name and "vanguard" in u.traits and u.is_front]
         if vg:
-            line += "{}軍は{}が陣頭。".format(_JP[side], "・".join(vg))
+            line += "{}軍は{}、自ら陣頭に立つ。".format(_JP[side], "・".join(vg))
     ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
     # 迂回の予告。所要時間も捨てる攻撃量も経路長から確定している（§9.3）
     bets = [u for u in list(ua) + list(ub)
@@ -2610,8 +2622,8 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         # ない setup が出て演出装置が壊れる（実測で両方出た）。
         seen.add(("賭", id(u)))
         ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
-            "{}、戦列を離れて大きく回り込む。{:.0f}mの迂回、"
-            "およそ{:.0f}分ぶんの攻撃を捨てる賭け。".format(
+            "{}、戦列を離れ、大きく敵陣の外を回る。{:.0f}mの迂回、"
+            "およそ{:.0f}分の矛を捨てる賭けである。".format(
                 _who(u), u.total_len, mins(u.total_len / u.speed))))
 
 
@@ -2641,12 +2653,12 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                     for y in ub if y.is_front and box_gap(x, y) <= 1.0)
             if best[3] > 1.0:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
-                    "両軍前衛が接触。{}と{}が正面{:.0f}mで噛み合う"
-                    "（{}組が交戦）。".format(
+                    "両軍の前衛、干戈を交える。{}と{}、正面{:.0f}mで"
+                    "ぶつかり合う（{}組が交戦）。".format(
                         _who(best[1]), _who(best[2]), best[3], n)))
             else:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
-                    "{}が前進し、{}の側面に取り付く。正面で受ける敵がいない"
+                    "{}、押し出して{}の側面に回り込む。正面に受ける敵なし"
                     "（{}組が交戦）。".format(
                         _who(best[1]), _who(best[2]), n)))
     # 迂回の到達
@@ -2660,8 +2672,8 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             tgt = min((f for f in foes if not f.is_front),
                       key=lambda f: math.hypot(f.x - u.x, f.y - u.y), default=None)
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
-                "{}が敵後衛に到達（{:.0f}分を要した）。{}の側背を突く。"
-                "この時点で残り{:.0f}%。".format(
+                "{}、ついに敵陣の背後へ至る（{:.0f}分の行程）。{}の側背を"
+                "突く。この時点で残り{:.0f}%。".format(
                     _who(u), mins(t), _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
     # 騎兵が突撃の勢いを使い切る（乱戦に呑まれる）
@@ -2674,7 +2686,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                     and u.melee > 2.5 * CHARGE_TAU):
                 seen.add(k)
                 ev.append(Event(t, "突撃", LINE_PRIO["突撃"],
-                    "{}、突撃の勢いが尽きて乱戦へ（{:.0f}% → {:.0f}%）。".format(
+                    "{}、突撃の勢い尽き、乱戦に呑まれる（{:.0f}% → {:.0f}%）。".format(
                         _who(u), 100 * (1.0 + CHARGE_BONUS), 100 * _output(u))))
     # 弓の抑制
     for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
@@ -2688,7 +2700,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 seen.add(("抑", id(u)))
                 near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
-                    "{}、{}に{:.0f}mまで詰められ斉射が鈍る（威力{:.0f}%）。".format(
+                    "{}、{}に{:.0f}mまで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
                         _who(u), _who(near), min(g), 100 * sup)))
     # 壊滅
     for u in list(ua) + list(ub):
@@ -2698,7 +2710,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             own = ua if u.side > 0 else ub
             rest = sum(x.men for x in own) / sum(x.men0 for x in own)
             ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
-                "{}が壊滅（{:,.0f}人を失う）。{}軍は残り{:.0f}%。".format(
+                "{}の隊、支えきれず崩れ立つ（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
                     _who(u), u.men0 - u.men,
                     _JP["A" if u.side > 0 else "B"], 100 * rest)))
 
@@ -2711,7 +2723,7 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
         if (("賭", id(u)) in seen_bets
                 and u.progress / u.total_len <= 0.97):
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
-                "{}は敵後衛へ回り込めないまま終わる（行程{:.0f}%、"
+                "{}、敵陣の背後へ回り込めぬまま日が暮れる（行程{:.0f}%・"
                 "残り{:.0f}m）。".format(
                     _who(u), 100 * u.progress / u.total_len,
                     u.total_len - u.progress)))
@@ -2719,9 +2731,9 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
     lost_b = sum(u.men0 - u.men for u in ub)
     win = "A" if ra > rb else "B"
     ev.append(Event(t, "決着", LINE_PRIO["決着"],
-        "日没。決着つかず、両軍とも兵を退く。{}軍{:.0f}%（{:,.0f}人損失）対"
-        "{}軍{:.0f}%（{:,.0f}人損失）で、"
-        "{}軍の勝利。".format(_JP["A"], 100 * ra, lost_a,
+        "日没。決着つかず、両軍静かに兵を退く。{}軍{:.0f}%（{:,.0f}人損失）"
+        "対{}軍{:.0f}%（{:,.0f}人損失）、"
+        "軍配は{}軍に上がる。".format(_JP["A"], 100 * ra, lost_a,
                              _JP["B"], 100 * rb, lost_b, _JP[win])))
 
 
