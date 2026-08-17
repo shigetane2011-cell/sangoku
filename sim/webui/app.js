@@ -104,6 +104,8 @@ async function viewHome(state) {
                   : "兵符が足りない（3枚必要）")}</span>
       ${heifuGauge}
     </div>
+    ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
+      【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
     <div class="boards fade-in">${boards}</div>`;
   const btn = $("#fight");
   if (btn) btn.onclick = async () => {
@@ -170,6 +172,7 @@ async function viewDeck(state) {
           <span id="deck-msg"></span>
         </div>
         <div class="entry-state" id="entrystate"></div>
+        <div class="onsho-panel" id="onsho"></div>
       </div>
     </div>`;
   drawRegTabs(); drawFormTabs(); drawTypeTabs();
@@ -219,7 +222,40 @@ function drawTypeTabs() {
   });
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); }
+function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawOnsho(); }
+
+function deckGenerals() {
+  const set = new Set();
+  for (const d of Object.values(D.decks)) for (const n of d.cards) set.add(n);
+  for (const n of cur.cards) set.add(n);
+  return [...set];
+}
+
+function drawOnsho() {
+  const el = $("#onsho");
+  if (!D.onsho || !D.onsho.length) { el.innerHTML = ""; return; }
+  const gens = deckGenerals();
+  el.innerHTML = "<div class='side-label'>─ 軍功枠（恩賞のセット） ─</div>" +
+    D.onsho.map((o) => `
+      <div class="onsho-row">
+        <span class="oname">【${esc(o.name)}】</span>
+        <span class="val num">${o.value}点</span>
+        <select data-id="${o.id}">
+          <option value="">（外す）</option>
+          ${gens.map((g) => `<option ${o.general === g ? "selected" : ""}>${esc(g)}</option>`).join("")}
+          ${o.general && !gens.includes(o.general)
+            ? `<option selected>${esc(o.general)}</option>` : ""}
+        </select>
+      </div>`).join("") +
+    "<p class='muted' style='font-size:11.5px'>セットした恩賞はその値段ぶん" +
+    "デッキのコスト上限に数える。</p>";
+  $$("#onsho select").forEach((sel) => sel.onchange = async () => {
+    const r = await api("/api/onsho", { owned_id: +sel.dataset.id, general: sel.value });
+    if (!r.ok) { flashMsg(r.errors.join("／"), true); }
+    D = await api("/api/deckdata");
+    drawAll();
+  });
+}
 
 function drawRoster() {
   const t = $("#typetabs").dataset.on;
@@ -291,14 +327,25 @@ function deckCost() {
   }, 0);
 }
 
+function onshoExtra() {
+  if (!D.onsho) return 0;
+  const inDeck = new Set(cur.cards);
+  return D.onsho.filter((o) => inDeck.has(o.general))
+                .reduce((s, o) => s + o.value, 0);
+}
+
 function drawMeter() {
   const cap = D.regs.find((r) => r.name === cur.reg).cap;
   const cost = deckCost();
+  const extra = onshoExtra();
+  const total = cost + extra;
   const m = $("#meter");
-  m.classList.toggle("over", cost > cap);
-  m.querySelector(".fill").style.width = Math.min(100, cost / cap * 100) + "%";
+  m.classList.toggle("over", total > cap + 1e-9);
+  m.querySelector(".fill").style.width = Math.min(100, total / cap * 100) + "%";
+  const ex = extra ? `（素${cost}+恩賞${extra.toFixed(2)}）` : "";
   m.querySelector(".label").textContent =
-    `${cost} ／ ${cap}点` + (cost > cap ? "　超過！" : (cost < cap ? `　余り${cap - cost}` : "　ぴったり"));
+    `${+total.toFixed(2)} ／ ${cap}点${ex}` +
+    (total > cap + 1e-9 ? "　超過！" : (total < cap ? `　余り${+(cap - total).toFixed(2)}` : "　ぴったり"));
 }
 
 function drawEntryState() {

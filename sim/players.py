@@ -325,6 +325,43 @@ def grant_trait(cx: sqlite3.Connection, player_id: str, key: str) -> int:
     return cur.lastrowid
 
 
+def daily_onsho(cx: sqlite3.Connection, player_id: str, keys,
+                today: str) -> Optional[str]:
+    """本日の恩賞（1日1特性・§7.43）。まだなら1つ授けて鍵を返す。
+
+    どれを授けるかは (player_id, 日付) から決定的に選ぶ。読み直しで
+    引き直せない（リロードでガチャになるのを防ぐ）。"""
+    import zlib
+    r = cx.execute(
+        "SELECT 1 FROM owned_traits WHERE player_id=? AND date(gained_at)=?",
+        (player_id, today)).fetchone()
+    if r is not None:
+        return None
+    keys = sorted(keys)
+    key = keys[zlib.crc32((player_id + today).encode()) % len(keys)]
+    grant_trait(cx, player_id, key)
+    return key
+
+
+def owned_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
+    """獲得済みの恩賞ぜんぶ（セット状況つき）。"""
+    return [dict(r) for r in cx.execute(
+        "SELECT id, trait_key, general_name, slot, gained_at"
+        " FROM owned_traits WHERE player_id=? ORDER BY id", (player_id,))]
+
+
+def free_slot(cx: sqlite3.Connection, player_id: str,
+              general_name: str) -> Optional[int]:
+    """その武将の空いている軍功枠。無ければ None。"""
+    used = {r["slot"] for r in cx.execute(
+        "SELECT slot FROM owned_traits WHERE player_id=? AND general_name=?",
+        (player_id, general_name))}
+    for i in range(TRAIT_SLOTS):
+        if i not in used:
+            return i
+    return None
+
+
 def set_trait(cx: sqlite3.Connection, player_id: str, owned_id: int,
               general_name: str, slot: int) -> None:
     """獲得済みの特性を武将の枠へセットする。
@@ -332,7 +369,9 @@ def set_trait(cx: sqlite3.Connection, player_id: str, owned_id: int,
     **枠は 0..TRAIT_SLOTS-1。** 同じ武将の同じ枠は UNIQUE 制約が止める。
     表計算では張れない種類の制約で、二重セットは静かに起きる。
     """
-    if not 0 <= slot < TRAIT_SLOTS:
+    if general_name == "":
+        slot = None                      # 外す（未セットへ戻す）
+    elif not 0 <= slot < TRAIT_SLOTS:
         raise ValueError("枠は 0〜{} まで".format(TRAIT_SLOTS - 1))
     with cx:
         cx.execute(

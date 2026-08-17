@@ -87,26 +87,60 @@ def parse_deck(cards, names_raw: str, form_name: str
     return F.Army(tuple(picked), form), errs
 
 
+def _apply_onsho(cx, player_id: str, army: F.Army) -> Tuple[F.Army, float]:
+    """セット済みの恩賞（軍功枠・§7.43）を札へ合流し、値段の合計を返す。
+
+    盤面は card.trait の「、」区切りを複数特性として読む（§7.37）。値段は
+    実測表 `design.trait_value` — **恩賞はコスト外のただ足しにはしない**。
+    デッキの上限判定にこの値段を加える（生まれつきの特性は効果予算で支払い
+    済みなので数えない）。"""
+    import dataclasses
+    from . import design as D
+    extra = 0.0
+    out = []
+    for c in army.cards:
+        keys = [k for k in P.traits_on(cx, player_id, c.name)
+                if k not in F.trait_keys(c.trait)]
+        if keys:
+            extra += sum(D.trait_value(k) for k in keys)
+            c = dataclasses.replace(
+                c, trait=F.TRAIT_SEP.join(list(F.trait_keys(c.trait)) + keys))
+        out.append(c)
+    return dataclasses.replace(army, cards=tuple(out)), extra
+
+
 def entry_of(cx, cards, player_id: str, name: str
              ) -> Tuple[Optional[M.Entry], List[str]]:
-    """DB のデッキ3つから Entry を組んで検証する。"""
+    """DB のデッキ3つから Entry を組んで検証する。恩賞も背負わせる。"""
     decks = P.decks_of(cx, player_id)
     missing = [r for r in REG_NAMES if r not in decks]
     if missing:
         return None, ["デッキ未登録: " + "、".join(missing)]
     units = []
     errs: List[str] = []
+    extras = []
     for reg in REG_NAMES:
         raw, form_name = decks[reg]
         army, es = parse_deck(cards, raw, form_name)
         if es:
             errs += ["{}: {}".format(reg, e) for e in es]
         else:
+            army, extra = _apply_onsho(cx, player_id, army)
             units.append(army)
+            extras.append(extra)
     if errs:
         return None, errs
     entry = M.Entry(tuple(units), name=name)
-    return entry, M.validate(entry)
+    errs = M.validate(entry)
+    # 恩賞の値段はコスト上限に数える（bare cost は validate が見るので、
+    # ここでは「素のコスト + 恩賞」が上限を超えた場合だけ追加で咎める）
+    for (reg, cap), army, extra in zip(M.REGULATIONS, units, extras):
+        base = sum(c.cost for c in army.cards)
+        if extra > 0.0 and base + extra > cap + 1e-9:
+            errs.append("{}: 恩賞の重み {:.2f} を足すと上限 {:g} を超える"
+                        "（素 {:g} + 恩賞 {:.2f}）".format(
+                            reg, extra, cap, base, extra))
+    return entry, errs
 
 
 # ----------------------------------------------------------------------------

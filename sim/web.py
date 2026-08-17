@@ -43,6 +43,13 @@ SHELL = """<!doctype html>
 """
 
 
+def _trait_names():
+    return {t["キー"]: t["名前"] if t["名前"] != t["キー"] else
+            {"vanguard": "陣頭", "vs_wei": "対魏", "vs_shu": "対蜀",
+             "vs_go": "対呉"}.get(t["キー"], t["キー"])
+            for t in R.traits()}
+
+
 def _roster_json():
     sk = {s["技名"]: s for s in R.skills()}
     out = []
@@ -128,6 +135,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_deck(body)
             if url.path == "/api/round":
                 return self._api_round()
+            if url.path == "/api/onsho":
+                return self._api_onsho(body)
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)
@@ -160,12 +169,19 @@ class App(BaseHTTPRequestHandler):
                            "table": table})
         entry_ok = False
         heifu = None
+        onsho = None
         if me:
             cards = M._roster_cards()
             entry, errs = PL.entry_of(cx, cards, me.id, me.display_name)
             entry_ok = not errs
             n, wait = P.heifu(cx, me.id, int(time.time()))
             heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait}
+            import datetime
+            names_jp = _trait_names()
+            key = P.daily_onsho(cx, me.id, list(names_jp),
+                                datetime.date.today().isoformat())
+            if key:
+                onsho = {"key": key, "name": names_jp.get(key, key)}
             # 告知（次の対戦相手と、その陣形）。§3 の駆け引きの入口。
             entries = PL.ensure_dummies(cx, cards)
             if entry_ok:
@@ -194,6 +210,7 @@ class App(BaseHTTPRequestHandler):
             "humans": [{"id": p.id, "name": p.display_name}
                        for p in players if p.kind == P.HUMAN],
             "boards": boards, "entry_ok": entry_ok, "heifu": heifu,
+            "onsho": onsho,
         })
 
     def _api_login(self, body):
@@ -220,11 +237,19 @@ class App(BaseHTTPRequestHandler):
             decks[reg] = {"form": F.FORM_ALIAS.get(fm, fm),
                           "cards": [c.name for c in army.cards] if army else []}
         _, entry_errors = PL.entry_of(cx, cards, me.id, me.display_name)
+        from . import design as D
+        names_jp = _trait_names()
+        onsho = [{"id": r["id"], "key": r["trait_key"],
+                  "name": names_jp.get(r["trait_key"], r["trait_key"]),
+                  "value": round(D.trait_value(r["trait_key"]), 2),
+                  "general": r["general_name"]}
+                 for r in P.owned_traits(cx, me.id)]
         self._json({
             "regs": [{"name": n, "cap": c} for n, c in M.REGULATIONS],
             "roster": _roster_json(),
             "decks": decks,
             "entry_errors": entry_errors,
+            "onsho": onsho,
         })
 
     def _api_deck(self, body):
@@ -305,6 +330,28 @@ class App(BaseHTTPRequestHandler):
                 "match_id": row["id"] if row else None,
             })
         self._json({"results": results})
+
+    def _api_onsho(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        oid = int(body.get("owned_id", 0))
+        gen = (body.get("general") or "").strip()
+        mine = {r["id"]: r for r in P.owned_traits(cx, me.id)}
+        if oid not in mine:
+            return self._json({"ok": False, "errors": ["その恩賞は持っていない"]})
+        if not gen:
+            P.set_trait(cx, me.id, oid, "", None)
+            return self._json({"ok": True})
+        if not any(g["名前"] == gen for g in R.generals()):
+            return self._json({"ok": False, "errors": ["その武将はいない"]})
+        slot = P.free_slot(cx, me.id, gen)
+        if slot is None:
+            return self._json({"ok": False,
+                               "errors": ["{} の軍功枠は3つとも埋まっている".format(gen)]})
+        P.set_trait(cx, me.id, oid, gen, slot)
+        self._json({"ok": True})
 
     def _api_replays(self):
         cx = self._cx()

@@ -236,5 +236,16 @@ svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); bord
   color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; }
 .login-row { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
 
+.onsho-banner { background: linear-gradient(90deg, #3a2c14, var(--panel));
+  border: 1px solid var(--gold); border-radius: 10px; padding: 10px 16px;
+  margin-bottom: 16px; color: var(--gold); }
+.onsho-banner b { font-family: "Hiragino Mincho ProN", serif; }
+.onsho-panel { margin-top: 14px; }
+.onsho-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.onsho-row .oname { font-family: "Hiragino Mincho ProN", serif; }
+.onsho-row .val { color: var(--sub); width: 4em; }
+.onsho-row select { font: inherit; font-size: 12px; background: var(--panel2);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; }
+
 .fade-in { animation: fadein .4s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(6px); } }
