@@ -34,7 +34,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from . import field as F
 from . import match as M
 
-K_FACTOR = 24.0          # 1戦あたりの最大変動
+K_FACTOR = 24.0          # 1戦あたりの最大変動（対局数0のとき）
+K_HALF = 30.0            # この対局数で K が半分になる（0 なら K を下げない）
 RATING_START = 1500.0
 BAND = 200.0             # マッチングの帯（この幅の中から相手を選ぶ）
 REMATCH_GAP = 3          # 直近この回数は同じ相手と当てない
@@ -51,9 +52,26 @@ def rating_for(p: float) -> float:
     return -400.0 * math.log10(1.0 / p - 1.0)
 
 
+def k_of(games: int) -> float:
+    """対局数に応じた K。**固定 K は閉じたプールで発散する**（§7.38）。
+
+    閉じたプールでは強い人が勝ち続けるので、固定 K だと勝率が示すレート差を
+    通り越して延々と上がる（勝率75%: 理論 +191 に対し 400巡で +444）。
+    K を対局数で下げると理論値の近くで止まり、ばらつきも巡が増えるほど縮む。
+    """
+    if K_HALF <= 0.0:
+        return K_FACTOR
+    return K_FACTOR / (1.0 + games / K_HALF)
+
+
 def null_spread(k: float, games: int) -> float:
-    """実力が完全に等しいときのレートの標準偏差（ランダムウォーク）。"""
+    """実力が完全に等しいときのレートの標準偏差（固定 K のランダムウォーク）。"""
     return k * math.sqrt(games) / 2.0
+
+
+def null_spread_var(games: int) -> float:
+    """可変 K のときの零点の標準偏差。**K が縮むので √N では伸びない。**"""
+    return math.sqrt(sum((k_of(i) / 2.0) ** 2 for i in range(games)))
 
 
 @dataclass
@@ -280,8 +298,9 @@ def resolve_round(board: Board, pairs: Sequence[Tuple[str, str]],
             sa = 1.0 if r["winner"] == "A" else (
                 0.0 if r["winner"] == "B" else 0.5)
         ea = expected(board.get(a), board.get(b))
-        board.rating[a] = board.get(a) + K_FACTOR * (sa - ea)
-        board.rating[b] = board.get(b) - K_FACTOR * (sa - ea)
+        ka = k_of(board.games.get(a, 0)); kb = k_of(board.games.get(b, 0))
+        board.rating[a] = board.get(a) + ka * (sa - ea)
+        board.rating[b] = board.get(b) - kb * (sa - ea)
         for x, sc, o in ((a, sa, b), (b, 1.0 - sa, a)):
             board.games[x] = board.games.get(x, 0) + 1
             board.wins[x] = board.wins.get(x, 0.0) + sc
