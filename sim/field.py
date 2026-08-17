@@ -1658,16 +1658,16 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     else:
         where = "{}{}隊".format(side, n)
     if kind == "dot":
-        return "{}、{}。{}の陣に火の手が上がり、なお燃え広がる（毎分{:,.0f}人・{:.0f}分）。".format(
+        return "{}、{}。{}の陣に火の手が上がる（毎分{:,.0f}人・{:.0f}分）。".format(
             who, name, where, per_min(amount), mins(secs))
     if kind == "damage":
-        return "{}、{}。{}を討ち崩し、{:,.0f}人を討ち取る。".format(
+        return "{}、{}。{}に斬り込み、{:,.0f}人を討ち取る。".format(
             who, name, where, amount)
     if kind == "heal":
         return "{}、{}。{}の傷兵{:,.0f}人が再び戦列に加わる。".format(
             who, name, where, amount)
     if kind == "stun":
-        return "{}、{}。{}は足を縫い留められ、進めぬこと{:.0f}分。".format(
+        return "{}、{}。{}は足を止められ、しばし動けない（{:.0f}分）。".format(
             who, name, where, mins(secs))
     if kind == "chaos":
         return "{}、{}。{}の隊列が乱れ、同士討ちの声が上がる（{:.0f}分）。".format(
@@ -2474,6 +2474,9 @@ SKILL_INFO = {}     # 技名 -> (威力, 種別)   rosterdata が埋める
 SKILL_TARGET = {}   # 技名 -> 対象文字列
 
 _JP = {"A": "曹", "B": "孫"}
+# 両軍に同じ武将がいるとき、その名にだけ軍名を冠する（「魏軍の満寵〔剛毅〕」）。
+# narrate() の冒頭で埋める。空なら冠しない。
+_DUP_NAMES: set = set()
 
 
 def _army_name(army: "Army", fallback: str) -> str:
@@ -2579,8 +2582,14 @@ def _wing(u: Unit) -> str:
 
 
 def _who(u: Unit) -> str:
-    """札の呼び名。実カードなら武将名、合成カードなら位置と兵種で呼ぶ。"""
+    """札の呼び名。実カードなら武将名、合成カードなら位置と兵種で呼ぶ。
+
+    同じ武将が両軍にいる対戦では、名前だけだとどちらの行か分からなくなる
+    （実測: 両軍の満寵が同じ刻に技を撃ち、2行が区別不能だった）。その名に
+    限り軍名を冠する。"""
     if u.name:
+        if u.name in _DUP_NAMES:
+            return "{}軍の{}".format(_JP["A" if u.side > 0 else "B"], u.name)
         return u.name
     return "{}軍{}{}の{}".format(_JP["A" if u.side > 0 else "B"], _wing(u),
                                  "前衛" if u.is_front else "後衛", TYPE_JP[u.typ])
@@ -2589,6 +2598,9 @@ def _who(u: Unit) -> str:
 def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
     _JP["A"] = _army_name(a, "曹")
     _JP["B"] = _army_name(b, "孫")
+    global _DUP_NAMES
+    _DUP_NAMES = ({c.name for c in a.cards if c.name}
+                  & {c.name for c in b.cards if c.name})
     if _JP["A"] == _JP["B"]:            # 同勢力どうしは区別が付かないので添字
         _JP["A"], _JP["B"] = _JP["A"] + "(先)", _JP["B"] + "(後)"
     def shape(army: Army) -> str:
@@ -2606,7 +2618,7 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         vg = [u.name for u in us
               if u.name and "vanguard" in u.traits and u.is_front]
         if vg:
-            line += "{}軍は{}、自ら陣頭に立つ。".format(_JP[side], "・".join(vg))
+            line += "{}軍は{}が自ら陣頭に立つ。".format(_JP[side], "・".join(vg))
     ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
     # 迂回の予告。所要時間も捨てる攻撃量も経路長から確定している（§9.3）
     bets = [u for u in list(ua) + list(ub)
@@ -2622,9 +2634,9 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         # ない setup が出て演出装置が壊れる（実測で両方出た）。
         seen.add(("賭", id(u)))
         ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
-            "{}、戦列を離れ、大きく敵陣の外を回る。{:.0f}mの迂回、"
-            "およそ{:.0f}分の矛を捨てる賭けである。".format(
-                _who(u), u.total_len, mins(u.total_len / u.speed))))
+            "{}、戦列を離れて敵陣の外へ大きく回り込む。戻るまでおよそ"
+            "{:.0f}分、その間は矛を交えられない賭けである。".format(
+                _who(u), mins(u.total_len / u.speed))))
 
 
 def _log_tick(ev, seen, t, ua, ub, gap) -> None:
@@ -2653,9 +2665,9 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                     for y in ub if y.is_front and box_gap(x, y) <= 1.0)
             if best[3] > 1.0:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
-                    "両軍の前衛、干戈を交える。{}と{}、正面{:.0f}mで"
+                    "両軍の前衛、干戈を交える。{}と{}が正面から"
                     "ぶつかり合う（{}組が交戦）。".format(
-                        _who(best[1]), _who(best[2]), best[3], n)))
+                        _who(best[1]), _who(best[2]), n)))
             else:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
                     "{}、押し出して{}の側面に回り込む。正面に受ける敵なし"
@@ -2672,9 +2684,9 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             tgt = min((f for f in foes if not f.is_front),
                       key=lambda f: math.hypot(f.x - u.x, f.y - u.y), default=None)
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
-                "{}、ついに敵陣の背後へ至る（{:.0f}分の行程）。{}の側背を"
-                "突く。この時点で残り{:.0f}%。".format(
-                    _who(u), mins(t), _who(tgt) if tgt else "後衛",
+                "{}、ついに敵陣の背後へ現れる。{}の側背を突く"
+                "（残り{:.0f}%）。".format(
+                    _who(u), _who(tgt) if tgt else "後衛",
                     100 * tgt.ratio() if tgt else 0)))
     # 騎兵が突撃の勢いを使い切る（乱戦に呑まれる）
     if CHARGE_BONUS > 0.0:
@@ -2700,8 +2712,8 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 seen.add(("抑", id(u)))
                 near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
-                    "{}、{}に{:.0f}mまで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
-                        _who(u), _who(near), min(g), 100 * sup)))
+                    "{}、{}に間近まで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
+                        _who(u), _who(near), 100 * sup)))
     # 壊滅
     for u in list(ua) + list(ub):
         k = ("滅", id(u))
@@ -2723,10 +2735,9 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
         if (("賭", id(u)) in seen_bets
                 and u.progress / u.total_len <= 0.97):
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
-                "{}、敵陣の背後へ回り込めぬまま日が暮れる（行程{:.0f}%・"
-                "残り{:.0f}m）。".format(
-                    _who(u), 100 * u.progress / u.total_len,
-                    u.total_len - u.progress)))
+                "{}、敵陣の背後へ回り込めぬまま日が暮れる"
+                "（道のりの{:.0f}%まで進んでいた）。".format(
+                    _who(u), 100 * u.progress / u.total_len)))
     lost_a = sum(u.men0 - u.men for u in ua)
     lost_b = sum(u.men0 - u.men for u in ub)
     win = "A" if ra > rb else "B"
