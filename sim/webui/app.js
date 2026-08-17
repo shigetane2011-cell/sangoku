@@ -159,6 +159,16 @@ async function viewDeck(state) {
       <div>
         <div class="roster-tools">
           <div class="filter-tabs" id="typetabs"></div>
+          <div class="filter-tabs" id="bandtabs"></div>
+          <div class="filter-tabs" id="factabs"></div>
+          <select id="sortsel">
+            <option value="cost-">コスト 高い順</option>
+            <option value="cost+">コスト 低い順</option>
+            <option value="men-">兵力 多い順</option>
+            <option value="might-">武力 高い順</option>
+            <option value="wits-">知力 高い順</option>
+            <option value="dfn-">防御 高い順</option>
+          </select>
           <input id="search" placeholder="名で探す">
         </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
@@ -213,15 +223,24 @@ function drawFormTabs() {
     cur.form = b.dataset.f; drawFormTabs(); drawAll();
   });
 }
-function drawTypeTabs() {
-  const ts = ["すべて", "歩兵", "騎兵", "弓兵"];
-  const el = $("#typetabs");
-  el.dataset.on = el.dataset.on || "すべて";
-  el.innerHTML = ts.map((t) =>
-    `<button class="${el.dataset.on === t ? "on" : ""}" data-t="${t}">${t}</button>`).join("");
-  $$("#typetabs button").forEach((b) => b.onclick = () => {
-    el.dataset.on = b.dataset.t; drawTypeTabs(); drawRoster();
+const FILTER = { typ: "すべて", band: "全帯", fac: "全勢力", sort: "cost-" };
+const BANDS = { "全帯": null, "低 1〜3": [1, 3], "中 4〜6": [4, 6], "高 7〜10": [7, 10] };
+
+function chipTabs(sel, items, key) {
+  const el = $(sel);
+  el.innerHTML = items.map((t) =>
+    `<button class="${FILTER[key] === t ? "on" : ""}" data-t="${t}">${t}</button>`).join("");
+  $$(sel + " button").forEach((b) => b.onclick = () => {
+    FILTER[key] = b.dataset.t; chipTabs(sel, items, key); drawRoster();
   });
+}
+
+function drawTypeTabs() {
+  chipTabs("#typetabs", ["すべて", "歩兵", "騎兵", "弓兵"], "typ");
+  chipTabs("#bandtabs", Object.keys(BANDS), "band");
+  chipTabs("#factabs", ["全勢力", "魏", "蜀", "呉", "群雄"], "fac");
+  $("#sortsel").value = FILTER.sort;
+  $("#sortsel").onchange = () => { FILTER.sort = $("#sortsel").value; drawRoster(); };
 }
 
 function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); }
@@ -319,15 +338,19 @@ function drawOnsho() {
 }
 
 function drawRoster() {
-  const t = $("#typetabs").dataset.on;
   const q = $("#search").value.trim();
   const used = usedPersons(cur.reg);
   const inDeck = new Set(cur.cards);
-  const cap = D.regs.find((r) => r.name === cur.reg).cap;
+  const band = BANDS[FILTER.band];
+  const key = FILTER.sort.slice(0, -1);
+  const dir = FILTER.sort.endsWith("-") ? -1 : 1;
   const list = D.roster
-    .filter((c) => (t === "すべて" || c.typ === t))
+    .filter((c) => (FILTER.typ === "すべて" || c.typ === FILTER.typ))
+    .filter((c) => !band || (c.cost >= band[0] && c.cost <= band[1]))
+    .filter((c) => (FILTER.fac === "全勢力" || c.faction === FILTER.fac))
     .filter((c) => !q || c.name.includes(q) || c.person.includes(q))
-    .sort((a, b) => b.cost - a.cost || a.name.localeCompare(b.name, "ja"));
+    .sort((a, b) => dir * (a[key] - b[key])
+      || b.cost - a.cost || a.name.localeCompare(b.name, "ja"));
   $("#roster").innerHTML = list.map((c) => {
     const u = used.get(c.person);
     const dup = inDeck.has(c.name) ||

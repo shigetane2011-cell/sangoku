@@ -165,7 +165,11 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 
 .roster-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .roster-tools input { font: inherit; background: var(--panel2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; width: 11em; }
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; width: 9em; }
+.roster-tools select { font: inherit; font-size: 12.5px; background: var(--panel2);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.roster-tools .filter-tabs { margin-bottom: 0; }
+.roster-tools .filter-tabs button { padding: 4px 10px; font-size: 12.5px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
 .card {
   position: relative; background: var(--panel); border: 1px solid var(--line);
