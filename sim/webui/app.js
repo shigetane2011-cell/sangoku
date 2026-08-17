@@ -87,7 +87,9 @@ async function viewHome(state) {
     </div>`;
   }).join("");
   const h = state.heifu;
-  const enough = h && h.count >= 3;
+  const ok = state.boards_ok || {};
+  const bo1n = ["汜水関", "官渡", "赤壁"].filter((n) => ok[n]).length;
+  const enough = h && h.count >= bo1n && (bo1n > 0 || ok["天下"]);
   const heifuGauge = h ? `
     <span class="heifu" title="兵符: BO1の3戦で3枚使う。30分に1枚回復・上限${h.cap}">
       ${"❙".repeat(h.count)}<span class="empty">${"❙".repeat(h.cap - h.count)}</span>
@@ -99,9 +101,9 @@ async function viewHome(state) {
       <button class="primary" id="fight"
         ${state.entry_ok && enough ? "" : "disabled"}>出　陣</button>
       <span class="hint">${!state.entry_ok
-        ? '出陣には3部隊の登録が要る → <a href="/deck">編成へ</a>'
-        : (enough ? "兵符3枚で4つの順位表を1巡（天下は自動参加・無料）"
-                  : "兵符が足りない（3枚必要）")}</span>
+        ? 'デッキを1つ登録すればその帯に出られる → <a href="/deck">編成へ</a>'
+        : (enough ? `出る順位表: ${["汜水関","官渡","赤壁"].filter(n=>ok[n]).join("・")}${ok["天下"] ? "・天下" : ""}（兵符${bo1n}枚）`
+                  : `兵符が足りない（${bo1n}枚必要）`)}</span>
       ${heifuGauge}
     </div>
     ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
@@ -210,13 +212,16 @@ async function viewDeck(state) {
 function drawSortieBar() {
   const b = $("#fight2");
   if (!b || !STATE) return;
-  const h = STATE.heifu || { count: 0 };
-  const ok = !D.entry_errors.length && h.count >= 3;
-  b.disabled = !ok;
-  $("#fight2hint").textContent = D.entry_errors.length
-    ? "登録に不備がある（下の検証を見る）"
-    : (h.count < 3 ? `兵符が足りない（${h.count}/3）` :
-       `兵符 ${h.count}/${h.cap}　登録済みの3部隊で4つの順位表を1巡`);
+  const h = STATE.heifu || { count: 0, cap: 10 };
+  const ok = D.boards_ok || {};
+  const bo1 = D.regs.map((r) => r.name).filter((n) => ok[n]);
+  const list = [...bo1, ...(ok["天下"] ? ["天下"] : [])];
+  const enough = h.count >= bo1.length;
+  b.disabled = !list.length || !enough;
+  $("#fight2hint").textContent = !list.length
+    ? "出られる順位表が無い（デッキを1つ登録すればその帯に出られる）"
+    : (!enough ? `兵符が足りない（${h.count}/${bo1.length}）`
+       : `出る順位表: ${list.join("・")}（兵符${bo1.length}枚）　残 ${h.count}/${h.cap}`);
 }
 
 function usedPersons(exceptReg) {
@@ -519,11 +524,12 @@ function drawMeter() {
 
 function drawEntryState() {
   const el = $("#entrystate");
-  const missing = D.regs.filter((r) => !(D.decks[r.name] && D.decks[r.name].cards.length));
-  el.innerHTML = D.entry_errors.length
-    ? "<span class='muted'>登録全体の検証: </span>" +
-      D.entry_errors.map((e) => `<div class="warn muted">・${esc(e)}</div>`).join("")
-    : "<span style='color:var(--gold)'>3部隊とも出陣できる。</span>";
+  const ok = D.boards_ok || {};
+  const marks = [...D.regs.map((r) => r.name), "天下"].map((n) =>
+    `<span class="${ok[n] ? "ok-b" : "ng-b"}">${ok[n] ? "○" : "―"} ${n}</span>`
+  ).join("　");
+  el.innerHTML = `<div class="num">${marks}</div>` +
+    D.entry_errors.map((e) => `<div class="warn muted">・${esc(e)}</div>`).join("");
 }
 
 let msgTimer = null;
@@ -539,6 +545,7 @@ async function saveDeck() {
   if (r.ok) {
     D.decks[cur.reg] = { form: cur.form, cards: [...cur.cards] };
     D.entry_errors = r.entry_errors;
+    D.boards_ok = r.boards_ok;
     flashMsg("登録した。"); drawEntryState(); drawSortieBar();
   } else {
     flashMsg(r.errors.join("／"), true);

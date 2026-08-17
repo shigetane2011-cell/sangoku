@@ -167,6 +167,7 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 #deck-msg.ok { color: var(--gold); }
 #deck-msg.err { color: #e08a5a; }
 .entry-state { margin-top: 10px; font-size: 13px; }
+.ok-b { color: var(--gold); } .ng-b { color: var(--faint); }
 
 .roster-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .roster-tools input { font: inherit; background: var(--panel2); color: var(--ink);

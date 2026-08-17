@@ -109,38 +109,79 @@ def _apply_onsho(cx, player_id: str, army: F.Army) -> Tuple[F.Army, float]:
     return dataclasses.replace(army, cards=tuple(out)), extra
 
 
+class BoardEntry:
+    """レギュレーションごとの部隊の入れ物（§7.48）。
+
+    M.Entry は3部隊固定（BO3 の登録の器）だが、**1デッキでも BO1 には
+    出られる**ようにする。unit(i) だけ互換にしてあり、盤面の解決・リプレイは
+    どちらの器でも動く。天下(BO3) は3つ揃った時だけ。
+    """
+
+    def __init__(self, units: Dict[int, F.Army], name: str = ""):
+        self.units_map = units
+        self.name = name
+
+    def unit(self, i: int) -> F.Army:
+        return self.units_map[i]
+
+    @property
+    def units(self):
+        return tuple(self.units_map[i] for i in range(len(M.REGULATIONS)))
+
+
 def entry_of(cx, cards, player_id: str, name: str
-             ) -> Tuple[Optional[M.Entry], List[str]]:
-    """DB のデッキ3つから Entry を組んで検証する。恩賞も背負わせる。"""
+             ) -> Tuple[BoardEntry, Dict[str, bool], List[str]]:
+    """登録から (部隊の入れ物, 盤面ごとの可否, 不備一覧) を作る。
+
+    デッキごとに独立して検証し、valid なデッキの盤面だけ出られる。
+    **同一人物は登録デッキ全体で1枚**（§4.1）— BO1 どうしでも共有しない。
+    関羽をどの帯で使うかという配分が編成の骨になっているため。
+    """
     decks = P.decks_of(cx, player_id)
-    missing = [r for r in REG_NAMES if r not in decks]
-    if missing:
-        return None, ["デッキ未登録: " + "、".join(missing)]
-    units = []
+    units: Dict[int, F.Army] = {}
+    reg_errs: Dict[int, List[str]] = {}
     errs: List[str] = []
-    extras = []
-    for reg in REG_NAMES:
+    for i, (reg, cap) in enumerate(M.REGULATIONS):
+        if reg not in decks:
+            continue
         raw, form_name = decks[reg]
         army, es = parse_deck(cards, raw, form_name)
-        if es:
-            errs += ["{}: {}".format(reg, e) for e in es]
-        else:
+        if army is not None and not es:
             army, extra = _apply_onsho(cx, player_id, army)
-            units.append(army)
-            extras.append(extra)
-    if errs:
-        return None, errs
-    entry = M.Entry(tuple(units), name=name)
-    errs = M.validate(entry)
-    # 恩賞の値段はコスト上限に数える（bare cost は validate が見るので、
-    # ここでは「素のコスト + 恩賞」が上限を超えた場合だけ追加で咎める）
-    for (reg, cap), army, extra in zip(M.REGULATIONS, units, extras):
-        base = sum(c.cost for c in army.cards)
-        if extra > 0.0 and base + extra > cap + 1e-9:
-            errs.append("{}: 恩賞の重み {:.2f} を足すと上限 {:g} を超える"
-                        "（素 {:g} + 恩賞 {:.2f}）".format(
-                            reg, extra, cap, base, extra))
-    return entry, errs
+            if len(army.cards) != M.UNIT_SIZE:
+                es.append("{}人必要（いまは{}人）".format(
+                    M.UNIT_SIZE, len(army.cards)))
+            base = sum(c.cost for c in army.cards)
+            if base > cap + 1e-9:
+                es.append("合計コスト {:g} が上限 {:g} を超えている".format(base, cap))
+            elif extra > 0.0 and base + extra > cap + 1e-9:
+                es.append("恩賞の重み {:.2f} を足すと上限 {:g} を超える"
+                          "（素 {:g} + 恩賞 {:.2f}）".format(extra, cap, base, extra))
+            es += M.placement_errors(army)
+        if es:
+            reg_errs[i] = es
+            errs += ["{}: {}".format(reg, e) for e in es]
+        elif army is not None:
+            units[i] = army
+    # 同一人物の重複は、関わる盤面をどちらも塞ぐ（登録レベルの規則）
+    seen: Dict[str, Tuple[int, str]] = {}
+    dup_regs: set = set()
+    for i, army in units.items():
+        for c in army.cards:
+            p = M.person_of(c)
+            if p in seen and seen[p][0] != i:
+                errs.append("{}: {} は {} の {} と同一人物（別バージョンも不可）"
+                            .format(M.REGULATIONS[i][0], c.name,
+                                    M.REGULATIONS[seen[p][0]][0], seen[p][1]))
+                dup_regs |= {i, seen[p][0]}
+            else:
+                seen[p] = (i, c.name)
+    ok = {}
+    for i, (reg, _) in enumerate(M.REGULATIONS):
+        ok[reg] = i in units and i not in dup_regs
+    ok["天下"] = all(ok[r] for r, _ in M.REGULATIONS)
+    playable = {i: a for i, a in units.items() if i not in dup_regs}
+    return BoardEntry(playable, name=name), ok, errs
 
 
 # ----------------------------------------------------------------------------
@@ -250,13 +291,10 @@ def cmd_status(args) -> None:
             print("  {:<6} [{}] {:g}点  {}".format(reg, fm, cost, raw))
         else:
             print("  {:<6} 未登録".format(reg))
-    entry, errs = entry_of(cx, cards, pl.id, pl.display_name)
-    if errs:
-        print("検証:")
-        for e in errs:
-            print("  - " + e)
-    else:
-        print("検証: 3部隊とも登録できる")
+    entry, ok, errs = entry_of(cx, cards, pl.id, pl.display_name)
+    for e in errs:
+        print("  - " + e)
+    print("出られる順位表: " + ("・".join(b for b in L.BOARDS if ok.get(b)) or "なし"))
     for name in L.BOARDS:
         r = P.board_ratings(cx, name)
         if pl.id in r:
@@ -310,17 +348,19 @@ def cmd_round(args) -> None:
     pl = P.get(cx, args.player)
     if pl is None:
         print("その id の登録者が居ない"); sys.exit(1)
-    entry, errs = entry_of(cx, cards, pl.id, pl.display_name)
-    if errs:
-        print("先にデッキを直す:")
-        for e in errs:
-            print("  - " + e)
+    entry, ok, errs = entry_of(cx, cards, pl.id, pl.display_name)
+    for e in errs:
+        print("  - " + e)
+    if not any(ok.values()):
+        print("出られる順位表が無い（先にデッキを登録する）")
         sys.exit(1)
-    entries = ensure_dummies(cx, cards)
-    entries[pl.id] = entry
+    dummies = ensure_dummies(cx, cards)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     boards = [_canon_reg(args.board)] if args.board else list(L.BOARDS)
     for name in boards:
+        entries = dict(dummies)
+        if ok.get(name):
+            entries[pl.id] = entry
         b, rnd, pairs = run_round(cx, cards, entries, name, dt=args.dt)
         pids = list(entries)
         mine = next((pr for pr in pairs if pl.id in pr), None)
@@ -474,12 +514,13 @@ def cmd_next(args) -> None:
     pl = P.get(cx, args.player)
     if pl is None:
         print("その id の登録者が居ない"); sys.exit(1)
-    entry, errs = entry_of(cx, cards, pl.id, pl.display_name)
-    entries = ensure_dummies(cx, cards)
-    if not errs:
-        entries[pl.id] = entry
+    entry, ok, errs = entry_of(cx, cards, pl.id, pl.display_name)
+    dummies = ensure_dummies(cx, cards)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     for bn in L.BOARDS:
+        entries = dict(dummies)
+        if ok.get(bn):
+            entries[pl.id] = entry
         rnd, pairs = announce(cx, entries, bn)
         mine = next((pr for pr in pairs if pl.id in pr), None)
         if mine is None:
