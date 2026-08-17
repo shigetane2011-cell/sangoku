@@ -284,13 +284,58 @@ def cmd_round(args) -> None:
             print_report(ua, ub, args.dt, seed, me_first)
 
 
+def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
+    """形勢グラフ（将棋AIの評価値グラフの型・§9.4）。
+
+    縦軸は残存率の差（自軍 − 敵軍）。上にいれば自軍優勢。横軸は戦場の時刻。
+    """
+    if not series:
+        return []
+    step = max(1, len(series) // width)
+    pts = series[::step]
+    diffs = [(ra - rb) if me_first else (rb - ra) for _, ra, rb in pts]
+    bands = (0.25, 0.15, 0.05, -0.05, -0.15, -0.25)   # 行の下限（上から）
+    def row_of(d):
+        for i, lo in enumerate(bands):
+            if d >= lo:
+                return i
+        return len(bands)
+    # 全セルを全角で組む（半角を混ぜると列がずれる）
+    rows = [["　"] * len(pts) for _ in range(len(bands) + 1)]
+    for x in range(len(pts)):
+        rows[3][x] = "・"                 # ±0 の点線
+    for x, d in enumerate(diffs):
+        rows[row_of(d)][x] = "●"
+    labels = ("+25│", "   │", "   │", " ±0│", "   │", "   │", "-25│")
+    out = ["── 形勢（上=自軍優勢・縦軸は残存率差%） ──"]
+    for lab, cells in zip(labels, rows):
+        out.append(lab + "".join(cells))
+    # 横軸: 2時間ごとの目盛り（全角数字で列を揃える）
+    zen = str.maketrans("0123456789", "０１２３４５６７８９")
+    axis = ["　"] * len(pts)
+    marks = []
+    for x, (t, _, _) in enumerate(pts):
+        h = int((F.BATTLE_START_H * 60 + F.mins(t)) // 60)
+        if not marks or h >= marks[-1] + 2:
+            marks.append(h)
+            lab = "{}時".format(h).translate(zen)
+            for j, ch in enumerate(lab):
+                if x + j < len(axis):
+                    axis[x + j] = ch
+    out.append("   └" + "".join(axis))
+    return out
+
+
 def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
-    """戦果表。実況（§9.3・8〜12行）は流れを語り、こちらは数字で振り返る。
+    """戦果表と形勢グラフ。実況は流れを語り、こちらは数字で振り返る。
 
     攻略の糸口はここにある: 与ダメが小さい札は「働く前に落ちた」か「射程・対面が
     悪い」、残兵が多いのに負けたなら「前衛だけ削られて後衛が余った」。
     """
-    r = F.simulate(ua, ub, dt, seed=seed)
+    series = []
+    r = F.simulate(ua, ub, dt, seed=seed, series=series)
+    for line in eval_chart(series, me_first):
+        print("    " + line)
     mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
     print("    ── 戦果表（与ダメ=千人・残兵%） ──")
     for tag, rows in (("自軍", mine), ("敵軍", foe)):

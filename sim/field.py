@@ -2112,7 +2112,8 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
              repulse: float = 0.0, damage: bool = True,
              events: "List[Event] | None" = None,
-             seed: "int | None" = None) -> Dict:
+             seed: "int | None" = None,
+             series: "list | None" = None) -> Dict:
     """events を渡すと出来事を記録する。**記録は読み取り専用**で、勝敗にも
     測定にも一切影響しない（§9.3。§8.2 の引き分け帯を測定へ持ち込んで計器を
     殺した失敗と同じ形を避けるため）。
@@ -2343,6 +2344,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         t += dt
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
+        if series is not None:
+            # 形勢グラフ用（§9.4。将棋AIの評価値グラフの型）。表示専用。
+            series.append((t, ra, rb))
         if events is not None:
             _log_tick(events, seen, t, ua, ub, gap)
         if ra < ROUT_RATIO or rb < ROUT_RATIO:
