@@ -34,8 +34,8 @@ from . import field as F
 from . import match as M
 
 # 性格。兵種と役割の重み、陣形の好み。**強さは揃えない。**
-FORM_BY_NAME = {"標準": F.FORM_STANDARD, "広く浅い": F.FORM_WIDE,
-                "狭く深い": F.FORM_DEEP}
+FORM_BY_NAME = {"魚鱗": F.FORM_STANDARD, "鶴翼": F.FORM_WIDE,
+                "雁行": F.FORM_DEEP}
 
 
 @dataclass(frozen=True)
@@ -53,26 +53,26 @@ PERSONAS: Tuple[Persona, ...] = (
     # **好きな兵種を置けない編成**になる。実測で斉射の平均勝率が 16% と、他5性格
     # （43〜73%）から外れていた。陣形は「その性格が何を主役にしたいか」で選ぶ。
     #
-    #   狭く深い（弓4） … 射撃が主役      標準（弓3） … 近接と射撃が半々
-    #   広く浅い（弓2） … 近接が主役
+    #   雁行（弓4） … 射撃が主役      魚鱗（弓3） … 近接と射撃が半々
+    #   鶴翼（弓2） … 近接が主役
     Persona("鉄壁", {F.INF: 1.8, F.CAV: 0.9, F.ARC: 0.9},
             {F.TANK: 2.5, F.SUP: 1.5, F.BAL: 1.0, F.DPS: 0.6, F.BURST: 0.4},
-            "標準", 0.3),
+            "魚鱗", 0.3),
     Persona("疾風", {F.CAV: 1.8, F.INF: 1.0, F.ARC: 0.7},
             {F.BURST: 2.5, F.DPS: 2.0, F.BAL: 1.0, F.TANK: 0.6, F.SUP: 0.4},
-            "広く浅い", 0.7),
+            "鶴翼", 0.7),
     Persona("斉射", {F.ARC: 1.8, F.INF: 1.1, F.CAV: 0.7},
             {F.DPS: 2.0, F.SUP: 2.0, F.BAL: 1.0, F.TANK: 0.9, F.BURST: 0.6},
-            "狭く深い", 0.5),
+            "雁行", 0.5),
     Persona("均衡", {F.INF: 1.0, F.CAV: 1.0, F.ARC: 1.0},
             {F.BAL: 2.0, F.TANK: 1.0, F.DPS: 1.0, F.SUP: 1.0, F.BURST: 1.0},
-            "標準", 0.5),
+            "魚鱗", 0.5),
     Persona("軍師", {F.ARC: 1.5, F.INF: 1.2, F.CAV: 0.8},
             {F.SUP: 2.5, F.BAL: 1.5, F.TANK: 1.0, F.DPS: 0.9, F.BURST: 0.5},
-            "狭く深い", 0.4),
+            "雁行", 0.4),
     Persona("猛攻", {F.CAV: 1.4, F.INF: 1.4, F.ARC: 0.7},
             {F.DPS: 2.5, F.BURST: 2.0, F.BAL: 0.9, F.TANK: 0.5, F.SUP: 0.3},
-            "広く浅い", 0.8),
+            "鶴翼", 0.8),
 )
 
 

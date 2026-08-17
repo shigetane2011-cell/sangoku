@@ -15,7 +15,7 @@ CLI で通す。盤面・マッチ・順位表の実装は field/match/ladder �
 
 設計メモ:
 - **デッキの並び順がそのまま配置**（前衛から）。陣形が前衛の枚数を決めるので、
-  「狭く深い」なら先頭2枚が前衛（近接）、残り4枚が後衛（弓）になる。
+  「雁行」なら先頭2枚が前衛（近接）、残り4枚が後衛（弓）になる。
 - round は本来「組む→告知→編成期間→戦う」（§3）だが、CLI では告知と戦いを
   続けて行う。組み方は plan_round のまま決定的なので、サーバー化しても同じ組になる。
 - ダミーの編成は (性格, 通し番号) から決定的に再構成できるので DB には持たない。
@@ -62,9 +62,12 @@ def _card_index(cards) -> Dict[str, F.Card]:
 
 def parse_deck(cards, names_raw: str, form_name: str
                ) -> Tuple[Optional[F.Army], List[str]]:
-    """「、」区切りの武将名と陣形名から Army を作る。errs が空なら成功。"""
+    """「、」区切りの武将名と陣形名から Army を作る。errs が空なら成功。
+
+    陣形の旧名（広く浅い/標準/狭く深い）は読み替えて受ける（DB に残っていても
+    壊れないように）。"""
     errs: List[str] = []
-    form = FORM_BY_NAME.get(form_name)
+    form = FORM_BY_NAME.get(F.FORM_ALIAS.get(form_name, form_name))
     if form is None:
         return None, ["陣形は {} のどれか".format("・".join(FORM_BY_NAME))]
     idx = _card_index(cards)
@@ -278,6 +281,29 @@ def cmd_round(args) -> None:
             ub = M.with_surplus(entries[mine[1]].unit(b.reg), cap)
             for line in F.narrate(ua, ub, args.dt, seed=seed):
                 print("    " + line)
+            print_report(ua, ub, args.dt, seed, me_first)
+
+
+def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
+    """戦果表。実況（§9.3・8〜12行）は流れを語り、こちらは数字で振り返る。
+
+    攻略の糸口はここにある: 与ダメが小さい札は「働く前に落ちた」か「射程・対面が
+    悪い」、残兵が多いのに負けたなら「前衛だけ削られて後衛が余った」。
+    """
+    r = F.simulate(ua, ub, dt, seed=seed)
+    mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
+    print("    ── 戦果表（与ダメ=千人・残兵%） ──")
+    for tag, rows in (("自軍", mine), ("敵軍", foe)):
+        cells = []
+        for name, typ, dealt, men, men0 in rows:
+            pct = 100.0 * men / men0 if men0 > 0 else 0.0
+            state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
+            cells.append("{}({}) 与{:.1f} 残{}".format(
+                M.person_of(F.Card(0, typ, name=name)) or F.TYPE_JP[typ],
+                F.TYPE_JP[typ][0], dealt / 1000.0, state))
+        print("    {}: {}".format(tag, " / ".join(cells[:3])))
+        if len(cells) > 3:
+            print("          {}".format(" / ".join(cells[3:])))
 
 
 def cmd_standings(args) -> None:

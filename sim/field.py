@@ -1147,8 +1147,15 @@ class Formation:
 
 
 FORM_STANDARD = Formation(n_front=3, frontage=BASE_FRONTAGE)
-FORM_WIDE = Formation(n_front=4, frontage=BASE_FRONTAGE)      # 広く浅い
-FORM_DEEP = Formation(n_front=2, frontage=BASE_FRONTAGE * 0.7)  # 狭く深い
+FORM_WIDE = Formation(n_front=4, frontage=BASE_FRONTAGE)      # 鶴翼（広く浅い）
+FORM_DEEP = Formation(n_front=2, frontage=BASE_FRONTAGE * 0.7)  # 雁行（狭く深い）
+
+# 陣形の表示名（八陣の名を借りる）。**機能は n_front が決める。名前は飾り。**
+#   鶴翼 = 前衛4・翼を広げる ／ 魚鱗 = 前衛3・中央厚めの攻め陣 ／
+#   雁行 = 前衛2・縦深で弓が主役
+# 旧名（広く浅い/標準/狭く深い）は説明語が画面に漏れていたもの。読み替えで受ける。
+FORM_NAME = {4: "鶴翼", 3: "魚鱗", 2: "雁行"}
+FORM_ALIAS = {"広く浅い": "鶴翼", "標準": "魚鱗", "狭く深い": "雁行"}
 
 
 @dataclass(frozen=True)
@@ -2342,8 +2349,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "fires_a": [(u.name or u.typ, u.fires) for u in ua],
             "fires_b": [(u.name or u.typ, u.fires) for u in ub],
             # 診断用（勝敗に不使用）: 枚ごとの与ダメージと残兵。§7.32 の計器。
-            "dealt_a": [(u.name or u.typ, u.dealt, u.men) for u in ua],
-            "dealt_b": [(u.name or u.typ, u.dealt, u.men) for u in ub],
+            # 戦果表（sim/play.py）もここを読む。
+            "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0) for u in ua],
+            "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。
@@ -2572,8 +2580,7 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
     if _JP["A"] == _JP["B"]:            # 同勢力どうしは区別が付かないので添字
         _JP["A"], _JP["B"] = _JP["A"] + "(先)", _JP["B"] + "(後)"
     def shape(army: Army) -> str:
-        return {2: "狭く深い", 3: "標準", 4: "広く浅い"}.get(
-            army.form.n_front, f"前衛{army.form.n_front}枚")
+        return FORM_NAME.get(army.form.n_front, f"前衛{army.form.n_front}枚")
     def mix(army: Army) -> str:
         c = {}
         for card in army.cards:
@@ -2891,9 +2898,9 @@ ZERO_CASES = (
     ("騎兵×6 標準", lambda: type_army(CAV)),
     ("弓兵×6 標準", lambda: type_army(ARC)),
     ("混成 標準", lambda: mixed_role_army([INF, INF, CAV, ARC, ARC, CAV])),
-    ("混成 広く浅い", lambda: mixed_role_army([INF, INF, CAV, ARC, ARC, CAV],
+    ("混成 鶴翼(前4)", lambda: mixed_role_army([INF, INF, CAV, ARC, ARC, CAV],
                                               FORM_WIDE)),
-    ("混成 狭く深い", lambda: mixed_role_army([INF, INF, CAV, ARC, ARC, CAV],
+    ("混成 雁行(前2)", lambda: mixed_role_army([INF, INF, CAV, ARC, ARC, CAV],
                                               FORM_DEEP)),
 )
 
@@ -3152,8 +3159,8 @@ def type_table(dt: float = 0.5, rot: int = 6):
     return decompose((INF, CAV, ARC), type_army, dt, rot)
 
 
-FORMS = (("標準(前衛3)", FORM_STANDARD), ("広く浅い(前衛4)", FORM_WIDE),
-         ("狭く深い(前衛2)", FORM_DEEP))
+FORMS = (("魚鱗(前衛3)", FORM_STANDARD), ("鶴翼(前衛4)", FORM_WIDE),
+         ("雁行(前衛2)", FORM_DEEP))
 FORM_TYPS = (INF, INF, CAV, ARC, ARC, CAV)
 
 
