@@ -155,6 +155,18 @@ CREATE TABLE IF NOT EXISTS boards (
   name  TEXT PRIMARY KEY,
   round INTEGER NOT NULL DEFAULT 0
 );
+-- 対戦の記録。**種と組だけ持てばリプレイは何度でも再生できる**（§8.4）。
+-- 勝敗は保存しない（種から決定的に再計算できる。二重に持つと食い違いが出る）。
+CREATE TABLE IF NOT EXISTS matches (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  board      TEXT NOT NULL,
+  round      INTEGER NOT NULL,
+  pid_a      TEXT NOT NULL,
+  pid_b      TEXT NOT NULL,
+  seed       INTEGER NOT NULL,
+  played_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_matches_board ON matches(board, round);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -354,6 +366,25 @@ def decks_of(cx: sqlite3.Connection, player_id: str) -> Dict[str, Tuple[str, str
     return {r["regulation"]: (r["cards"], r["formation"]) for r in cx.execute(
         "SELECT regulation, cards, formation FROM decks WHERE player_id = ?",
         (player_id,))}
+
+
+def record_match(cx: sqlite3.Connection, board: str, rnd: int,
+                 pid_a: str, pid_b: str, seed: int) -> None:
+    with cx:
+        cx.execute("INSERT INTO matches (board, round, pid_a, pid_b, seed)"
+                   " VALUES (?, ?, ?, ?, ?)", (board, rnd, pid_a, pid_b, seed))
+
+
+def matches_of(cx: sqlite3.Connection, board: str, limit: int = 40,
+               pid: Optional[str] = None) -> List[Dict]:
+    q = "SELECT * FROM matches WHERE board = ?"
+    args: list = [board]
+    if pid:
+        q += " AND (pid_a = ? OR pid_b = ?)"
+        args += [pid, pid]
+    q += " ORDER BY round DESC, id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in cx.execute(q, args)]
 
 
 def _row(r: sqlite3.Row) -> Player:

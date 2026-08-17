@@ -1,0 +1,230 @@
+/* 三国志 卓上戦記 — 灯りの落ちた軍議の間。墨の地に朱と金。 */
+:root {
+  --bg: #16120e;
+  --panel: #201a14;
+  --panel2: #2a221a;
+  --line: #3c3226;
+  --ink: #ece2cf;
+  --sub: #a3947c;
+  --faint: #6e6250;
+  --accent: #c8442a;        /* 朱 */
+  --accent-soft: #7a2e1e;
+  --gold: #c9a24b;          /* 金 */
+  --lose: #5f6d7d;
+  --wei: #46689c;
+  --shu: #47825a;
+  --go: #a04343;
+  --gun: #8a7640;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; color: var(--ink); background: var(--bg);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", Meiryo, sans-serif;
+  font-size: 14.5px; line-height: 1.7;
+}
+.serif, h1, h2, h3 { font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 80px; }
+
+/* ── ヘッダー ─────────────────────────── */
+header {
+  display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap;
+  padding: 22px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 26px;
+}
+header h1 { font-size: 24px; margin: 0; letter-spacing: .12em; font-weight: 600; }
+header h1 .tsuki { color: var(--accent); }
+nav { display: flex; gap: 4px; }
+nav a {
+  color: var(--sub); text-decoration: none; padding: 4px 12px; border-radius: 6px;
+  letter-spacing: .08em;
+}
+nav a:hover { color: var(--ink); background: var(--panel2); }
+nav a.on { color: var(--ink); background: var(--panel2); box-shadow: inset 0 -2px 0 var(--accent); }
+.player-chip { margin-left: auto; color: var(--sub); font-size: 13px; }
+.player-chip b { color: var(--gold); font-weight: 600; margin: 0 2px; }
+.player-chip a { color: var(--sub); }
+
+h2 { font-size: 18px; letter-spacing: .1em; font-weight: 600; margin: 26px 0 12px; }
+h2 .sub { font-size: 12px; color: var(--sub); letter-spacing: .05em; margin-left: 10px; font-family: inherit; }
+a { color: var(--gold); }
+small, .muted { color: var(--sub); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ── ボタン ─────────────────────────── */
+button, .btn {
+  font: inherit; cursor: pointer; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--ink);
+  padding: 7px 18px; border-radius: 8px; letter-spacing: .06em;
+  transition: filter .15s, transform .05s;
+}
+button:hover { filter: brightness(1.15); }
+button:active { transform: translateY(1px); }
+button.primary {
+  background: linear-gradient(180deg, #d6512f, #a93a22);
+  border-color: #7a2e1e; color: #fff7ee; font-weight: 600;
+}
+button.primary:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+button.ghost { background: transparent; }
+button.mini { padding: 1px 7px; border-radius: 5px; font-size: 12px; }
+
+/* ── パネル・順位表 ────────────────────── */
+.boards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 760px) { .boards { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px;
+}
+.panel h2 { margin: 0 0 10px; }
+table.std { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.std td { padding: 4px 8px; border-bottom: 1px solid #2b2419; }
+table.std tr:last-child td { border-bottom: none; }
+table.std tr.me td { color: var(--gold); font-weight: 600; }
+td.rank { width: 3.4em; color: var(--sub); white-space: nowrap; }
+tr.top1 td.rank { color: var(--gold); }
+td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
+.dummy { color: var(--faint); font-size: 11px; margin-left: 5px; }
+
+.cta { margin: 4px 0 20px; display: flex; gap: 14px; align-items: center; }
+.cta button { font-size: 16px; padding: 12px 30px; }
+.cta .hint { color: var(--sub); font-size: 13px; }
+
+/* ── 出陣オーバーレイ・結果 ───────────────── */
+#overlay {
+  position: fixed; inset: 0; background: rgba(10, 8, 6, .88);
+  display: flex; align-items: center; justify-content: center; z-index: 40;
+}
+#overlay .box { text-align: center; }
+#overlay .march {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 26px; letter-spacing: .35em; color: var(--gold);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: .35; } }
+#overlay .muted { margin-top: 12px; }
+.results { display: grid; gap: 10px; margin: 14px 0; }
+.result-row {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 16px;
+}
+.result-row .board { width: 7.5em; color: var(--sub); }
+.verdict { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 18px; font-weight: 700; width: 3.5em; text-align: center; }
+.verdict.win { color: var(--accent); }
+.verdict.lose { color: var(--lose); }
+.verdict.draw { color: var(--sub); }
+.delta.up { color: var(--gold); }
+.delta.down { color: var(--lose); }
+
+/* ── 編成 ─────────────────────────── */
+.deck-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
+@media (max-width: 900px) { .deck-layout { grid-template-columns: 1fr; } }
+.reg-tabs, .form-tabs, .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.reg-tabs button.on, .form-tabs button.on, .filter-tabs button.on {
+  background: var(--accent-soft); border-color: var(--accent); color: #ffe9dd;
+}
+.form-tabs button b { font-family: "Hiragino Mincho ProN", serif; margin-right: 4px; }
+
+.cost-meter { position: relative; height: 22px; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin: 8px 0 14px; }
+.cost-meter .fill { position: absolute; inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #8a5a2a, var(--gold)); transition: width .25s; }
+.cost-meter.over .fill { background: linear-gradient(90deg, #a93a22, #d6512f); }
+.cost-meter .label { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 12px; letter-spacing: .1em; color: #171310;
+  font-weight: 700; mix-blend-mode: plus-lighter; color: var(--ink); }
+
+.slots { display: grid; gap: 6px; }
+.slot {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px dashed var(--line); border-radius: 8px; padding: 5px 10px; min-height: 40px;
+  background: var(--panel);
+}
+.slot.front { border-left: 3px solid var(--accent); }
+.slot.rear { border-left: 3px solid var(--wei); }
+.slot .pos { width: 3.2em; font-size: 11px; color: var(--sub); letter-spacing: .1em; }
+.slot .who { flex: 1; }
+.slot .who b { font-family: "Hiragino Mincho ProN", serif; letter-spacing: .04em; }
+.slot .cost { color: var(--gold); font-variant-numeric: tabular-nums; }
+.slot.empty .who { color: var(--faint); }
+.slot .warn { color: #e08a5a; font-size: 11px; }
+.deck-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+#deck-msg.ok { color: var(--gold); }
+#deck-msg.err { color: #e08a5a; }
+.entry-state { margin-top: 10px; font-size: 13px; }
+
+.roster-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.roster-tools input { font: inherit; background: var(--panel2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; width: 11em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+.card {
+  position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 9px; padding: 8px 10px 7px; cursor: pointer;
+  transition: transform .07s, border-color .12s; overflow: hidden;
+}
+.card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; }
+.card.f魏::before { background: var(--wei); } .card.f蜀::before { background: var(--shu); }
+.card.f呉::before { background: var(--go); } .card.f群雄::before { background: var(--gun); }
+.card:hover { transform: translateY(-2px); border-color: var(--gold); }
+.card.used { opacity: .35; cursor: default; }
+.card.used:hover { transform: none; border-color: var(--line); }
+.card .top { display: flex; align-items: baseline; gap: 6px; }
+.card .cost { font-family: "Hiragino Mincho ProN", serif; font-size: 19px;
+  color: var(--gold); font-weight: 700; }
+.card .typ { font-size: 11px; border: 1px solid var(--line); border-radius: 4px;
+  padding: 0 5px; color: var(--sub); }
+.card .name { font-family: "Hiragino Mincho ProN", serif; font-size: 14.5px;
+  margin: 2px 0 0; letter-spacing: .02em; white-space: nowrap; }
+.card .skill { font-size: 11px; color: var(--sub); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.card .usedby { position: absolute; right: 8px; top: 7px; font-size: 10px; color: var(--faint); }
+
+/* ── リプレイ ───────────────────────── */
+.replay-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.game-tabs { display: flex; gap: 6px; margin: 10px 0; }
+.game-tabs button.on { background: var(--accent-soft); border-color: var(--accent); }
+.replay-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; }
+@media (max-width: 900px) { .replay-grid { grid-template-columns: 1fr; } }
+.log {
+  background: #12100c; border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; min-height: 320px; max-height: 70vh; overflow-y: auto;
+  font-size: 13.5px; line-height: 1.9;
+}
+.log .line { opacity: 0; transform: translateY(4px);
+  transition: opacity .35s, transform .35s; }
+.log .line.show { opacity: 1; transform: none; }
+.log .t { color: var(--faint); font-size: 12px; margin-right: 8px;
+  font-variant-numeric: tabular-nums; }
+.log .band { color: var(--gold); letter-spacing: .12em;
+  font-family: "Hiragino Mincho ProN", serif; margin: 4px 0; }
+.log .quote { color: #e8c98a; font-family: "Hiragino Mincho ProN", serif;
+  padding-left: 3.2em; }
+.log .check { color: #9fb6d0; }
+.log .art { color: var(--accent); margin-right: 4px; }
+.log .skillname { color: #ffb08a; }
+.replay-controls { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
+.chart-panel h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .1em; }
+svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
+.report { margin-top: 14px; }
+.unit-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+  padding: 3px 0; }
+.unit-row .uname { width: 6.5em; white-space: nowrap; }
+.unit-row .bars { flex: 1; display: grid; gap: 3px; }
+.bar { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 4px; }
+.bar.dmg i { background: var(--accent); }
+.bar.hp i { background: var(--shu); }
+.unit-row.dead .uname { color: var(--faint); text-decoration: line-through; }
+.unit-row .val { width: 4.5em; text-align: right; color: var(--sub);
+  font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.side-label { margin: 10px 0 4px; color: var(--sub); font-size: 12px; letter-spacing: .15em; }
+
+/* ── ログイン ───────────────────────── */
+.login-panel { max-width: 460px; margin: 60px auto; text-align: center; }
+.login-panel h2 { font-size: 20px; }
+.login-panel select, .login-panel input { font: inherit; background: var(--panel2);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; }
+.login-row { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+
+.fade-in { animation: fadein .4s ease; }
+@keyframes fadein { from { opacity: 0; transform: translateY(6px); } }

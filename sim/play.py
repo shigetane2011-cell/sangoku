@@ -227,6 +227,22 @@ def cmd_status(args) -> None:
                 name, r[pl.id][0], rank, len(pids), r[pl.id][1]))
 
 
+def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
+              dt: float = 0.5) -> Tuple[L.Board, int, List[Tuple[str, str]]]:
+    """1つの順位表で1巡回し、全対戦を記録する（CLI と Web の共通部）。"""
+    b = load_board(cx, board_name)
+    rnd = P.board_round(cx, board_name)
+    pids = list(entries)
+    pairs = L.plan_round(b, pids, rnd)
+    L.resolve_round(b, pairs, entries, rnd, dt=dt)
+    save_board(cx, b)
+    P.bump_board_round(cx, board_name)
+    for x, y in pairs:
+        P.record_match(cx, board_name, rnd, x, y,
+                       L.battle_seed(board_name, rnd, x, y))
+    return b, rnd, pairs
+
+
 def cmd_round(args) -> None:
     cx = P.connect(args.db)
     cards = M._roster_cards()
@@ -244,13 +260,8 @@ def cmd_round(args) -> None:
     names = {p.id: p.display_name for p in P.all_players(cx)}
     boards = [args.board] if args.board else list(L.BOARDS)
     for name in boards:
-        b = load_board(cx, name)
-        rnd = P.board_round(cx, name)
+        b, rnd, pairs = run_round(cx, cards, entries, name, dt=args.dt)
         pids = list(entries)
-        pairs = L.plan_round(b, pids, rnd)
-        L.resolve_round(b, pairs, entries, rnd, dt=args.dt)
-        save_board(cx, b)
-        P.bump_board_round(cx, name)
         mine = next((pr for pr in pairs if pl.id in pr), None)
         if mine is None:
             print("{:<10} 第{}巡: 相手なし（人数が奇数）".format(name, rnd + 1))
@@ -337,6 +348,30 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
                     axis[x + j] = ch
     out.append("   └" + "".join(axis))
     return out
+
+
+def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
+    """1戦ぶんのリプレイを構造化して返す（Web用・§7.42）。
+
+    実況行・形勢の時系列・戦果表・勝敗。CLI の replay_one と同じ素材から作る
+    （同じ量の定義を2箇所に持たない: 行は narrate、数字は simulate の診断出力）。
+    """
+    lines = F.narrate(ua, ub, dt, seed=seed)
+    series = []
+    r = F.simulate(ua, ub, dt, seed=seed, series=series)
+    step = max(1, len(series) // 240)
+    mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
+    def rows(xs):
+        return [{"name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
+                 "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
+                 "men0": round(m0)} for n, t, d, m, m0 in xs]
+    sc = r["score"] if me_first else 1.0 - r["score"]
+    return {"lines": lines,
+            "series": [[round(F.mins(t), 1),
+                        round((ra - rb) if me_first else (rb - ra), 4)]
+                       for t, ra, rb in series[::step]],
+            "mine": rows(mine), "foe": rows(foe),
+            "verdict": "勝ち" if sc > 0.5 else ("負け" if sc < 0.5 else "引き分け")}
 
 
 def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
