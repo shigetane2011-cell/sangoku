@@ -417,7 +417,8 @@ function drawSlots() {
       if (front && c.typ === "弓兵") warn = "弓兵は前衛に置けない";
       if (!front && c.typ !== "弓兵") warn = "後衛は弓兵だけ";
     }
-    rows.push(`<div class="slot ${front ? "front" : "rear"} ${c ? "" : "empty"}">
+    rows.push(`<div class="slot ${front ? "front" : "rear"} ${c ? "" : "empty"}"
+         data-i="${i}" ${c ? 'draggable="true"' : ""}>
       <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
       <span class="who">${c ? `<b>${esc(c.name)}</b> <small>${c.typ.slice(0, 1)}</small>
         ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
@@ -434,6 +435,33 @@ function drawSlots() {
     if (b.dataset.a === "up") [cur.cards[i - 1], cur.cards[i]] = [cur.cards[i], cur.cards[i - 1]];
     if (b.dataset.a === "dn") [cur.cards[i + 1], cur.cards[i]] = [cur.cards[i], cur.cards[i + 1]];
     drawAll();
+  });
+  // ドラッグ＆ドロップで並べ替え（↑↓はタッチ環境用に残す）
+  let dragFrom = null;
+  $$("#slots .slot").forEach((sl) => {
+    sl.ondragstart = (e) => {
+      dragFrom = +sl.dataset.i;
+      sl.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    };
+    sl.ondragend = () => {
+      dragFrom = null;
+      $$("#slots .slot").forEach((x) => x.classList.remove("dragging", "dragover"));
+    };
+    sl.ondragover = (e) => {
+      if (dragFrom === null) return;
+      e.preventDefault();
+      $$("#slots .slot").forEach((x) => x.classList.remove("dragover"));
+      sl.classList.add("dragover");
+    };
+    sl.ondrop = (e) => {
+      e.preventDefault();
+      if (dragFrom === null) return;
+      let to = Math.min(+sl.dataset.i, cur.cards.length - 1);
+      const [card] = cur.cards.splice(dragFrom, 1);
+      cur.cards.splice(to, 0, card);
+      drawAll();
+    };
   });
 }
 

@@ -157,6 +157,9 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .slot .who b { font-family: "Hiragino Mincho ProN", serif; letter-spacing: .04em; }
 .slot .cost { color: var(--gold); font-variant-numeric: tabular-nums; }
 .slot.empty .who { color: var(--faint); }
+.slot[draggable="true"] { cursor: grab; }
+.slot.dragging { opacity: .35; }
+.slot.dragover { border-style: solid; border-color: var(--gold); background: #2a2419; }
 .slot .warn { color: #e08a5a; font-size: 11px; }
 .deck-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
 #deck-msg.ok { color: var(--gold); }
