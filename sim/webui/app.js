@@ -172,6 +172,9 @@ async function viewDeck(state) {
           </select>
           <input id="search" placeholder="名で探す">
         </div>
+        <div class="type-legend muted num">
+          歩兵＝近接・足は遅いが守り厚い　／　騎兵＝最速・初撃に突撃+60%・回り込みも可　／　弓兵＝後衛から遠射・守り薄く、詰められると乱れる
+        </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
       </div>
@@ -379,17 +382,15 @@ function drawRoster() {
   });
 }
 
-const TYPE_NOTES = {
-  "歩兵": "射程 近接｜足 遅め｜守り 厚い。前線を支える壁。",
-  "騎兵": "射程 近接｜足 最速｜初撃に突撃+60%。回り込みの賭けも騎兵だけ。",
-  "弓兵": "射程 遠（後衛から前衛に届く）｜守り 薄い。詰められると斉射が乱れる。",
-};
-
 function showCardInfo(name) {
   const c = D.roster.find((x) => x.name === name);
   if (!c) return;
-  const traits = (c.traits || []).map((t) =>
-    `<div class="ci-row"><b>特性【${esc(t.name)}】</b> ${esc(t.desc)}</div>`).join("");
+  const traits = (c.traits || []).map((t) => `
+    <div class="ci-row">
+      <span class="tag trait-tag">特性・${esc(t.kind)}</span>
+      <b>【${esc(t.name)}】</b> ${esc(t.desc)}
+      ${t.cond ? `<span class="muted">（${esc(t.cond)}）</span>` : ""}
+    </div>`).join("");
   $("#cardinfo").innerHTML = `
     <div class="ci-head">
       <span class="cost">${c.cost}</span>
@@ -398,10 +399,12 @@ function showCardInfo(name) {
     </div>
     <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
     <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}　攻撃 ${c.atk}　防御 ${c.dfn}</div>
-    <div class="ci-row"><b>【${esc(c.skill)}】</b> ${esc(c.skill_desc)}
-      <span class="muted">消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span></div>
+    <div class="ci-row">
+      <span class="tag skill-tag">必殺技</span>
+      <b>【${esc(c.skill)}】</b> ${esc(c.skill_desc)}
+      <span class="muted">ゲージ: 消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span>
+    </div>
     ${traits}
-    <div class="ci-row muted">${esc(TYPE_NOTES[c.typ] || "")}</div>
     ${c.quote ? `<div class="ci-quote">「${esc(c.quote)}」</div>` : ""}`;
 }
 

@@ -206,6 +206,11 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .ci-stats { color: var(--ink); margin: 2px 0; }
 .ci-row { margin: 2px 0; color: var(--ink); }
 .ci-row b { color: #ffb08a; font-weight: 600; }
+.tag { display: inline-block; font-size: 10px; letter-spacing: .08em;
+  border-radius: 4px; padding: 0 6px; margin-right: 4px; vertical-align: 1px; }
+.skill-tag { color: #ff9d73; border: 1px solid #7a3a22; background: #33201689; }
+.trait-tag { color: #9fc6a8; border: 1px solid #3a5a44; background: #1a281f; }
+.type-legend { font-size: 11.5px; margin-bottom: 8px; }
 .ci-quote { color: #e8c98a; font-family: "Hiragino Mincho ProN", serif; font-size: 12.5px; }
 .card .usedby { position: absolute; right: 8px; top: 7px; font-size: 10px; color: var(--faint); }
 

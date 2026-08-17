@@ -64,18 +64,32 @@ def _roster_json():
     for g in R.generals():
         s = sk.get(g["必殺技"], {})
         traits = []
+        conds = {"ally_retreat": "味方の隊が崩れた時",
+                 "enemy_retreat": "敵の隊が崩れた時",
+                 "self_low_hp": "自身の兵が減った時",
+                 "ally_skill": "味方が必殺技を放った時"}
+        import re as _re
         for k in R.traits_of(g):
             t = tr.get(k, {})
-            note = (t.get("備考") or "").split("/")[0].strip()
+            note = t.get("備考") or ""
+            kind = t.get("型", "")
+            desc = t.get("効果", "")
+            cond = ""
+            if kind == "誘発":
+                m = _re.search(r"(\w+) で発動", note)
+                cond = conds.get(m.group(1) if m else "", "")
+                m = _re.search(r"1戦(\d+)回", note)
+                if m:
+                    cond += "・1戦{}回まで".format(m.group(1))
             # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）
             if k == "vanguard":
-                note = "前衛に置くと兵力 +{:.1%}（後衛では働かない）".format(
+                desc = "前衛に置くと兵力 +{:.1%}（後衛では働かない）".format(
                     F.VANGUARD_MEN)
             elif k in F.FACTION_OF:
-                note = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
+                desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
                     F.FACTION_OF[k], F.VS_FACTION)
             traits.append({"key": k, "name": names_jp.get(k, k),
-                           "desc": t.get("効果", "") or note})
+                           "kind": kind, "cond": cond, "desc": desc})
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
             "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
