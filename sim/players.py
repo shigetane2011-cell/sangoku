@@ -54,7 +54,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
-DB_PATH = os.path.join(DATA, "players.db")
+# SANGOKU_DB で差し替え可能（検証・公開用）。既定はリポジトリ内。
+DB_PATH = os.environ.get("SANGOKU_DB", os.path.join(DATA, "players.db"))
 
 HUMAN = "human"
 DUMMY = "dummy"

@@ -27,7 +27,7 @@ from . import play as PL
 from . import players as P
 from . import rosterdata as R
 
-PORT = 8035
+PORT = int(os.environ.get("SANGOKU_PORT", "8035"))
 WEBUI = os.path.join(os.path.dirname(__file__), "webui")
 
 VIEWS = {"/": "home", "/deck": "deck", "/replays": "replays", "/replay": "replay"}
@@ -296,8 +296,10 @@ class App(BaseHTTPRequestHandler):
                 else:
                     forms = "・".join(F.FORM_NAME.get(u.form.n_front, "?")
                                       for u in fe.units)
+                last = P.matches_of(cx, bd["name"], limit=1, pid=foe)
                 bd["next"] = {"foe": names2.get(foe, "?"), "forms": forms,
-                              "round": rnd + 1}
+                              "round": rnd + 1,
+                              "match_id": last[0]["id"] if last else None}
         self._json({
             "me": {"id": me.id, "name": me.display_name} if me else None,
             "humans": [{"id": p.id, "name": p.display_name}

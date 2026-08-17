@@ -78,7 +78,8 @@ async function viewHome(state) {
       </tr>`).join("");
     const next = b.next
       ? `<div class="next-chip">次戦（第${b.next.round}巡）: 対 <b>${esc(b.next.foe)}</b>
-         <span class="form-tag">${esc(b.next.forms)}</span></div>`
+         <span class="form-tag">${esc(b.next.forms)}</span>
+         ${b.next.match_id ? `<a href="/replay?id=${b.next.match_id}">前の戦いを観る</a>` : ""}</div>`
       : "";
     return `<div class="panel">
       <h2>${esc(b.name)}<span class="sub">${b.round}巡</span></h2>
@@ -196,6 +197,7 @@ async function viewDeck(state) {
         <div class="cards" id="roster"></div>
       </div>
       <div class="panel">
+        <div id="scout"></div>
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
         <div class="slots" id="slots"></div>
@@ -280,7 +282,19 @@ function drawTypeTabs() {
   $("#sortsel").onchange = () => { FILTER.sort = $("#sortsel").value; drawRoster(); };
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); drawSortieBar(); }
+function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); drawSortieBar(); drawScout(); }
+
+function drawScout() {
+  const el = $("#scout");
+  if (!el || !STATE) return;
+  const b = (STATE.boards || []).find((x) => x.name === cur.reg);
+  const n = b && b.next;
+  el.innerHTML = n
+    ? `<div class="next-chip">次戦: 対 <b>${esc(n.foe)}</b>
+       <span class="form-tag">${esc(n.forms)}</span>
+       ${n.match_id ? `<a href="/replay?id=${n.match_id}">前の戦いを観る</a>` : ""}</div>`
+    : "";
+}
 
 function drawLibrary() {
   const el = $("#library");
