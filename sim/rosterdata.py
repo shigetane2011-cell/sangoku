@@ -294,6 +294,23 @@ def _skill_target(name: str) -> str:
     return ""
 
 
+# 生まれつきの固有特性。**複数持てる形で読む。**
+#
+# CSV の「固有特性」列は「、」区切りで複数書ける（1つならこれまでどおり）。
+# プレイヤーが獲得してセットする特性（`players.owned_traits`）とは別枠で、
+# こちらはカードに固定で付いているもの。
+#
+# **盤面はまだ1つしか読まない**（`field.Unit.trait` が文字列1本）。ここは器を
+# 先に用意しているだけで、盤面を複数対応にするのは別の作業（7箇所）。
+TRAIT_SEP = "、"
+
+
+def traits_of(g: Dict[str, str]) -> List[str]:
+    """その武将が生まれつき持つ固有特性のキー（0個以上）。"""
+    raw = (g.get("固有特性") or "").strip()
+    return [x.strip() for x in raw.split(TRAIT_SEP) if x.strip()]
+
+
 def to_design(g: Dict[str, str]):
     """CSV の1行を sim/design.py の設計指定へ写す。
 
@@ -312,7 +329,7 @@ def to_design(g: Dict[str, str]):
     eff = (D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi,
                           cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                           tilt=tilt_of(g)) if sk else 0.0)
-    eff += D.trait_value(g["固有特性"])
+    eff += sum(D.trait_value(k) for k in traits_of(g))
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
                     gauge_cost=gc, gauge_init=gi, effect=eff)

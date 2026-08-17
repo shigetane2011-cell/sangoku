@@ -65,6 +65,10 @@ DUMMY_DOMAIN = "example.invalid"
 
 RATING_START = 1500.0
 
+# 1枚の武将にセットできる固有特性の数（§7.37）。**生まれつきの特性とは別枠。**
+# 盤面（field.Unit）はまだ1つしか読まないので、いまは器だけを用意している。
+TRAIT_SLOTS = 3
+
 # プランごとの権利。`rated_per_day` は §3.1 の「レート変動上限」に当たる。
 # 有料で増えるが、**増えるのは挑戦できる回数であって点数ではない**（上の注記）。
 PLANS: Dict[str, Dict[str, int]] = {
@@ -112,6 +116,21 @@ CREATE TABLE IF NOT EXISTS identities (
 CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_email ON identities(email);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_sub
   ON identities(provider, subject) WHERE provider IS NOT NULL;
+-- 獲得した固有特性（1日1つ）。**どの武将へセットしたかは別の列で持つ。**
+-- 未セットなら general_name が空。取り外しを許すかは未決なので、履歴は残す。
+CREATE TABLE IF NOT EXISTS owned_traits (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id     TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  trait_key     TEXT NOT NULL,
+  general_name  TEXT NOT NULL DEFAULT '',
+  slot          INTEGER,
+  gained_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- **同じ武将の同じ枠には1つまで。** 枠は 0..TRAIT_SLOTS-1。
+CREATE UNIQUE INDEX IF NOT EXISTS ix_owned_slot
+  ON owned_traits(player_id, general_name, slot)
+  WHERE general_name <> '';
+CREATE INDEX IF NOT EXISTS ix_owned_player ON owned_traits(player_id);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -220,6 +239,47 @@ def forget(cx: sqlite3.Connection, player_id: str) -> None:
         cx.execute("DELETE FROM identities WHERE player_id=?", (player_id,))
         cx.execute("UPDATE players SET display_name='(退会)' WHERE id=?",
                    (player_id,))
+
+
+def grant_trait(cx: sqlite3.Connection, player_id: str, key: str) -> int:
+    """特性を1つ渡す（1日1つの獲得）。**未セットの状態で積む。**"""
+    with cx:
+        cur = cx.execute(
+            "INSERT INTO owned_traits (player_id, trait_key) VALUES (?,?)",
+            (player_id, key))
+    return cur.lastrowid
+
+
+def set_trait(cx: sqlite3.Connection, player_id: str, owned_id: int,
+              general_name: str, slot: int) -> None:
+    """獲得済みの特性を武将の枠へセットする。
+
+    **枠は 0..TRAIT_SLOTS-1。** 同じ武将の同じ枠は UNIQUE 制約が止める。
+    表計算では張れない種類の制約で、二重セットは静かに起きる。
+    """
+    if not 0 <= slot < TRAIT_SLOTS:
+        raise ValueError("枠は 0〜{} まで".format(TRAIT_SLOTS - 1))
+    with cx:
+        cx.execute(
+            "UPDATE owned_traits SET general_name=?, slot=?"
+            " WHERE id=? AND player_id=?",
+            (general_name, slot, owned_id, player_id))
+
+
+def traits_on(cx: sqlite3.Connection, player_id: str,
+              general_name: str) -> List[str]:
+    """その武将にセットされている特性（枠の順）。"""
+    return [r["trait_key"] for r in cx.execute(
+        "SELECT trait_key FROM owned_traits"
+        " WHERE player_id=? AND general_name=? ORDER BY slot",
+        (player_id, general_name))]
+
+
+def unset_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
+    """まだどの武将にも付けていない特性。"""
+    return [dict(r) for r in cx.execute(
+        "SELECT id, trait_key, gained_at FROM owned_traits"
+        " WHERE player_id=? AND general_name='' ORDER BY id", (player_id,))]
 
 
 def _row(r: sqlite3.Row) -> Player:

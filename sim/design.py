@@ -520,6 +520,17 @@ TRAIT_PRICE = {
 }
 
 
+def traits_value(keys) -> float:
+    """複数の固有特性の値段の合計（§7.37）。
+
+    **足し算で足りるかは未検証。** §6.5 の重なり規則（同名は最大・別名は加算・
+    ±50%で頭打ち）は盤面に入っているが、**値段が足し算になるかは測っていない**。
+    枠を3つにするなら、技を持たせたパネルで組み合わせを測ってから決めること
+    （今回の測定は、技を持たない合成カードで誘発条件が成立せず失敗した）。
+    """
+    return sum(trait_value(k) for k in keys)
+
+
 def trait_value(key: str) -> float:
     """固有特性1つの値段（1枚のコスト点）。必殺技と同じ通貨へ揃える。"""
     return TRAIT_PRICE.get(key, 0.0) / CARD_COST_RATE
