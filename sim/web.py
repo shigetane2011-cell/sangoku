@@ -67,6 +67,13 @@ def _roster_json():
         for k in R.traits_of(g):
             t = tr.get(k, {})
             note = (t.get("備考") or "").split("/")[0].strip()
+            # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）
+            if k == "vanguard":
+                note = "前衛に置くと兵力 +{:.1%}（後衛では働かない）".format(
+                    F.VANGUARD_MEN)
+            elif k in F.FACTION_OF:
+                note = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
+                    F.FACTION_OF[k], F.VS_FACTION)
             traits.append({"key": k, "name": names_jp.get(k, k),
                            "desc": t.get("効果", "") or note})
         out.append({
