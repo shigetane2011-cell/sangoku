@@ -276,11 +276,11 @@ class App(BaseHTTPRequestHandler):
                 onsho = {"key": key, "name": names_jp.get(key, key)}
             # 告知（次の対戦相手と、その陣形）。§3 の駆け引きの入口。
             dummies = PL.ensure_dummies(cx, cards)
+            humans_e = PL.all_human_entries(cx, cards)
             names2 = {p.id: p.display_name for p in players}
             for bd in boards:
-                entries = dict(dummies)
-                if boards_ok.get(bd["name"]):
-                    entries[me.id] = entry
+                entries = PL.full_board_entries(cx, dummies, humans_e,
+                                                bd["name"])
                 rnd, pairs = PL.announce(cx, entries, bd["name"])
                 mine = next((pr for pr in pairs if me.id in pr), None)
                 if mine is None:
@@ -401,14 +401,17 @@ class App(BaseHTTPRequestHandler):
                                + ("／".join(errs) or "デッキ未登録")}, 400)
         dummies = PL.ensure_dummies(cx, cards)
         humans = {p.id for p in P.all_players(cx, kind=P.HUMAN)}
+        humans_e = PL.all_human_entries(cx, cards)
         # 参加できる盤面を先に確定する（兵符は**実際に戦う盤面ぶんだけ**）。
         # 告知済みの組に自分が居ない場合、その組が在野だけなら組み直してよい
         # （誰への約束も破らない）。人間が居る組は約束なので崩さない。
         fight = []
+        entries_by_board = {}
         for bn in L.BOARDS:
+            entries = PL.full_board_entries(cx, dummies, humans_e, bn)
+            entries_by_board[bn] = entries
             if not ok.get(bn):
                 continue
-            entries = dict(dummies); entries[me.id] = entry
             rnd, pairs = PL.announce(cx, entries, bn)
             if not any(me.id in pr for pr in pairs):
                 if not any(x in humans for pr in pairs for x in pr):
@@ -422,13 +425,19 @@ class App(BaseHTTPRequestHandler):
                                "30分に1枚回復する）".format(need, need)}, 402)
         results = []
         for bn in L.BOARDS:
-            entries = dict(dummies)
-            if bn in fight:
-                entries[me.id] = entry
+            # 解決は全員集合で（他の人間も告知どおり戦う。兵符を払うのは
+            # 出陣を押した本人だけ — 他の人間の対戦は自動参加扱い）
+            entries = entries_by_board[bn]
+            if bn not in fight and me.id in entries:
+                entries = {k: v for k, v in entries.items() if k != me.id}
             before = PL.load_board(cx, bn).get(me.id)
             b, rnd, pairs = PL.run_round(cx, cards, entries, bn)
             mine = next((pr for pr in pairs if me.id in pr), None)
             if mine is None:
+                # 出ていない盤面も**理由つきで**返す（黙って消さない・§7.48）
+                note = ("デッキ未登録か検証に不備" if not ok.get(bn)
+                        else "今巡は組に入れず（次巡から）")
+                results.append({"board": bn, "note": note})
                 continue
             foe = mine[1] if mine[0] == me.id else mine[0]
             seed = L.battle_seed(bn, rnd, mine[0], mine[1])

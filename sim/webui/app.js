@@ -129,6 +129,12 @@ async function doSortie() {
 
 function showResults(results) {
   const rows = results.map((r) => {
+    if (r.note) {
+      return `<div class="result-row fade-in">
+        <span class="board">${esc(r.board)}</span>
+        <span class="muted">─ ${esc(r.note)}</span>
+      </div>`;
+    }
     const cls = r.verdict === "勝ち" ? "win" : (r.verdict === "負け" ? "lose" : "draw");
     const d = Math.round(r.delta);
     return `<div class="result-row fade-in">

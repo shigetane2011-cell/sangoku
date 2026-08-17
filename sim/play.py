@@ -305,6 +305,53 @@ def cmd_status(args) -> None:
                 name, r[pl.id][0], rank, len(pids), r[pl.id][1]))
 
 
+def all_human_entries(cx, cards) -> Dict[str, Tuple["BoardEntry", Dict[str, bool]]]:
+    """人間全員の (部隊, 盤面可否)。告知は**資格のある全員**で組む（§7.48）。
+
+    その巡の参加者だけで次巡を告知すると、一度あぶれた人間が告知に入れず
+    **恒久的にはぶられ続ける**（実測）。"""
+    out = {}
+    for p in P.all_players(cx, kind=P.HUMAN):
+        e, ok, _ = entry_of(cx, cards, p.id, p.display_name)
+        if any(ok.values()):
+            out[p.id] = (e, ok)
+    return out
+
+
+def full_board_entries(cx, dummies, humans, board_name: str):
+    """その盤面の完全な参加者集合（在野 + 資格のある人間全員・偶数化つき）。"""
+    ent = dict(dummies)
+    for pid, (e, ok) in humans.items():
+        if ok.get(board_name):
+            ent[pid] = e
+    if len(ent) % 2 == 1:
+        b = load_board(cx, board_name)
+        hum = set(humans)
+        low = min((p for p in ent if p not in hum), key=lambda p: b.get(p),
+                  default=None)
+        if low is not None:
+            del ent[low]
+    return ent
+
+
+def board_entries(cx, dummies, entry, ok, board_name: str, me_id: str):
+    """その盤面の参加者を組む。**奇数なら最下位の在野を今巡休みにする**（§7.48）。
+
+    奇数のまま組むと毎巡1人あぶれ、人間があぶれ得る（実測: 「出陣したのに
+    自分だけ居ない」）。休むのは在野から選ぶ — 足場は人間のためにある。
+    """
+    ent = dict(dummies)
+    if ok.get(board_name):
+        ent[me_id] = entry
+    if len(ent) % 2 == 1:
+        b = load_board(cx, board_name)
+        low = min((p for p in ent if p != me_id), key=lambda p: b.get(p),
+                  default=None)
+        if low is not None:
+            del ent[low]
+    return ent
+
+
 def announce(cx, entries: Dict[str, M.Entry], board_name: str
              ) -> Tuple[int, List[Tuple[str, str]]]:
     """次の巡の組を告知する（§3: 組む→告知→編成期間→戦う）。
@@ -355,12 +402,13 @@ def cmd_round(args) -> None:
         print("出られる順位表が無い（先にデッキを登録する）")
         sys.exit(1)
     dummies = ensure_dummies(cx, cards)
+    humans_e = all_human_entries(cx, cards)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     boards = [_canon_reg(args.board)] if args.board else list(L.BOARDS)
     for name in boards:
-        entries = dict(dummies)
-        if ok.get(name):
-            entries[pl.id] = entry
+        entries = full_board_entries(cx, dummies, humans_e, name)
+        if not ok.get(name) and pl.id in entries:
+            entries = {k: v for k, v in entries.items() if k != pl.id}
         b, rnd, pairs = run_round(cx, cards, entries, name, dt=args.dt)
         pids = list(entries)
         mine = next((pr for pr in pairs if pl.id in pr), None)
