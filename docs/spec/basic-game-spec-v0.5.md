@@ -3810,6 +3810,35 @@ slot）で、`UNIQUE(player_id, general_name, slot)` により同じ枠の二重
   メタ（ゲーム層）の判定には実デッキの計器が要る。層を混ぜない。
 
 
+### 7.40 実プレイヤーの導線（まず1人）［v0.6・新規］
+
+登録 → デッキ登録 → 検証 → ランク戦の巡 → リプレイ → 順位、を `sim/play.py` の
+CLI で通した。盤面・マッチ・順位表は既存実装をそのまま使い、play.py は配線だけを持つ。
+
+    python3 -m sim.play register --name 名前 --email アドレス
+    python3 -m sim.play roster --reg 低コスト戦          # カード一覧
+    python3 -m sim.play deck --player <id> --reg 低コスト戦 \
+        --form 狭く深い --cards "楽進、陳到、陳宮、満寵、張昭、樊建"
+    python3 -m sim.play status --player <id>             # 検証と現在順位
+    python3 -m sim.play round --player <id> [--replay]   # 4本の順位表で1巡
+    python3 -m sim.play standings                        # 順位表
+
+- **デッキの並び順がそのまま配置**（前衛から）。陣形が前衛の枚数を決める。
+- 検証は不備を**全部まとめて**返す（規則外配置・コスト超過・同一人物・枚数）。
+- ダミーの編成は（性格, 通し番号）から決定的に再構成するので DB に持たない。
+  永続化するのはレートと巡カウンタだけ（`players.ratings` / `boards`）。
+  人数が足りなければ自動で15体を播く（自分を足して検算済みの16人規模）。
+- 対戦の乱数種は `ladder.battle_seed`（CRC32）で導く。**Python の hash() は
+  文字列に対してプロセスごとに塩が変わる**ので、リプレイの再現（§8.4）には
+  使えない（実装していたのを直した）。
+- リプレイは resolve と同じ種で読み直す。CLI では「組む→告知→戦う」を続けて
+  実行するが、組み方は決定的なのでサーバー化しても同じ組になる。
+
+登録メールは identities 表のみ（§7.31）。ダミーは予約ドメイン
+`@example.invalid`。実運用へ出す前に SQLite をマネージド DB と外部認証へ移す
+（players.py 冒頭の注意のとおり）。
+
+
 ## 8. 自動戦闘の実行原則
 
 - 戦闘開始時に両軍の武将、配置、能力値、スキル、戦場条件、戦闘ルールのバージョンを確定する。

@@ -131,6 +131,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_owned_slot
   ON owned_traits(player_id, general_name, slot)
   WHERE general_name <> '';
 CREATE INDEX IF NOT EXISTS ix_owned_player ON owned_traits(player_id);
+-- 順位表ごとのレート（§7.35: BO1の3レギュ + BO3 で別々）。順位は表示時に
+-- 現在レート順で付ける。games は可変K（§7.38）の入力。
+CREATE TABLE IF NOT EXISTS ratings (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  board      TEXT NOT NULL,
+  rating     REAL NOT NULL,
+  games      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (player_id, board)
+);
+-- 登録デッキ（レギュレーションごとに6枚）。カードは武将名を「、」区切り、
+-- **並び順がそのまま配置**（前衛から）。formation は 標準/広く浅い/狭く深い。
+CREATE TABLE IF NOT EXISTS decks (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  regulation TEXT NOT NULL,
+  cards      TEXT NOT NULL,
+  formation  TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, regulation)
+);
+-- 順位表の巡カウンタ。組の告知と乱数種の導出に使う。
+CREATE TABLE IF NOT EXISTS boards (
+  name  TEXT PRIMARY KEY,
+  round INTEGER NOT NULL DEFAULT 0
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -280,6 +304,56 @@ def unset_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
     return [dict(r) for r in cx.execute(
         "SELECT id, trait_key, gained_at FROM owned_traits"
         " WHERE player_id=? AND general_name='' ORDER BY id", (player_id,))]
+
+
+def board_ratings(cx: sqlite3.Connection, board: str
+                  ) -> Dict[str, Tuple[float, int]]:
+    """その順位表の全レート {player_id: (rating, games)}。"""
+    return {r["player_id"]: (r["rating"], r["games"]) for r in cx.execute(
+        "SELECT player_id, rating, games FROM ratings WHERE board = ?", (board,))}
+
+
+def save_board_ratings(cx: sqlite3.Connection, board: str,
+                       vals: Dict[str, Tuple[float, int]]) -> None:
+    with cx:
+        cx.executemany(
+            "INSERT INTO ratings (player_id, board, rating, games)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(player_id, board)"
+            " DO UPDATE SET rating = excluded.rating, games = excluded.games",
+            [(pid, board, r, g) for pid, (r, g) in vals.items()])
+
+
+def board_round(cx: sqlite3.Connection, board: str) -> int:
+    r = cx.execute("SELECT round FROM boards WHERE name = ?", (board,)).fetchone()
+    return r["round"] if r else 0
+
+
+def bump_board_round(cx: sqlite3.Connection, board: str) -> int:
+    """巡カウンタを1進めて、いま終えた巡の番号を返す。"""
+    with cx:
+        cx.execute("INSERT INTO boards (name, round) VALUES (?, 1)"
+                   " ON CONFLICT(name) DO UPDATE SET round = round + 1", (board,))
+    return board_round(cx, board) - 1
+
+
+def set_deck(cx: sqlite3.Connection, player_id: str, regulation: str,
+             cards: str, formation: str) -> None:
+    with cx:
+        cx.execute(
+            "INSERT INTO decks (player_id, regulation, cards, formation)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(player_id, regulation) DO UPDATE SET"
+            " cards = excluded.cards, formation = excluded.formation,"
+            " updated_at = datetime('now')",
+            (player_id, regulation, cards, formation))
+
+
+def decks_of(cx: sqlite3.Connection, player_id: str) -> Dict[str, Tuple[str, str]]:
+    """{レギュレーション: (カード名の「、」区切り, 陣形名)}。"""
+    return {r["regulation"]: (r["cards"], r["formation"]) for r in cx.execute(
+        "SELECT regulation, cards, formation FROM decks WHERE player_id = ?",
+        (player_id,))}
 
 
 def _row(r: sqlite3.Row) -> Player:

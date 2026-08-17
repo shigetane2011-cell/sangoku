@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import math
 import random
+import zlib
 from dataclasses import dataclass, field as dfield
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -39,6 +40,13 @@ K_HALF = 30.0            # この対局数で K が半分になる（0 なら K 
 RATING_START = 1500.0
 BAND = 200.0             # マッチングの帯（この幅の中から相手を選ぶ）
 REMATCH_GAP = 3          # 直近この回数は同じ相手と当てない
+
+
+def battle_seed(*parts) -> int:
+    """対戦の乱数種。**Python の hash() は文字列に対してプロセスごとに塩が
+    変わる**ので使えない（同じ巡を別プロセスで再生すると別の戦いになり、
+    §8.4 の再現性が壊れる）。CRC32 で安定に導く。"""
+    return zlib.crc32("/".join(str(x) for x in parts).encode()) & 0x7FFFFFFF
 
 
 def expected(ra: float, rb: float) -> float:
@@ -131,7 +139,7 @@ def play_round(field_: Sequence[Entrant], rnd: int, dt: float = 0.5,
     rng = rng or random.Random(rnd)
     reg = rnd % len(M.REGULATIONS)
     for a, b in pair_up(field_, rng):
-        seed = hash((rnd, a.pid, b.pid)) & 0x7FFFFFFF
+        seed = battle_seed(rnd, a.pid, b.pid)
         r = M.play_one(a.entry, b.entry, reg, dt, seed=seed)
         sa = 1.0 if r["winner"] == "A" else (0.0 if r["winner"] == "B" else 0.5)
         ea = expected(a.rating, b.rating)
@@ -199,7 +207,7 @@ def play_ladder_round(order: List[Entrant], rnd: int, dt: float = 0.5) -> None:
     reg = rnd % len(M.REGULATIONS)
     swaps = []
     for hi, lo in ladder_pairs(order, rnd):
-        seed = hash((rnd, hi.pid, lo.pid)) & 0x7FFFFFFF
+        seed = battle_seed(rnd, hi.pid, lo.pid)
         r = M.play_one(lo.entry, hi.entry, reg, dt, seed=seed)
         won = r["winner"] == "A"          # A = 挑戦側（下位）
         for x, s, o in ((lo, 1.0 if won else 0.0, hi),
@@ -288,7 +296,7 @@ def resolve_round(board: Board, pairs: Sequence[Tuple[str, str]],
                   dt: float = 0.5) -> None:
     """告知済みの組を戦わせてレートを更新する。**組み直さない。**"""
     for a, b in pairs:
-        seed = hash((board.name, rnd, a, b)) & 0x7FFFFFFF
+        seed = battle_seed(board.name, rnd, a, b)
         if board.reg is None:
             r = M.play(entries[a], entries[b], dt, seed=seed)
             sa = 1.0 if r["wins_a"] > r["wins_b"] else (
