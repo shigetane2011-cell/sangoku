@@ -300,15 +300,13 @@ def _skill_target(name: str) -> str:
 # プレイヤーが獲得してセットする特性（`players.owned_traits`）とは別枠で、
 # こちらはカードに固定で付いているもの。
 #
-# **盤面はまだ1つしか読まない**（`field.Unit.trait` が文字列1本）。ここは器を
-# 先に用意しているだけで、盤面を複数対応にするのは別の作業（7箇所）。
-TRAIT_SEP = "、"
+# 盤面も複数読む（`field.Unit.traits`）。区切りの定義は field.TRAIT_SEP の1箇所。
 
 
 def traits_of(g: Dict[str, str]) -> List[str]:
     """その武将が生まれつき持つ固有特性のキー（0個以上）。"""
-    raw = (g.get("固有特性") or "").strip()
-    return [x.strip() for x in raw.split(TRAIT_SEP) if x.strip()]
+    from . import field as F
+    return list(F.trait_keys(g.get("固有特性") or ""))
 
 
 def to_design(g: Dict[str, str]):

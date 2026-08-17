@@ -904,6 +904,16 @@ VANGUARD_MEN = 0.045
 VS_FACTION = 0.10       # 対勢力: 該当する勢力の敵へのダメージ増
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 
+# 1枚が複数の固有特性を持てる（生まれつきの複数持ち＋獲得してセットした分・§7.37）。
+# Card.trait は CSV の「固有特性」列そのまま（「、」区切り）。**区切りの定義は
+# ここ1箇所**で、rosterdata.traits_of もこれを使う（同じ量の定義を2箇所に持たない）。
+TRAIT_SEP = "、"
+
+
+def trait_keys(raw: str) -> Tuple[str, ...]:
+    """「、」区切りの固有特性キーを分解する（0個以上）。"""
+    return tuple(x.strip() for x in (raw or "").split(TRAIT_SEP) if x.strip())
+
 
 # 増幅の緩和（§6.1 案B）。優勢な側ほど与ダメージ倍率を下げる。
 #
@@ -1084,7 +1094,7 @@ class Card:
     typ: str
     role: str = BAL
     name: str = ""          # 実カードの武将名（実況用。測定には使わない）
-    trait: str = ""         # 固有特性のキー（sim/data/traits.csv）
+    trait: str = ""         # 固有特性のキー（「、」区切りで複数可。traits.csv）
     faction: str = ""       # 勢力（魏/蜀/呉/群雄）。実況の呼称に使う
     # 必殺技のゲージ（§7.2）。**3つセットで意味を持つ。**
     #   消費が閾値なので、消費50は約25秒で撃てて消費175は約87秒かかる。
@@ -1160,7 +1170,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "trait", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
+        "name", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1217,7 +1227,8 @@ class Unit:
         w = INT_WEIGHT[card.typ]
         self.atk = (self.might * (1.0 - w) + self.wits * w) / f
         # 常在型の固有特性（§6.6）。戦闘中の瞬間を持たないので実況には出ない。
-        if TRAITS_ON and card.trait == "vanguard" and is_front:
+        self.traits = trait_keys(card.trait)
+        if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
             self.men = self.men0
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
@@ -1235,13 +1246,12 @@ class Unit:
         self.progress = 0.0
         self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
         self.name = card.name
-        self.trait = card.trait
         self.faction = card.faction
         self.atk_mult = 1.0
         self.def_mult = 1.0
         self.spd_mult = 1.0
         self.rate_mult = 1.0
-        self.fired = 0      # 誘発型が何回発火したか
+        self.fired = {}     # 誘発型が何回発火したか（特性キーごと・§7.37）
         # (失効時刻, 種別, 量, 出どころ)。出どころは §6.5 の同名判定に使う。
         self.effects: List[Tuple[float, str, float, str]] = []
         # 時間つきの効果（継続ダメージ・継続回復）。(失効時刻, 種別, 毎秒の量)。
@@ -1437,27 +1447,31 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
         newly_own = [x for x in own if x in retired["new"]]
         newly_foe = [x for x in foe if x in retired["new"]]
         for u in own:
-            spec = TRAITS.get(u.trait)
-            if spec is None or u.men <= 0.0:
+            if u.men <= 0.0:
                 continue
-            cond, target, cap, sk, jp = spec
-            if u.fired >= cap:
-                continue
-            hit = ((cond == "ally_retreat" and any(x is not u for x in newly_own))
-                   or (cond == "enemy_retreat" and bool(newly_foe))
-                   or (cond == "self_low_hp" and u.ratio() < LOW_HP)
-                   or (cond == "ally_skill"
-                       and any(x in fired_skill for x in own if x is not u)))
-            if not hit:
-                continue
-            u.fired += 1
-            # 同じ特性は1戦に1回だけ実況へ出す（何度も発動するので）
-            show = ev is not None and ("誘", u.trait, u.side) not in seen
-            if show:
-                seen.add(("誘", u.trait, u.side))
-            _apply_skill(u, sk, target, own, foe, t, src=u.trait,
-                         ev=ev if show else None, seen=seen, name=jp,
-                         kind_jp="誘発")
+            for key in u.traits:
+                spec = TRAITS.get(key)
+                if spec is None:
+                    continue        # 常在型はここに入らない
+                cond, target, cap, sk, jp = spec
+                if u.fired.get(key, 0) >= cap:
+                    continue        # 回数上限は**特性ごと**（§7.37）
+                hit = ((cond == "ally_retreat"
+                        and any(x is not u for x in newly_own))
+                       or (cond == "enemy_retreat" and bool(newly_foe))
+                       or (cond == "self_low_hp" and u.ratio() < LOW_HP)
+                       or (cond == "ally_skill"
+                           and any(x in fired_skill for x in own if x is not u)))
+                if not hit:
+                    continue
+                u.fired[key] = u.fired.get(key, 0) + 1
+                # 同じ特性は1戦に1回だけ実況へ出す（何度も発動するので）
+                show = ev is not None and ("誘", key, u.side) not in seen
+                if show:
+                    seen.add(("誘", key, u.side))
+                _apply_skill(u, sk, target, own, foe, t, src=key,
+                             ev=ev if show else None, seen=seen, name=jp,
+                             kind_jp="誘発")
 
 
 def x_rate(u: Unit) -> float:
@@ -1612,9 +1626,11 @@ def _d2(a, b) -> float:
 
 
 def _vs_faction(u: Unit, f: Unit) -> bool:
-    """対勢力の常在型が当たるか。**群雄にはどの対勢力も当たる**（CSV の備考）。"""
-    want = FACTION_OF.get(u.trait)
-    return want is not None and f.faction in (want, "群雄")
+    """対勢力の常在型が当たるか。**群雄にはどの対勢力も当たる**（CSV の備考）。
+
+    複数の対勢力を持っていても倍率は1回ぶん（bool なので自然にそうなる）。"""
+    return any(FACTION_OF.get(k) is not None
+               and f.faction in (FACTION_OF[k], "群雄") for k in u.traits)
 
 
 def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
@@ -2328,8 +2344,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。
-            "traits_a": sum(u.fired for u in ua),
-            "traits_b": sum(u.fired for u in ub),
+            "traits_a": sum(sum(u.fired.values()) for u in ua),
+            "traits_b": sum(sum(u.fired.values()) for u in ub),
             "routed_a": sum(1 for u in ua if u.ratio() < ROUT_UNIT),
             "routed_b": sum(1 for u in ub if u.ratio() < ROUT_UNIT)}
 
@@ -2565,7 +2581,8 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b))
     # 常在型はタイムラインに瞬間を持たないので、ここで触れる（§9.3）
     for side, us in (("A", ua), ("B", ub)):
-        vg = [u.name for u in us if u.name and u.trait == "vanguard" and u.is_front]
+        vg = [u.name for u in us
+              if u.name and "vanguard" in u.traits and u.is_front]
         if vg:
             line += "{}軍は{}が陣頭。".format(_JP[side], "・".join(vg))
     ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
@@ -3534,6 +3551,63 @@ def cmd_traits(args) -> None:
     print("    }")
 
 
+def cmd_stack(args) -> None:
+    """固有特性を重ねたときの値段が足し算になるか測る（§7.37 の関門）。
+
+    3枠セット（§7.37）を開ける前に必要な検証。`design.traits_value` は単純な和を
+    返すが、重ねた実測がそれとずれるなら、和で値付けした特性は割安/割高になる。
+
+    計器の注意（前回の失敗から）:
+    - **常在型（vanguard / vs_*）は TRAITS に入っていない。** 誘発型の表だけを
+      引くとKeyError になる。ここでは Card.trait に「、」区切りで書くだけにして、
+      発動の器は本物（simulate）に任せる。
+    - **ally_skill 条件（鼓舞・呼応）は味方が技を撃たないと発動しない。**
+      SKILLS_ON で測る（合成カードは標準技を持つ）。
+    """
+    global SKILLS_ON, TRAITS_ON
+    from . import rosterdata as R
+    R.load_skills_into_field()
+    R.load_traits_into_field()
+    SKILLS_ON = TRAITS_ON = True
+    dt = args.dt
+    ys = cost_yardstick(dt)
+
+    def army(*keys):
+        raw = TRAIT_SEP.join(keys)
+        return Army(tuple(replace(_synth(BASE_COST, INF, r),
+                                  trait=(raw if i == 0 else ""))
+                          for i, r in enumerate(MIXED_ROLES)), FORM_STANDARD)
+
+    base = army()
+    print("固有特性は重ねたとき足し算になるか（コスト点／総コスト30）")
+    print()
+    print("【計器】零点 {:+.4f}（同編成どうし。0 でなければバグ）".format(
+        margin(base, base, dt) / ys))
+    keys = ("vanguard", "rearguard", "cheer", "banner", "chain")
+    single = {}
+    print()
+    print("  単品（cmd_traits と同じ測り方。全部 0 なら計器を疑う）")
+    for k in keys:
+        single[k] = margin(army(k), base, dt) / ys
+        print("    {:<10}{:+8.4f}".format(k, single[k]))
+    print()
+    print("  {:<24}{:>8}{:>8}{:>8}".format("組み合わせ", "実測", "和", "差"))
+    worst = 0.0
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            v = margin(army(a, b), base, dt) / ys
+            add = single[a] + single[b]
+            worst = max(worst, abs(v - add))
+            print("  {:<24}{:+8.4f}{:+8.4f}{:+8.4f}".format(
+                a + "+" + b, v, add, v - add))
+    v3 = margin(army("vanguard", "rearguard", "cheer"), base, dt) / ys
+    a3 = single["vanguard"] + single["rearguard"] + single["cheer"]
+    print("  {:<24}{:+8.4f}{:+8.4f}{:+8.4f}   3枠フル".format(
+        "van+rear+cheer", v3, a3, v3 - a3))
+    print()
+    print("  最大のずれ {:.4f}コスト点（2枚組）".format(worst))
+
+
 def cmd_calib(args) -> None:
     print("計器の素性（決着理由と戦闘時間）")
     for name, mk in ZERO_CASES[:4]:
@@ -3553,6 +3627,9 @@ def main() -> None:
     s = sub.add_parser("traits")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(func=cmd_traits)
+    s = sub.add_parser("stack")
+    s.add_argument("--dt", type=float, default=0.5)
+    s.set_defaults(func=cmd_stack)
     s = sub.add_parser("cost")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(func=cmd_cost)
