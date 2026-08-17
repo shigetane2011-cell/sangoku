@@ -108,19 +108,21 @@ async function viewHome(state) {
       【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
     <div class="boards fade-in">${boards}</div>`;
   const btn = $("#fight");
-  if (btn) btn.onclick = async () => {
-    document.body.insertAdjacentHTML("beforeend", `
-      <div id="overlay"><div class="box">
-        <div class="march">出　陣</div>
-        <p class="muted">主公、軍を進めております……</p>
-      </div></div>`);
-    try {
-      const r = await api("/api/round", {});
-      showResults(r.results);
-    } catch (e) {
-      $("#overlay").remove(); alert(e.message);
-    }
-  };
+  if (btn) btn.onclick = doSortie;
+}
+
+async function doSortie() {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="overlay"><div class="box">
+      <div class="march">出　陣</div>
+      <p class="muted">主公、軍を進めております……</p>
+    </div></div>`);
+  try {
+    const r = await api("/api/round", {});
+    showResults(r.results);
+  } catch (e) {
+    $("#overlay").remove(); alert(e.message);
+  }
 }
 
 function showResults(results) {
@@ -148,12 +150,19 @@ const FORMS = { "鶴翼": 4, "魚鱗": 3, "雁行": 2 };
 let D = null;          // /api/deckdata
 let cur = null;        // {reg, form, cards:[name,...]}
 
+let STATE = null;
+
 async function viewDeck(state) {
+  STATE = state;
   D = await api("/api/deckdata");
   const reg = D.regs[0].name;
   const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
   cur = { reg, form: saved.form, cards: [...saved.cards] };
   $("#app").innerHTML = `
+    <div class="deck-cta">
+      <button class="primary" id="fight2">出　陣</button>
+      <span class="hint muted" id="fight2hint"></span>
+    </div>
     <div class="reg-tabs" id="regtabs"></div>
     <div class="deck-layout fade-in">
       <div>
@@ -194,7 +203,20 @@ async function viewDeck(state) {
   drawRegTabs(); drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
   $("#save").onclick = saveDeck;
+  $("#fight2").onclick = doSortie;
   drawAll();
+}
+
+function drawSortieBar() {
+  const b = $("#fight2");
+  if (!b || !STATE) return;
+  const h = STATE.heifu || { count: 0 };
+  const ok = !D.entry_errors.length && h.count >= 3;
+  b.disabled = !ok;
+  $("#fight2hint").textContent = D.entry_errors.length
+    ? "登録に不備がある（下の検証を見る）"
+    : (h.count < 3 ? `兵符が足りない（${h.count}/3）` :
+       `兵符 ${h.count}/${h.cap}　登録済みの3部隊で4つの順位表を1巡`);
 }
 
 function usedPersons(exceptReg) {
@@ -247,7 +269,7 @@ function drawTypeTabs() {
   $("#sortsel").onchange = () => { FILTER.sort = $("#sortsel").value; drawRoster(); };
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); }
+function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); drawSortieBar(); }
 
 function drawLibrary() {
   const el = $("#library");
@@ -517,7 +539,7 @@ async function saveDeck() {
   if (r.ok) {
     D.decks[cur.reg] = { form: cur.form, cards: [...cur.cards] };
     D.entry_errors = r.entry_errors;
-    flashMsg("登録した。"); drawEntryState();
+    flashMsg("登録した。"); drawEntryState(); drawSortieBar();
   } else {
     flashMsg(r.errors.join("／"), true);
   }

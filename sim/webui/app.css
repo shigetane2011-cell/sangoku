@@ -127,6 +127,8 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .delta.down { color: var(--lose); }
 
 /* ── 編成 ─────────────────────────── */
+.deck-cta { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.deck-cta button { font-size: 15px; padding: 9px 26px; }
 .deck-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
 @media (max-width: 900px) { .deck-layout { grid-template-columns: 1fr; } }
 .reg-tabs, .form-tabs, .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
