@@ -240,6 +240,21 @@ svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); bord
   border: 1px solid var(--gold); border-radius: 10px; padding: 10px 16px;
   margin-bottom: 16px; color: var(--gold); }
 .onsho-banner b { font-family: "Hiragino Mincho ProN", serif; }
+.library { margin-top: 14px; }
+.lib-save { display: flex; gap: 6px; margin-bottom: 8px; }
+.lib-save input { flex: 1; font: inherit; font-size: 12.5px; background: var(--panel2);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+.lib-row { padding: 6px 0; font-size: 13px; border-bottom: 1px solid #2b2419; }
+.lib-row:last-child { border-bottom: none; }
+.lib-line1 { display: flex; align-items: center; gap: 8px; }
+.lib-line2 { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.lib-line2 .lib-btns { margin-left: auto; }
+.lib-row .lname { font-family: "Hiragino Mincho ProN", serif; }
+.lib-row .val { color: var(--sub); } .lib-row .val.warn { color: #e08a5a; }
+.lib-row.active .lname { color: var(--gold); }
+.active-tag { font-size: 10px; color: var(--gold); border: 1px solid var(--gold);
+  border-radius: 4px; padding: 0 5px; }
+.lib-btns { display: flex; gap: 4px; }
 .onsho-panel { margin-top: 14px; }
 .onsho-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
 .onsho-row .oname { font-family: "Hiragino Mincho ProN", serif; }

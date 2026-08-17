@@ -137,6 +137,10 @@ class App(BaseHTTPRequestHandler):
                 return self._api_round()
             if url.path == "/api/onsho":
                 return self._api_onsho(body)
+            if url.path == "/api/savedeck":
+                return self._api_savedeck(body)
+            if url.path == "/api/deldeck":
+                return self._api_deldeck(body)
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)
@@ -244,12 +248,24 @@ class App(BaseHTTPRequestHandler):
                   "value": round(D.trait_value(r["trait_key"]), 2),
                   "general": r["general_name"]}
                  for r in P.owned_traits(cx, me.id)]
+        saved = []
+        for r in P.saved_decks(cx, me.id):
+            army, _ = PL.parse_deck(cards, r["cards"], r["formation"])
+            saved.append({
+                "id": r["id"], "name": r["name"], "reg": r["regulation"],
+                "form": F.FORM_ALIAS.get(r["formation"], r["formation"]),
+                "cards": [c.name for c in army.cards] if army
+                         else [x.strip() for x in r["cards"].split(F.TRAIT_SEP)
+                               if x.strip()],
+                "cost": army.total_cost() if army else None,
+            })
         self._json({
             "regs": [{"name": n, "cap": c} for n, c in M.REGULATIONS],
             "roster": _roster_json(),
             "decks": decks,
             "entry_errors": entry_errors,
             "onsho": onsho,
+            "saved": saved,
         })
 
     def _api_deck(self, body):
@@ -351,6 +367,32 @@ class App(BaseHTTPRequestHandler):
             return self._json({"ok": False,
                                "errors": ["{} の軍功枠は3つとも埋まっている".format(gen)]})
         P.set_trait(cx, me.id, oid, gen, slot)
+        self._json({"ok": True})
+
+    def _api_savedeck(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        name = (body.get("name") or "").strip()
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+        if not name:
+            return self._json({"ok": False, "errors": ["名前を付ける"]})
+        if len(name) > 24:
+            return self._json({"ok": False, "errors": ["名前は24字まで"]})
+        if reg not in dict(M.REGULATIONS):
+            return self._json({"ok": False, "errors": ["そのレギュレーションは無い"]})
+        cards = [str(x) for x in body.get("cards", [])]
+        P.save_deck_as(cx, me.id, name, reg, F.TRAIT_SEP.join(cards),
+                       body.get("form", "魚鱗"))
+        self._json({"ok": True})
+
+    def _api_deldeck(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        P.delete_saved_deck(cx, me.id, int(body.get("id", 0)))
         self._json({"ok": True})
 
     def _api_replays(self):

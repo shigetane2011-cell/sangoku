@@ -172,6 +172,7 @@ async function viewDeck(state) {
           <span id="deck-msg"></span>
         </div>
         <div class="entry-state" id="entrystate"></div>
+        <div class="library" id="library"></div>
         <div class="onsho-panel" id="onsho"></div>
       </div>
     </div>`;
@@ -222,7 +223,66 @@ function drawTypeTabs() {
   });
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawOnsho(); }
+function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); }
+
+function drawLibrary() {
+  const el = $("#library");
+  const cap = D.regs.find((r) => r.name === cur.reg).cap;
+  const mine = (D.saved || []).filter((s) => s.reg === cur.reg);
+  const active = D.decks[cur.reg];
+  const rows = mine.map((s) => {
+    const isActive = active && active.cards.join("、") === s.cards.join("、")
+      && active.form === s.form;
+    const over = s.cost !== null && s.cost > cap;
+    return `<div class="lib-row ${isActive ? "active" : ""}">
+      <div class="lib-line1">
+        <span class="lname">${esc(s.name)}</span>
+        ${isActive ? '<span class="active-tag">登録中</span>' : ""}
+      </div>
+      <div class="lib-line2">
+        <span class="form-tag">${esc(s.form)}</span>
+        <span class="val num ${over ? "warn" : ""}">${s.cost === null ? "?" : s.cost + "点"}</span>
+        <span class="lib-btns">
+          <button class="mini" data-a="load" data-id="${s.id}">呼び出す</button>
+          <button class="mini" data-a="reg" data-id="${s.id}">登録</button>
+          <button class="mini" data-a="del" data-id="${s.id}">✕</button>
+        </span>
+      </div>
+    </div>`;
+  }).join("");
+  el.innerHTML = `<div class="side-label">─ デッキ保存庫（${esc(cur.reg)}） ─</div>
+    <div class="lib-save">
+      <input id="savename" placeholder="この編成に名前を付けて保存" maxlength="24">
+      <button class="mini" id="dosave">保存</button>
+    </div>
+    ${rows || "<p class='muted' style='font-size:12px'>まだ保存が無い。</p>"}`;
+  $("#dosave").onclick = async () => {
+    const name = $("#savename").value.trim();
+    if (!name) { flashMsg("名前を付ける", true); return; }
+    const r = await api("/api/savedeck",
+      { name, reg: cur.reg, form: cur.form, cards: cur.cards });
+    if (!r.ok) { flashMsg(r.errors.join("／"), true); return; }
+    D = await api("/api/deckdata"); flashMsg("保存した。"); drawLibrary();
+  };
+  $$("#library .lib-btns button").forEach((b) => b.onclick = async () => {
+    const s = mine.find((x) => x.id === +b.dataset.id);
+    if (b.dataset.a === "load") {
+      cur.form = s.form; cur.cards = [...s.cards]; drawFormTabs(); drawAll();
+      flashMsg(`「${s.name}」を編成台へ。登録するまで次戦には使われない。`);
+    }
+    if (b.dataset.a === "reg") {
+      const r = await api("/api/deck", { reg: cur.reg, form: s.form, cards: s.cards });
+      if (!r.ok) { flashMsg(r.errors.join("／"), true); return; }
+      D = await api("/api/deckdata");
+      cur.form = s.form; cur.cards = [...s.cards]; drawFormTabs();
+      flashMsg(`「${s.name}」を登録した。次戦からこの陣。`); drawAll();
+    }
+    if (b.dataset.a === "del") {
+      await api("/api/deldeck", { id: s.id });
+      D = await api("/api/deckdata"); drawLibrary();
+    }
+  });
+}
 
 function deckGenerals() {
   const set = new Set();

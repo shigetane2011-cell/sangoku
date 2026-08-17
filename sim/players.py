@@ -182,6 +182,18 @@ CREATE TABLE IF NOT EXISTS tokens (
   count      INTEGER NOT NULL,
   updated_at INTEGER NOT NULL              -- unix秒
 );
+-- デッキ保存庫（§7.46）。名前を付けて何個でも取っておける。**登録（decks 表）
+-- とは別物**: 保存は下書きでもよく、検証は登録の瞬間だけ行う。
+CREATE TABLE IF NOT EXISTS saved_decks (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  regulation TEXT NOT NULL,
+  cards      TEXT NOT NULL,
+  formation  TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (player_id, regulation, name)
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -444,6 +456,32 @@ def decks_of(cx: sqlite3.Connection, player_id: str) -> Dict[str, Tuple[str, str
     return {r["regulation"]: (r["cards"], r["formation"]) for r in cx.execute(
         "SELECT regulation, cards, formation FROM decks WHERE player_id = ?",
         (player_id,))}
+
+
+def save_deck_as(cx: sqlite3.Connection, player_id: str, name: str,
+                 regulation: str, cards: str, formation: str) -> None:
+    """保存庫へ入れる。同じ名前なら上書き。"""
+    with cx:
+        cx.execute(
+            "INSERT INTO saved_decks (player_id, name, regulation, cards,"
+            " formation) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(player_id, regulation, name) DO UPDATE SET"
+            " cards = excluded.cards, formation = excluded.formation,"
+            " updated_at = datetime('now')",
+            (player_id, name, regulation, cards, formation))
+
+
+def saved_decks(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
+    return [dict(r) for r in cx.execute(
+        "SELECT id, name, regulation, cards, formation FROM saved_decks"
+        " WHERE player_id = ? ORDER BY regulation, name", (player_id,))]
+
+
+def delete_saved_deck(cx: sqlite3.Connection, player_id: str,
+                      deck_id: int) -> None:
+    with cx:
+        cx.execute("DELETE FROM saved_decks WHERE id = ? AND player_id = ?",
+                   (deck_id, player_id))
 
 
 # ---------------------------------------------------------------- 告知の組
