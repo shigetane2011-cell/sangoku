@@ -1115,6 +1115,9 @@ class Card:
     # **末尾に置くこと。** 途中に足すと Card(cost, typ, role, ...) の位置引数が
     # 1つずつずれる（role が stat_cost に入って TypeError になった）。
     stat_cost: float = 0.0
+    # 決めゼリフ（generals.csv「台詞」）。技の初回発動時に実況へ出す。**飾りで
+    # あり測定に影響しない**（events を渡したときだけ読まれる）。
+    quote: str = ""
 
     def label(self) -> str:
         if self.name:
@@ -1177,7 +1180,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1253,6 +1256,7 @@ class Unit:
         self.progress = 0.0
         self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
         self.name = card.name
+        self.quote = card.quote
         self.faction = card.faction
         self.atk_mult = 1.0
         self.def_mult = 1.0
@@ -1658,29 +1662,28 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     else:
         where = "{}{}隊".format(side, n)
     if kind == "dot":
-        return "{}、{}。{}の陣に火の手が上がる（毎分{:,.0f}人・{:.0f}分）。".format(
+        return "{}の【{}】！　{}が炎上！（毎分{:,.0f}・{:.0f}分）".format(
             who, name, where, per_min(amount), mins(secs))
     if kind == "damage":
-        return "{}、{}。{}に斬り込み、{:,.0f}人を討ち取る。".format(
+        return "{}の【{}】が炸裂！！　{}に {:,.0f} の損害！".format(
             who, name, where, amount)
     if kind == "heal":
-        return "{}、{}。{}の傷兵{:,.0f}人が再び戦列に加わる。".format(
+        return "{}の【{}】！　{}の兵 {:,.0f} が戦列に復帰！".format(
             who, name, where, amount)
     if kind == "stun":
-        return "{}、{}。{}は足を止められ、しばし動けない（{:.0f}分）。".format(
+        return "{}の【{}】！　{}が立ちすくむ！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "chaos":
-        return "{}、{}。{}の隊列が乱れ、同士討ちの声が上がる（{:.0f}分）。".format(
+        return "{}の【{}】！　{}が同士討ちを始めた！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "buff":
-        verb = {"def": "が盾を連ね、守りを固める",
-                "spd": "の足が軽くなる",
-                "rate": "の気勢が満ちる"}.get(stat, "の士気が奮い立つ")
-        return "{}、{}。{}{}（{:+.0%}・{:.0f}分）。".format(
-            who, name, where, verb, amount, mins(secs))
-    verb = {"def": "の守りが崩れる"}.get(stat, "の刃が鈍る")
-    return "{}、{}。{}{}（{:+.0%}・{:.0f}分）。".format(
-        who, name, where, verb, amount, mins(secs))
+        what = {"def": "守り", "spd": "足", "rate": "気勢"}.get(stat, "攻撃")
+        up = {"spd": "速まる"}.get(stat, "上がる")
+        return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・{:.0f}分）".format(
+            who, name, where, what, up, amount, mins(secs))
+    what = {"def": "守りが乱れる"}.get(stat, "刃が鈍る")
+    return "{}の【{}】！　{}の{}！（{:+.0%}・{:.0f}分）".format(
+        who, name, where, what, amount, mins(secs))
 
 
 # 技のフェーズ中だけ有効な兵力の蓄積器。**None なら即時に反映する。**
@@ -1781,6 +1784,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                         _skill_line(u, name, tstr, tgts, kind, amount, secs,
                                     stat),
                         mag))
+        # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは技と同じ
+        # 値を持たせ、強い技を撃った武将から喋る。
+        if u.quote and seen is not None and ("声", id(u)) not in seen:
+            seen.add(("声", id(u)))
+            ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
+                            "{}「{}」".format(_who(u), u.quote), mag,
+                            ref=id(ev[-1])))
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
     ally = "味方" in tstr or "自分" in tstr
@@ -2489,12 +2499,14 @@ def _army_name(army: "Army", fallback: str) -> str:
 # 大きさの単位が違うもの（人数 と %×秒×枚数）を1つの物差しで比べていたのが原因で、
 # 係数を調整して釣り合わせるより、枠を分けるほうが素直である。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
-             "必殺技": 2, "計略": 2, "誘発": 2, "突撃": 1, "壊滅": 2, "決着": 1,
-             "時刻": 1}
-# 優先順位（小さいほど先に確保する）
-LINE_PRIO = {"決着": 1, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3, "誘発": 3,
-             "突撃": 4, "壊滅": 4, "時刻": 4, "接敵": 5, "抑制": 6, "布陣": 7}
-LINE_BUDGET = 12
+             "必殺技": 3, "計略": 3, "誘発": 2, "突撃": 1, "壊滅": 4, "決着": 1,
+             "時刻": 1, "戦況": 4, "台詞": 3}
+# 優先順位（小さいほど先に確保する）。**戦況は技より先に確保する**（兵数の推移が
+# 実況の背骨。テストプレイの指摘）。台詞は技と同じ組で選ばれる（mag が技と同値）。
+LINE_PRIO = {"決着": 1, "戦況": 2, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3,
+             "誘発": 3, "台詞": 3, "突撃": 4, "壊滅": 4, "時刻": 4, "接敵": 5,
+             "抑制": 6, "布陣": 7}
+LINE_BUDGET = 20
 ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
 # 実況の時間表現。**盤面の1ティックを戦場の 1.35 分として読ませる。**
@@ -2574,6 +2586,9 @@ class Event:
     # 出来事の大きさ（人数など）。**行を選ぶときに種類の中での順位を決める。**
     # 必殺技は1戦に18回ほど飛ぶので、先に起きたものから採ると小物ばかり並ぶ。
     mag: float = 0.0
+    # 台詞が紐づく本体行の id()。**本体が枠から落ちたら台詞も出さない**（§9.4。
+    # 技の行が消えて声だけ残る「孤児の台詞」が実測で出た）。0 なら独立行。
+    ref: int = 0
 
 
 def _wing(u: Unit) -> str:
@@ -2611,8 +2626,9 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
             c[card.typ] = c.get(card.typ, 0) + 1
         return "・".join(f"{TYPE_JP[t]}{c[t]}" for t in TYPES if c.get(t))
     # 布陣は時刻を持たない（t = -1）。合流させず必ず先頭に置く。
-    line = "{}軍、{}の陣を布く（{}）。対する{}軍は{}の陣（{}）。".format(
-        _JP["A"], shape(a), mix(a), _JP["B"], shape(b), mix(b))
+    line = "{}軍、{}の陣を布く（{}・総勢 {:,.0f}）。対する{}軍は{}の陣（{}・総勢 {:,.0f}）。".format(
+        _JP["A"], shape(a), mix(a), sum(u.men0 for u in ua),
+        _JP["B"], shape(b), mix(b), sum(u.men0 for u in ub))
     # 常在型はタイムラインに瞬間を持たないので、ここで触れる（§9.3）
     for side, us in (("A", ua), ("B", ub)):
         vg = [u.name for u in us
@@ -2639,7 +2655,28 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
                 _who(u), mins(u.total_len / u.speed))))
 
 
+CHECKPOINT_MIN = 120.0      # 戦況板の間隔（表示分。2時間ごと＝10:00,12:00,14:00,16:00）
+
+
 def _log_tick(ev, seen, t, ua, ub, gap) -> None:
+    # 戦況の定点観測（§9.4）。**競馬実況の型**: 決まった地点で兵数と形勢を読む。
+    # 兵数の推移はこの行が担う（技や壊滅の行は「なぜ減ったか」を担う）。
+    n = int(mins(t) // CHECKPOINT_MIN)
+    if n >= 1 and ("況", n) not in seen:
+        seen.add(("況", n))
+        ma = sum(u.men for u in ua); m0a = sum(u.men0 for u in ua)
+        mb = sum(u.men for u in ub); m0b = sum(u.men0 for u in ub)
+        ra_, rb_ = ma / m0a, mb / m0b
+        d = ra_ - rb_
+        lead = _JP["A" if d > 0 else "B"]
+        phrase = ("一進一退！" if abs(d) < 0.03 else
+                  "{}軍、やや優勢！".format(lead) if abs(d) < 0.10 else
+                  "{}軍、押している！".format(lead) if abs(d) < 0.20 else
+                  "{}軍、大きく優勢！".format(lead))
+        ev.append(Event(t, "戦況", LINE_PRIO["戦況"],
+            "◇戦況　{}軍 {:,.0f}（{:.0%}）─ {}軍 {:,.0f}（{:.0%}）　{}".format(
+                _JP["A"], ma, ra_, _JP["B"], mb, rb_, phrase),
+            mag=float(n)))
     # 接敵。**正面の重なりが最も大きい組**を報じる。
     #
     # 縁の距離で選ぶと、500m幅の方陣どうしが角で触れただけの組を「正面から
@@ -2757,7 +2794,7 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
     ログの正とすると決めている）。
     """
     ev: List[Event] = []
-    simulate(a, b, dt=dt, events=ev, seed=seed)
+    r = simulate(a, b, dt=dt, events=ev, seed=seed)
 
     # 時刻帯の行を**ここで合成する**。盤面から受け取るのではなく、終わった戦いの
     # 長さだけを見て足す。決着の直前に帯をまたいだ場合は出さない（DAY_BAND_MARGIN）。
@@ -2777,7 +2814,7 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
     kept = [e for e in ev if e.kind in ("布陣", "決着")][:2]
     used = {e.kind: 1 for e in kept}
     for e in ev:
-        if e in kept:
+        if e in kept or e.kind == "台詞":
             continue
         if used.get(e.kind, 0) >= LINE_CAPS.get(e.kind, 1):
             continue
@@ -2785,6 +2822,12 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
             break
         used[e.kind] = used.get(e.kind, 0) + 1
         kept.append(e)
+    # 台詞は本体の行が残ったものだけ、大きい順に枠まで（行予算の外。声は行が
+    # 短いので予算に数えない）。
+    body_ids = {id(e) for e in kept}
+    quotes = sorted((e for e in ev if e.kind == "台詞" and e.ref in body_ids),
+                    key=lambda e: -e.mag)[:LINE_CAPS["台詞"]]
+    kept += quotes
 
     # 挿絵を差す場所を決める（§9.3 の三幕）。序＝布陣、破＝いちばん大きい出来事、
     # 急＝決着。**大きさで選ぶのは「破」だけ**で、序と急は位置で決まっている。
@@ -2793,19 +2836,32 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
     if mid:
         art.add(id(max(mid, key=lambda e: e.mag)))
 
-    # 同じ秒の出来事は1行へ合流させる（布陣は t=-1 なので合流しない）
+    # 同じ秒の出来事は1行へ合流させる（布陣は t=-1 なので合流しない）。
+    # **台詞は合流させない。** 技の行に埋め込むと誰の声か紛れる（§9.4）。
     kept.sort(key=lambda e: (e.t, e.prio))
     out, i = [], 0
+    out.append("━━ 合戦開始 ━━━━━━━━━━━━━━━━")
     while i < len(kept):
         same = [kept[i]]
         while (i + 1 < len(kept) and kept[i + 1].t >= 0.0
                and int(kept[i + 1].t) == int(kept[i].t)):
             i += 1
             same.append(kept[i])
+        quotes = [e for e in same if e.kind == "台詞"]
+        body = [e for e in same if e.kind != "台詞"]
         head = "【布陣】" if same[0].t < 0.0 else "【{}】".format(clock(same[0].t))
-        mark = "◆" if any(id(e) in art for e in same) else "　"
-        out.append(mark + head + " " + " ".join(e.text for e in same))
+        mark = "◆" if any(id(e) in art for e in body) else "　"
+        if body:
+            out.append(mark + head + " " + " ".join(e.text for e in body))
+        for q in quotes:
+            out.append("　　　　　　" + q.text)
         i += 1
+    if r["score"] > 0.5:
+        out.append("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["A"]))
+    elif r["score"] < 0.5:
+        out.append("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["B"]))
+    else:
+        out.append("━━ 引き分け ━━━━━━━━━━━━━━━━")
     return out
 
 

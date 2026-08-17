@@ -354,7 +354,7 @@ def to_cards(names=None):
         cost=float(g["コスト"]),
         stat_cost=float(g["能力値コスト"]),
         typ=TYPE_MAP[g["兵種"]], role=ROLE_MAP[g["役割"]], name=g["名前"],
-        trait=g["固有特性"], faction=g["勢力"],
+        trait=g["固有特性"], faction=g["勢力"], quote=g.get("台詞", ""),
         might=float(g["武力"]), wits=float(g["知力"]), skill=g["必殺技"],
         gauge_cost=float(g["消費ゲージ%"]),
         # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
