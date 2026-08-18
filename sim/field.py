@@ -1610,28 +1610,62 @@ def _skill_targets(target: str, u, foe, own):
         pool = [x for x in own if x.men > 0.0]
         if not pool:
             return []
+        # 「自分と◯衛1体」は「自分」より先に判定する（語が重なるため）
+        if "自分と前衛1体" in target or "自分と後衛1体" in target:
+            want_front = "前衛" in target
+            others = [x for x in pool
+                      if x is not u and x.is_front == want_front]
+            near = min(others, key=lambda x: _d2(u, x)) if others else None
+            me = [u] if u.men > 0.0 else []
+            return me + ([near] if near is not None else [])
         if "自分" in target:
             return [u] if u.men > 0.0 else []
         if "全体" in target:
             return pool
+        if "前衛" in target:
+            r = [x for x in pool if x.is_front]
+            return r or pool
+        if "後衛" in target:
+            r = [x for x in pool if not x.is_front]
+            return r or pool
         if "残兵力が最少" in target:
             return [min(pool, key=lambda x: x.ratio())]
+        if "攻撃力が最高" in target:
+            return [max(pool, key=lambda x: x.atk * x.atk_mult)]
+        if "損害が最大" in target:
+            return [max(pool, key=lambda x: x.men0 - x.men)]
         if "1列" in target:
             return sorted(pool, key=lambda x: _d2(u, x))[:3]
         return [min(pool, key=lambda x: x.ratio())]
+    alive = [x for x in foe if x.men > 0]
+    if not alive:
+        return []
     if "全体" in target:
         return list(foe)
-    if "後列" in target:
-        r = [x for x in foe if not x.is_front]
-        return r or list(foe)
+    if "正面2体" in target:
+        # 正面の前衛1 + 後衛1（最も近いもの）。ダメージは均等に案分される
+        # （engine は対象数で割る）。
+        fr = [x for x in alive if x.is_front]
+        rr = [x for x in alive if not x.is_front]
+        out = []
+        if fr:
+            out.append(min(fr, key=lambda x: _d2(u, x)))
+        if rr:
+            out.append(min(rr, key=lambda x: _d2(u, x)))
+        return out or alive[:1]
+    if "前衛" in target:
+        r = [x for x in alive if x.is_front]
+        return r or alive
+    if "後衛" in target or "後列" in target:
+        r = [x for x in alive if not x.is_front]
+        return r or alive
     if "残兵力が最少" in target:
-        alive = [x for x in foe if x.men > 0]
-        return [min(alive, key=lambda x: x.ratio())] if alive else []
+        return [min(alive, key=lambda x: x.ratio())]
+    if "正面" in target:                 # 敵1体（正面）: いちばん近い敵
+        return [min(alive, key=lambda x: _d2(u, x))]
     if "1列" in target:                  # レーンは無いので「最も近い3枚」へ写す
-        alive = [x for x in foe if x.men > 0]
         return sorted(alive, key=lambda x: _d2(u, x))[:3]
-    alive = [x for x in foe if x.men > 0]
-    return [max(alive, key=lambda x: x.men)] if alive else []
+    return [max(alive, key=lambda x: x.men)]
 
 
 def _d2(a, b) -> float:
@@ -3679,6 +3713,62 @@ def cmd_traits(args) -> None:
     print("    }")
 
 
+def cmd_targets(args) -> None:
+    """対象範囲の値段を測る（§7.50・新対象の検証）。
+
+    模型の想定: **打撃と回復は対象数で割られるので値段ほぼ不変**、**状態効果は
+    対象1枚ごとに丸ごと乗るので対象数に比例**（design.TARGET_N）。新しい対象型が
+    この帯に乗るかを、同じ効果を対象だけ変えて測って確かめる。
+    """
+    global SKILLS_ON, TRAITS_ON
+    SKILLS_ON = True
+    TRAITS_ON = False
+    dt = args.dt
+    ys = cost_yardstick(dt)
+    TEST = "＿試験技"
+
+    def army(sk, target, caster=0):
+        cards = []
+        for i, r in enumerate(MIXED_ROLES):
+            c = _synth(BASE_COST, INF, r)
+            if i == caster:
+                c = replace(c, skill=(TEST if sk else ""), stat_cost=0.0)
+            cards.append(c)
+        if sk:
+            SKILL_INFO[TEST] = sk
+            SKILL_TARGET[TEST] = target
+        return Army(tuple(cards), FORM_STANDARD)
+
+    def price(sk, target, caster=0):
+        a = army(sk, target, caster)
+        b = army(None, target, caster)
+        return margin(a, b, dt) / ys
+
+    dmg = Skill(power=5.0, kind="melee")
+    buff = Skill(mods=(("atk", 0.10, 30.0),))
+    heal = Skill(heal=1.5, kind="melee")
+
+    print("対象範囲の値段（コスト点・効果は固定で対象だけ変える・前衛が撃つ）")
+    print()
+    print("  {:<22}{:>10}{:>10}{:>12}".format("対象", "打撃500%", "回復150%", "攻+10%30秒"))
+    foe_targets = ["敵1体（最前）", "敵1体（正面）", "敵1列", "敵前衛", "敵後衛",
+                   "敵正面2体", "敵全体"]
+    own_targets = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
+                   "味方1列", "味方前衛", "味方後衛", "味方全体"]
+    for t in foe_targets:
+        print("  {:<22}{:>10.3f}{:>10}{:>12.3f}".format(
+            t, price(dmg, t), "-", price(Skill(mods=(("atk", -0.10, 30.0),)), t)))
+    for t in own_targets:
+        print("  {:<22}{:>10}{:>10.3f}{:>12.3f}".format(
+            t, "-", price(heal, t), price(buff, t)))
+    print()
+    print("  後衛が使う場合（自分と◯衛1体・支援の座標依存）")
+    for t in ("自分と前衛1体", "自分と後衛1体"):
+        print("  {:<22}{:>10}{:>10.3f}{:>12.3f}".format(
+            t, "-", price(heal, t, caster=3), price(buff, t, caster=3)))
+    del SKILL_INFO[TEST]
+
+
 def cmd_stack(args) -> None:
     """固有特性を重ねたときの値段が足し算になるか測る（§7.37 の関門）。
 
@@ -3758,6 +3848,9 @@ def main() -> None:
     s = sub.add_parser("stack")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(func=cmd_stack)
+    s = sub.add_parser("targets")
+    s.add_argument("--dt", type=float, default=0.5)
+    s.set_defaults(func=cmd_targets)
     s = sub.add_parser("cost")
     s.add_argument("--dt", type=float, default=0.5)
     s.set_defaults(func=cmd_cost)

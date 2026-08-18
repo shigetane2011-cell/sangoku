@@ -296,7 +296,54 @@ def damage_price(power: float) -> float:
 # **ダメージだけが対象数で割られる。** 状態効果は対象1枚ごとに丸ごと乗るので、
 # 対象数を掛ける。ここを揃え損ねると「敵1体に3秒の行動阻害」を「敵1列に3秒」と
 # 同じ値段で売ることになる。
-TARGET_N = {"全体": 6.0, "1列": 3.0, "後列": 3.0, "1体": 1.0, "自分": 1.0}
+TARGET_N = {"自分と前衛1体": 2.0, "自分と後衛1体": 2.0, "正面2体": 2.0,
+            "全体": 6.0, "1列": 3.0, "後列": 3.0, "前衛": 3.0, "後衛": 3.0,
+            "1体": 1.0, "自分": 1.0}
+
+# 対象範囲の実測係数（§7.50・`field.py targets`・2026-08・混成歩兵6・標準陣）。
+# **TARGET_N の線形模型は尻尾で外れる**: 敵1体へのデバフは敵1列の1/9しか
+# 効かない（撃たれる前に倒すか、他の5枚が無傷で殴るため）。味方バフも
+# 「誰に掛かるか」で別物（前衛3枚は自分×3.0、後衛3枚は×1.2 — 後衛の攻撃力は
+# 兵が薄く伸び代が無い）。旧フィットの錨（味方1列=3.0・敵1列=3.0）に正規化
+# してあるので、既存カードの値付けは概ね保たれる。
+# 打撃・回復は対象数で割られてほぼ不変だが ±20% の構造があるので係数で持つ。
+TARGET_DMG_F = {"敵1体（最前）": 1.00, "敵1体（正面）": 0.94, "敵1列": 1.06,
+                "敵前衛": 1.11, "敵後衛": 0.79, "敵正面2体": 0.82,
+                "敵全体": 0.90}
+TARGET_HEAL_F = {"自分": 1.00, "味方1体（残兵力が最少）": 1.02,
+                 "味方1体（攻撃力が最高）": 0.81, "味方1列": 0.92,
+                 "味方前衛": 0.91, "味方後衛": 0.79, "味方全体": 0.94,
+                 "自分と前衛1体": 1.07, "自分と後衛1体": 1.02}
+TARGET_FX_OWN = {"自分": 1.45, "味方1体（残兵力が最少）": 1.42,
+                 "味方1体（攻撃力が最高）": 0.59, "味方1列": 3.00,
+                 "味方前衛": 4.35, "味方後衛": 1.78, "味方全体": 6.02,
+                 "自分と前衛1体": 1.83, "自分と後衛1体": 0.91}
+TARGET_FX_FOE = {"敵1体（最前）": 0.33, "敵1体（正面）": 1.33, "敵1列": 3.00,
+                 "敵前衛": 3.50, "敵後衛": 1.12, "敵正面2体": 1.76,
+                 "敵全体": 4.10}
+
+
+def target_fx(target: str) -> float:
+    """状態効果（攻/防/阻害/混乱）の対象係数。実測表→無ければ旧 TARGET_N。"""
+    side = TARGET_FX_OWN if ("味方" in target or "自分" in target) else TARGET_FX_FOE
+    for k, v in side.items():
+        if k in target or target in k:
+            return v
+    return target_n(target)
+
+
+def target_dmg_f(target: str) -> float:
+    for k, v in TARGET_DMG_F.items():
+        if k in target or target in k:
+            return v
+    return 1.0
+
+
+def target_heal_f(target: str) -> float:
+    for k, v in TARGET_HEAL_F.items():
+        if k in target or target in k:
+            return v
+    return 1.0
 
 # **1枚のコスト1点は、軍全体に均等配分した1点より 1.27倍 効く**（実測。-2〜+2 点で
 # 1.259〜1.291 と線形）。集中させたほうが強いという Lanchester の効きである。
@@ -468,19 +515,21 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     # 入れることになり、上の3計器と正面からぶつかるので、測り直してから決める。
     # 打撃と回復だけが技の係数（武力・知力の配合）に乗る。状態効果は率なので乗らない。
     tc = tilt_coef(skill.kind, typ, tilt)
+    fx = target_fx(target)
     v = 0.0
     if skill.dur > 0.0 and skill.power > 0.0:
-        v += EFFECT_PRICE["dot"] * skill.power * skill.dur * tc
+        v += EFFECT_PRICE["dot"] * skill.power * skill.dur * tc \
+             * target_dmg_f(target)
     elif skill.power > 0.0:
-        v += damage_price(skill.power * tc)
-    v += EFFECT_PRICE["heal"] * skill.heal * tc
+        v += damage_price(skill.power * tc) * target_dmg_f(target)
+    v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target)
     for key, amt, secs in skill.mods:
         if key == "stun":
-            v += EFFECT_PRICE["stun"] * secs * n
+            v += EFFECT_PRICE["stun"] * secs * fx
         elif key in ("atk", "def"):
-            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * n
+            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
         elif key == "chaos":
-            v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * n
+            v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
     # **上限時間の仮定を持たない。** 段の重みは対戦の集まりで測った実測値。
     v *= tier_weight(gauge_cost, gauge_init)
     return v / CARD_COST_RATE
