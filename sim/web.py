@@ -169,6 +169,7 @@ def _roster_json():
                              * (100.0 + float(g["防御力"])) / 100.0),
             "atk": round(float(g["攻撃力"])),
             "dfn": round(float(g["防御力"])),
+            "spear": bool((g.get("槍") or "").strip()),
             "skill": g["必殺技"], "skill_desc": _skill_display(g, s),
             "skill_target": s.get("対象", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],

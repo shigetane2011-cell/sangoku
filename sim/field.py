@@ -494,6 +494,15 @@ INTERVAL = {INF: 1.2, CAV: 1.1, ARC: 1.3}    # §6.3 攻撃間隔
 # 接近中に一方的に撃つことはできない、という形になる（§7.32）。
 BOW_RANGE_EDGE = 91.0   # 同時解きで決めた（素は REAR_Y - FRONT_Y - CARD_D = 90）
 RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
+
+# 槍（§7.57・試験導入）。**兵種ではなく札のタグ** — 4つ目の兵種を作ると
+# 相性表・係数・陣形経済の全部が測り直しになるため。槍持ちの歩兵は後衛にも
+# 置け、後衛からは前線越しに突きを入れる（弓と同じ「噛み合ってから届く」
+# 幾何）。ただし威力は割り引く（テストプレイの指摘: 後衛から攻撃できないと
+# 値付けできない／強すぎてもいけない）。係数は**配置で固定**なので、戦闘中の
+# 分岐は無い（dt 不変・零点安全）。
+SPEAR_RANGE = BOW_RANGE_EDGE
+SPEAR_REAR = 0.5        # 後衛からの突きの威力（前衛に置けば通常の近接）
 # §6.1 の行動面の係数（歩1.00 / 騎0.90 / 弓1.12）は**旧レーンエンジンで実測した
 # 値**であり、この盤面では値付けが合わない。入れたままだと兵種補正を 0〜0.15、
 # FOCUS を 0〜3 まで振っても三すくみが 0/100/0 から一切動かず、係数だけで勝敗が
@@ -1155,6 +1164,7 @@ class Card:
     might: float = 0.0      # 武力
     wits: float = 0.0       # 知力
     lean: float = 0.0       # 役割寄せ（§7.56。正=兵寄せ・負=攻寄せ）
+    spear: bool = False     # 槍（§7.57。歩兵のみ。後衛にも置ける）
     skill: str = ""
     gauge_cost: float = 100.0
     gauge_rate: float = 1.0
@@ -1297,6 +1307,11 @@ class Unit:
         self.interval = INTERVAL[card.typ]
         self.speed = SPEED[card.typ]
         self.rng = RANGE[card.typ]
+        if card.spear and not is_front:
+            # 槍を後衛に置いた（§7.57）。前線越しの突き — 届くが威力半減。
+            # 配置で固定なので戦闘中に係数が切り替わることはない。
+            self.rng = SPEAR_RANGE
+            self.atk *= SPEAR_REAR
         self.width = form.card_width()
         self.depth = form.card_depth()
 

@@ -194,7 +194,7 @@ async function viewDeck(state) {
           <input id="search" placeholder="名で探す">
         </div>
         <div class="type-legend muted num">
-          歩兵＝近接・足は遅いが守り厚い　／　騎兵＝最速・初撃に突撃+60%・回り込みも可　／　弓兵＝後衛から遠射・守り薄く、詰められると乱れる
+          歩兵＝近接・足は遅いが守り厚い　／　騎兵＝最速・初撃に突撃+60%・回り込みも可　／　弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　槍持ち＝後衛にも置け、前線越しに突く（威力半減）
         </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
@@ -464,7 +464,7 @@ function drawRoster() {
       ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
           : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
       <div class="top"><span class="cost">${c.cost}</span>
-        <span class="typ">${c.typ.slice(0, 1)}</span>
+        <span class="typ">${c.typ.slice(0, 1)}${c.spear ? "槍" : ""}</span>
         <span class="role">${esc(c.role)}</span></div>
       <div class="name">${esc(c.name)}</div>
       <div class="stats num">武勇${c.might} 知略${c.wits}</div>
@@ -494,7 +494,7 @@ function showCardInfo(name) {
     <div class="ci-head">
       <span class="cost">${c.cost}</span>
       <span class="ci-name">${esc(c.name)}</span>
-      <span class="muted">${esc(c.faction)}・${esc(c.typ)}・${esc(c.role)}</span>
+      <span class="muted">${esc(c.faction)}・${esc(c.typ)}${c.spear ? "（槍・後衛可）" : ""}・${esc(c.role)}</span>
     </div>
     <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
     <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}
@@ -519,7 +519,7 @@ function drawSlots() {
     let warn = "";
     if (c) {
       if (front && c.typ === "弓兵") warn = "弓兵は前衛に置けない";
-      if (!front && c.typ !== "弓兵") warn = "後衛は弓兵だけ";
+      if (!front && c.typ !== "弓兵" && !c.spear) warn = "後衛は弓兵か槍持ちだけ";
     }
     rows.push(`<div class="slot ${front ? "front" : "rear"} ${c ? "" : "empty"}"
          data-i="${i}" ${c ? 'draggable="true"' : ""}>

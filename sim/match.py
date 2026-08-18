@@ -105,8 +105,10 @@ def placement_errors(army: F.Army) -> List[str]:
         if i < nf and c.typ not in FRONT_TYPES:
             errs.append("{} は{}なので前衛に置けない".format(
                 c.name or c.typ, F.TYPE_JP[c.typ]))
-        elif i >= nf and c.typ not in REAR_TYPES:
-            errs.append("{} は{}なので後衛に置けない".format(
+        elif i >= nf and c.typ not in REAR_TYPES and not (
+                c.typ == F.INF and c.spear):
+            # 槍持ちの歩兵は後衛にも置ける（§7.57。前線越しの突き・威力半減）
+            errs.append("{} は{}なので後衛に置けない（槍持ちなら可）".format(
                 c.name or c.typ, F.TYPE_JP[c.typ]))
     return errs
 

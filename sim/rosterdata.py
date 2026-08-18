@@ -358,6 +358,7 @@ def to_cards(names=None):
         trait=g["固有特性"], faction=g["勢力"], quote=g.get("台詞", ""),
         might=float(g["武力"]), wits=float(g["知力"]), skill=g["必殺技"],
         lean=float(g.get("役割寄せ") or 0.0),
+        spear=bool((g.get("槍") or "").strip()),
         gauge_cost=float(g["消費ゲージ%"]),
         # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
         gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
@@ -415,8 +416,9 @@ COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種",
            # 書き出しで落とさない。⑤の書き戻しで一度落として Web の武将一覧を
            # 壊した（KeyError: 武勇）。extrasaction="ignore" は列を黙って捨てる。
            "台詞", "武勇", "知略",
-           # 役割寄せ（§7.56）。設計の入力（authored）なので落とさない。
-           "役割寄せ"]
+           # 役割寄せ（§7.56）・槍（§7.57）。設計の入力（authored）なので
+           # 落とさない。
+           "役割寄せ", "槍"]
 
 
 def regenerate() -> int:
