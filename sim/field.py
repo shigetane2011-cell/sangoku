@@ -1180,7 +1180,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1278,6 +1278,8 @@ class Unit:
         self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
         self.dealt_skill = 0.0  # うち必殺技・特性によるぶん（§7.49）
         self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
+        self.refl = 0.0         # 必殺技反射の割合（§7.51）
+        self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
@@ -1548,7 +1550,7 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
 
 # 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
 _MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd",
-            "気勢": "rate", "必殺技防御": "scut"}
+            "気勢": "rate", "必殺技防御": "scut", "必殺技反射": "refl", "通常攻撃防御": "ncut"}
 
 
 def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
@@ -1560,7 +1562,7 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(
-            r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御)\s*([+-]\d+)%（(\d+)秒）",
+            r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒）",
             effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
@@ -1716,8 +1718,9 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
             who, name, where, mins(secs))
     if kind == "buff":
         what = {"def": "守り", "spd": "足", "rate": "気勢",
-                "scut": "計略への備え"}.get(stat, "攻撃")
-        up = {"spd": "速まる", "scut": "固まる"}.get(stat, "上がる")
+                "scut": "計略への備え", "refl": "刃返しの構え",
+                "ncut": "矢弾への備え"}.get(stat, "攻撃")
+        up = {"spd": "速まる", "scut": "固まる", "refl": "整う"}.get(stat, "上がる")
         return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・{:.0f}分）".format(
             who, name, where, what, up, amount, mins(secs))
     what = {"def": "守りが乱れる"}.get(stat, "刃が鈍る")
@@ -1910,6 +1913,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
+            if f.refl > 0.0:
+                # 反射は撃ち手の防御・反射・カットを通さない素の返り
+                # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
+                back = take * f.refl
+                _men_add(u, -back)
+                f.dealt += back
+                f.dealt_skill += back
             done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
@@ -1995,7 +2005,8 @@ def _expire(units, t: float) -> None:
             k = (kind, src)
             if abs(amt) > abs(best.get(k, 0.0)):
                 best[k] = amt
-        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0}
+        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0,
+               "refl": 0.0, "ncut": 0.0}
         for (kind, _), amt in best.items():
             tot[kind] += amt
         for k in tot:
@@ -2008,6 +2019,10 @@ def _expire(units, t: float) -> None:
         # 必殺技防御（§7.51・コンセプトカード「必殺技メタ」）。必殺技と延焼の
         # 被害だけを減らす。通常攻撃には効かない。
         u.scut_mult = max(0.0, 1.0 - tot["scut"])
+        # 必殺技反射（§7.51 機構2）。受けた必殺技直撃の一部を撃ち手へ返す。
+        u.refl = max(0.0, tot["refl"])
+        # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
+        u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
@@ -2304,7 +2319,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
-                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
+                        * f.ncut_mult
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
@@ -2335,7 +2351,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
-                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
+                        * f.ncut_mult
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:

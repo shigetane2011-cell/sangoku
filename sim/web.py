@@ -51,7 +51,9 @@ def _trait_names():
 
 
 _MOD_JP = {"攻撃力": "攻撃力", "命中率": "攻撃力（命中）", "防御力": "防御力",
-           "移動速度": "移動速度", "気勢": "気勢"}
+           "移動速度": "移動速度", "気勢": "気勢",
+           "必殺技防御": "必殺技防御", "必殺技反射": "必殺技反射",
+           "通常攻撃防御": "通常攻撃防御"}
 
 
 def _skill_display(g, sk_row) -> str:
@@ -77,7 +79,8 @@ def _skill_display(g, sk_row) -> str:
         total = F.HEAL_SCALE * sk.heal * coef * (sk.dur if sk.dur > 0 else 1.0)
         parts.append("回復 約{:,.0f}人".format(total))
     raw = sk_row.get("効果", "")
-    for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢)\s*([+-]\d+)%（(\d+)秒）", raw):
+    for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)"
+                          r"\s*([+-]\d+)%（(\d+)秒）", raw):
         parts.append("{} {}%（{:.0f}分）".format(
             _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
     m = _re.search(r"混乱\s*(\d+)%（(\d+)秒）", raw)

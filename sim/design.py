@@ -331,6 +331,16 @@ TARGET_FX_FOE = {"敵1体（最前）": 0.33, "敵1体（正面）": 1.33, "敵1
 # ほぼ必殺技）。線形則（量×秒に比例）は他の状態効果と同じ仮定を置く。
 TARGET_SCUT_PRICE = {"自分": 0.713, "味方前衛": 0.713, "味方1列": 1.609,
                      "味方後衛": 1.503, "味方全体": 1.954}
+# 必殺技反射（+30%30秒あたり・実測）。形は scut と同じで後衛ほど高い。
+# 前衛は scut の半分 — 返すだけでは自分の兵は守れないため。
+TARGET_REFL_PRICE = {"自分": 0.353, "味方前衛": 0.353, "味方後衛": 1.315,
+                     "味方全体": 1.656}
+# 通常攻撃防御（+30%30秒あたり・実測）。形は scut の**逆**で前衛ほど高い。
+# 通常攻撃は前衛に集中し（総与ダメの約 31k/42k）、後衛にはほぼ届かないため、
+# 後衛カットはほとんど無価値。前衛カットが防御+30%（1.775）を大きく超えるのは、
+# 防御+30% が実効約13%減なのに対し ncut30% は通常被害を素で3割削るから。
+TARGET_NCUT_PRICE = {"自分": 1.488, "味方前衛": 4.525, "味方1列": 3.394,
+                     "味方後衛": 0.224, "味方全体": 4.954}
 SCUT_BASE = 30.0 * 30.0     # 実測時の 量30% × 30秒
 
 
@@ -539,9 +549,11 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
             v += EFFECT_PRICE["stun"] * secs * fx
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
-        elif key == "scut":
-            base = 0.713
-            for k, pv in TARGET_SCUT_PRICE.items():
+        elif key in ("scut", "refl", "ncut"):
+            table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
+                     "ncut": TARGET_NCUT_PRICE}[key]
+            base = next(iter(table.values()))
+            for k, pv in table.items():
                 if k in target or target in k:
                     base = pv
                     break
