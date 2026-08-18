@@ -227,6 +227,13 @@ class App(BaseHTTPRequestHandler):
                 return self._api_savedeck(body)
             if url.path == "/api/deldeck":
                 return self._api_deldeck(body)
+            if url.path == "/api/dev_heifu":
+                # 手元の試験用: 兵符を満タンへ。公開版ではこの口ごと消す。
+                me = self._me(self._cx())
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                P.refill_heifu(self._cx(), me.id, int(time.time()))
+                return self._json({"ok": True})
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)

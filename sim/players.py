@@ -550,6 +550,16 @@ def spend_heifu(cx: sqlite3.Connection, player_id: str, amount: int,
     return True
 
 
+def refill_heifu(cx: sqlite3.Connection, player_id: str, now: int) -> None:
+    """兵符を満タンへ（**手元の試験用**。公開版では出さない・§7.49）。"""
+    with cx:
+        cx.execute("INSERT INTO tokens (player_id, count, updated_at)"
+                   " VALUES (?, ?, ?)"
+                   " ON CONFLICT(player_id) DO UPDATE SET"
+                   " count = excluded.count, updated_at = excluded.updated_at",
+                   (player_id, HEIFU_CAP, now))
+
+
 def record_match(cx: sqlite3.Connection, board: str, rnd: int,
                  pid_a: str, pid_b: str, seed: int) -> None:
     with cx:

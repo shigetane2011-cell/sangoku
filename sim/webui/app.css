@@ -240,6 +240,9 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .log .check { color: #9fb6d0; }
 .log .art { color: var(--accent); margin-right: 4px; }
 .log .skillname { color: #ffb08a; }
+.log .foe-name { color: #8fb3d9; }
+.log .mine-name { color: #ecd9a8; }
+.fell { color: #e08a5a; }
 .replay-controls { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
 .chart-panel h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .1em; }
 svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
@@ -250,7 +253,11 @@ svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); bord
 .unit-row .bars { flex: 1; display: grid; gap: 3px; }
 .bar { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 4px; }
-.bar.dmg i { background: var(--accent); }
+.bar.dmg { display: flex; }
+.bar.dmg i { background: #c98a3a; border-radius: 0; }
+.bar.dmg i.skillpart { background: var(--accent); }
+.bar.dmg i:first-child { border-radius: 4px 0 0 4px; }
+.bar.dmg i:last-child { border-radius: 0 4px 4px 0; }
 .bar.hp i { background: var(--shu); }
 .unit-row.dead .uname { color: var(--faint); text-decoration: line-through; }
 .unit-row .val { width: 4.5em; text-align: right; color: var(--sub);

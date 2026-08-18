@@ -96,6 +96,7 @@ async function viewHome(state) {
       ${"❙".repeat(h.count)}<span class="empty">${"❙".repeat(h.cap - h.count)}</span>
       <b>${h.count}</b>/${h.cap}
       ${h.next_in ? `<small>次の1枚まで ${Math.ceil(h.next_in / 60)}分</small>` : ""}
+      <button class="mini ghost" id="refill" title="試験用">＋補充</button>
     </span>` : "";
   app.innerHTML = `
     <div class="cta">
@@ -112,6 +113,8 @@ async function viewHome(state) {
     <div class="boards fade-in">${boards}</div>`;
   const btn = $("#fight");
   if (btn) btn.onclick = doSortie;
+  const rf = $("#refill");
+  if (rf) rf.onclick = async () => { await api("/api/dev_heifu", {}); location.reload(); };
 }
 
 async function doSortie() {
@@ -616,6 +619,7 @@ async function viewReplay(state) {
     </div>`;
   let gi = 0;
   let timer = null;
+  let sideMap = null;
   const boot = () => loadGame(d.games[gi]);
   $$(".game-tabs button").forEach((b) => b.onclick = () => {
     gi = +b.dataset.i;
@@ -626,6 +630,8 @@ async function viewReplay(state) {
 
   function loadGame(g) {
     clearInterval(timer);
+    sideMap = [...(g.foe_names || []).map((n) => [n, "foe-name"]),
+               ...(g.mine_names || []).map((n) => [n, "mine-name"])];
     const log = $("#log");
     log.innerHTML = g.lines.map((ln) => fmtLine(ln)).join("");
     drawChart(g, -1);
@@ -638,6 +644,15 @@ async function viewReplay(state) {
     return m ? (+m[1] - 8) * 60 + (+m[2]) : null;
   }
 
+  function markNames(html_) {
+    if (!sideMap) return html_;
+    for (const [name, side] of sideMap) {
+      html_ = html_.split(esc(name)).join(
+        `<span class="${side}">${esc(name)}</span>`);
+    }
+    return html_;
+  }
+
   function fmtLine(ln) {
     let cls = "line", body = esc(ln);
     if (/^━━/.test(ln)) cls += " band";
@@ -647,6 +662,7 @@ async function viewReplay(state) {
       /^\d+$/.test(x) ? m0 : `【<span class="skillname">${x}</span>】`);
     body = body.replace(/^(◆)/, '<span class="art">◆</span>');
     body = body.replace(/【(\d+:\d+)】/, '<span class="t">$1</span>');
+    body = markNames(body);
     return `<div class="${cls}" data-t="${lineTime(ln) ?? ""}">${body}</div>`;
   }
 
@@ -706,17 +722,19 @@ async function viewReplay(state) {
     const side = (label, us) => `<div class="side-label">${label}</div>` +
       us.map((u) => {
         const hp = u.men0 ? u.men / u.men0 : 0;
+        const sk = u.skill_dealt || 0;
         return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""}">
           <span class="uname">${esc(u.name)}<small>（${u.typ.slice(0, 1)}）</small></span>
           <span class="bars">
-            <span class="bar dmg"><i style="width:${u.dealt / maxD * 100}%"></i></span>
+            <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
             <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
           </span>
-          <span class="val">与${(u.dealt / 1000).toFixed(1)}千</span>
-          <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}</span>
+          <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（技${(sk / 1000).toFixed(1)}）</small></span>
+          <span class="val">${u.fell ? `<span class="fell">${u.fell}崩</span>`
+            : (hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%")}</span>
         </div>`;
       }).join("");
-    $("#report").innerHTML = '<div class="side-label">─ 軍功帳 ─</div>' +
+    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常） ─</div>' +
       side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
   }
 }

@@ -1180,7 +1180,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1276,6 +1276,8 @@ class Unit:
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
         self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
+        self.dealt_skill = 0.0  # うち必殺技・特性によるぶん（§7.49）
+        self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -1869,6 +1871,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), f.men)
             _men_add(f, -take)
             u.dealt += take
+            u.dealt_skill += take
             done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
@@ -2342,6 +2345,12 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             _overtime(ua + ub, t + dt, dt)
 
         t += dt
+        for u in ua:
+            if u.fell_at is None and u.ratio() < ROUT_UNIT:
+                u.fell_at = t
+        for u in ub:
+            if u.fell_at is None and u.ratio() < ROUT_UNIT:
+                u.fell_at = t
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
         if series is not None:
@@ -2376,8 +2385,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "fires_b": [(u.name or u.typ, u.fires) for u in ub],
             # 診断用（勝敗に不使用）: 枚ごとの与ダメージと残兵。§7.32 の計器。
             # 戦果表（sim/play.py）もここを読む。
-            "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0) for u in ua],
-            "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0) for u in ub],
+            "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
+                         u.dealt_skill, u.fell_at) for u in ua],
+            "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
+                         u.dealt_skill, u.fell_at) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。

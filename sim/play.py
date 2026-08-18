@@ -513,9 +513,13 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     def rows(xs):
         return [{"name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
                  "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
-                 "men0": round(m0)} for n, t, d, m, m0 in xs]
+                 "men0": round(m0), "skill_dealt": round(sd),
+                 "fell": F.clock(fa) if fa is not None else None}
+                for n, t, d, m, m0, sd, fa in xs]
     sc = r["score"] if me_first else 1.0 - r["score"]
     return {"lines": lines,
+            "mine_names": [u.name for u in (ua if me_first else ub).cards if u.name],
+            "foe_names": [u.name for u in (ub if me_first else ua).cards if u.name],
             "series": [[round(F.mins(t), 1),
                         round((ra - rb) if me_first else (rb - ra), 4)]
                        for t, ra, rb in series[::step]],
@@ -537,12 +541,13 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     print("    ── 軍功帳（与ダメ=千人・残兵%） ──")
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
-        for name, typ, dealt, men, men0 in rows:
+        for name, typ, dealt, men, men0, sd, fa in rows:
             pct = 100.0 * men / men0 if men0 > 0 else 0.0
             state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
-            cells.append("{}({}) 与{:.1f} 残{}".format(
+            when = "・{}崩".format(F.clock(fa)) if fa is not None else ""
+            cells.append("{}({}) 与{:.1f}(技{:.1f}) 残{}{}".format(
                 M.person_of(F.Card(0, typ, name=name)) or F.TYPE_JP[typ],
-                F.TYPE_JP[typ][0], dealt / 1000.0, state))
+                F.TYPE_JP[typ][0], dealt / 1000.0, sd / 1000.0, state, when))
         print("    {}: {}".format(tag, " / ".join(cells[:3])))
         if len(cells) > 3:
             print("          {}".format(" / ".join(cells[3:])))
