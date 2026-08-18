@@ -513,6 +513,113 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
     return out
 
 
+def battle_notes(ua, ub, r, series, me_first: bool) -> List[str]:
+    """軍師の見立て（§9.5）。**記録からの読み取り専用**で、勝敗にも測定にも
+    触れない（§9.3 の原則。実況・戦況図と同じ側）。
+
+    出すのは最大3行: 山場（形勢が入れ替わった・差がいちばん開いた時刻と、
+    そのとき崩れた隊）、それに勝因・敗因を高々2つ。原因は盤面が実際に持つ
+    量からだけ引く — 本陣の陥落（cmd_fell）、兵種相性（type_edge・コスト点）、
+    陣形の三すくみ（§7.39 実測の向き）、与ダメの内訳（通常/必殺）、早い崩れ。
+    推測で語らない: どのしきい値も「言い切れる大きさ」にだけ反応させる。
+    """
+    mine_a, foe_a = (ua, ub) if me_first else (ub, ua)
+    mine_r, foe_r = ((r["dealt_a"], r["dealt_b"]) if me_first
+                     else (r["dealt_b"], r["dealt_a"]))
+    sc = r["score"] if me_first else 1.0 - r["score"]
+    won, lost = sc > 0.5, sc < 0.5
+    gap = [(t, (ra - rb) if me_first else (rb - ra)) for t, ra, rb in series]
+    notes: List[str] = []
+
+    def who(row):
+        return M.person_of(F.Card(0, row[1], name=row[0])) or F.TYPE_JP[row[1]]
+
+    # ── 山場 ──────────────────────────────────────────────
+    # 最後に符号が変わった時刻（逆転）。序盤のゆらぎは見ない（振れ幅で足切り）。
+    if gap and (won or lost):
+        sign = 1.0 if won else -1.0
+        flip = None
+        swing = max(abs(g) for _, g in gap)
+        for (t0, g0), (t1, g1) in zip(gap, gap[1:]):
+            if g0 * sign < 0.0 <= g1 * sign and abs(g0) > 0.02 and swing > 0.05:
+                flip = t1
+        # 差がいちばん動いた15秒（きっかけの時刻）。逆転が無ければこちら。
+        peak, peak_t = 0.0, None
+        j = 0
+        for i, (t0, g0) in enumerate(gap):
+            while j < len(gap) - 1 and gap[j][0] - t0 < 15.0:
+                j += 1
+            d = (gap[j][1] - g0) * sign
+            if d > peak:
+                peak, peak_t = d, (t0 + gap[j][0]) / 2.0
+        t_key = flip if flip is not None else (peak_t if peak > 0.04 else None)
+        if t_key is not None:
+            # そのとき崩れた隊があれば名指しする（±12秒）。**向きに合う側を
+            # 優先** — 勝ちへ振れた山場で自軍の崩れを名指しすると、崩れが
+            # 勝因に読めてしまう。
+            rows_jp = ((foe_r, "敵の") if won else (mine_r, ""),)
+            near = [(jp, row) for rows, jp in rows_jp for row in rows
+                    if row[6] is not None and abs(row[6] - t_key) < 12.0]
+            hint = ""
+            if near:
+                side_jp, row = min(near, key=lambda x: abs(x[1][6] - t_key))
+                hint = "。{}{}の隊が崩れたあたりである".format(side_jp, who(row))
+            notes.append("山場は【{}】{}{}".format(
+                F.clock(t_key), "、ここで形勢が入れ替わった" if flip is not None
+                else "ごろ、ここでいちばん差が開いた", hint))
+
+    # ── 勝因・敗因（高々2つ） ────────────────────────────────
+    causes: List[str] = []
+    mine_fell, foe_fell = ((r["cmd_fell"][0], r["cmd_fell"][1]) if me_first
+                           else (r["cmd_fell"][1], r["cmd_fell"][0]))
+    if mine_fell and lost:
+        causes.append("敗因は本陣の陥落。これがすべてで、崩れるまでの優劣は関係が無い")
+    elif foe_fell and won:
+        causes.append("勝因は敵本陣の討ち取り。総崩れを誘って決めた")
+    if len(causes) < 2 and (won or lost):
+        te = F.type_edge(mine_a, foe_a)   # コスト点。正なら自軍が有利
+        if abs(te) >= 0.7 and (te > 0) == won:
+            causes.append("兵種の噛み合わせが{}効いた（コスト{:.1f}点ぶんの{}）".format(
+                "こちらに" if won else "敵に", abs(te), "得" if won else "不利"))
+    if len(causes) < 2 and (won or lost):
+        beats = {3: 4, 4: 2, 2: 3}    # 魚鱗>鶴翼>雁行>魚鱗（§7.39 実測の向き）
+        mf, ff = mine_a.form.n_front, foe_a.form.n_front
+        if mf != ff:
+            if beats.get(ff) == mf and lost:
+                causes.append("陣形は敵の{}がこちらの{}に強い並びだった（三すくみ）".format(
+                    F.FORM_NAME[ff], F.FORM_NAME[mf]))
+            elif beats.get(mf) == ff and won:
+                causes.append("陣形は{}が{}を食う並びを取れていた（三すくみ）".format(
+                    F.FORM_NAME[mf], F.FORM_NAME[ff]))
+    if len(causes) < 2 and (won or lost):
+        m_n = sum(x[2] - x[5] for x in mine_r); f_n = sum(x[2] - x[5] for x in foe_r)
+        m_s = sum(x[5] for x in mine_r); f_s = sum(x[5] for x in foe_r)
+        dn, ds = (f_n - m_n) if lost else (m_n - f_n), (f_s - m_s) if lost else (m_s - f_s)
+        base_n, base_s = max(m_n, f_n, 1.0), max(m_s, f_s, 1.0)
+        if dn / base_n > 0.15 and dn >= ds:
+            causes.append("通常攻撃の打ち合いで{}（{:.1f}万 対 {:.1f}万）".format(
+                "押し負けた" if lost else "押し切った",
+                m_n / 1e4, f_n / 1e4))
+        elif ds / base_s > 0.15:
+            causes.append("必殺技の応酬で{}（技の与ダメ {:.1f}万 対 {:.1f}万）".format(
+                "撃ち負けた" if lost else "撃ち勝った", m_s / 1e4, f_s / 1e4))
+    if len(causes) < 2 and lost and series:
+        early = [row for row in mine_r
+                 if row[6] is not None and row[6] < series[-1][0] * 0.45]
+        if early:
+            row = min(early, key=lambda x: x[6])
+            causes.append("{}が【{}】と早くに崩れ、戦列が痩せたのも痛い".format(
+                who(row), F.clock(row[6])))
+    if not causes and r["reason"] == "time" and gap and abs(gap[-1][1]) < 0.05:
+        causes.append("時間いっぱいの判定までもつれた際どい勝負で、明確な敗着は無い"
+                      if lost else "時間いっぱいの判定までもつれた際どい勝負だった")
+    notes += causes[:2]
+    if not notes:
+        notes.append("痛み分け。決め手を欠いたまま終わった" if sc == 0.5
+                     else "終始おおきな山場のないまま決した")
+    return notes
+
+
 def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     """1戦ぶんのリプレイを構造化して返す（Web用・§7.42）。
 
@@ -532,6 +639,7 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 for n, t, d, m, m0, sd, fa in xs]
     sc = r["score"] if me_first else 1.0 - r["score"]
     return {"lines": lines,
+            "notes": battle_notes(ua, ub, r, series, me_first),
             "mine_names": [u.name for u in (ua if me_first else ub).cards if u.name],
             "foe_names": [u.name for u in (ub if me_first else ua).cards if u.name],
             "series": [[round(F.mins(t), 1),
@@ -565,6 +673,9 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
         print("    {}: {}".format(tag, " / ".join(cells[:3])))
         if len(cells) > 3:
             print("          {}".format(" / ".join(cells[3:])))
+    print("    ── 軍師の見立て ──")
+    for n in battle_notes(ua, ub, r, series, me_first):
+        print("    ・" + n)
 
 
 def replay_one(ua, ub, dt: float, seed: int, me_first: bool) -> None:

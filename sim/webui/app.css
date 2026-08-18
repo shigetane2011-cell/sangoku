@@ -247,6 +247,13 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .chart-panel h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .1em; }
 svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
 .report { margin-top: 14px; }
+.notes { margin-top: 12px; }
+.notes .note-line {
+  font-size: 12.5px; line-height: 1.7; color: var(--ink);
+  padding: 3px 8px; border-left: 2px solid var(--gold);
+  margin: 4px 0; background: rgba(201, 162, 75, .06);
+}
+.notes .note-line .t { color: var(--gold); font-weight: 600; }
 .unit-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
   padding: 3px 0; }
 .unit-row .uname { width: 6.5em; white-space: nowrap; }

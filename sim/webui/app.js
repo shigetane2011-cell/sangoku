@@ -614,6 +614,7 @@ async function viewReplay(state) {
       <div class="chart-panel">
         <h3>戦況図<small class="muted">（上=${esc(d.mine_name)}優勢）</small></h3>
         <svg class="eval" id="chart" viewBox="0 0 340 180"></svg>
+        <div class="notes" id="notes"></div>
         <div class="report" id="report"></div>
       </div>
     </div>`;
@@ -635,6 +636,7 @@ async function viewReplay(state) {
     const log = $("#log");
     log.innerHTML = g.lines.map((ln) => fmtLine(ln)).join("");
     drawChart(g, -1);
+    drawNotes(g);
     drawReport(g);
     startPlayback(g);
   }
@@ -715,6 +717,14 @@ async function viewReplay(state) {
       ${pts.length && upto !== Infinity ? (() => { const p = pts[pts.length - 1];
         return `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.4" fill="#c8442a"/>`; })() : ""}
     `;
+  }
+
+  function drawNotes(g) {
+    const box = $("#notes");
+    if (!g.notes || !g.notes.length) { box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="side-label">─ 軍師の見立て ─</div>' +
+      g.notes.map((n) => `<div class="note-line">${markNames(esc(n))
+        .replace(/【(\d+:\d+)】/g, '<span class="t">$1</span>')}</div>`).join("");
   }
 
   function drawReport(g) {
