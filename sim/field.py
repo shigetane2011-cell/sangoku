@@ -903,19 +903,21 @@ TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
 VANGUARD_MEN = 0.045
 VS_FACTION = 0.10       # 対勢力: 該当する勢力の敵へのダメージ増
 
-# 陣頭指揮（§7.52・⑦）。**旧・総大将の opt-in 版。** この特性を持つ札が
-# いると軍全体の兵力が COMMAND_MEN ぶん増えるが、指揮官の隊が COMMAND_ROUT
+# 本陣（command・§7.52・⑦）。**旧・総大将の opt-in 版。** この特性を持つ札が
+# いると軍全体の兵力が COMMAND_MEN ぶん増えるが、本陣の隊が COMMAND_ROUT
 # を割った瞬間、全軍が動揺して**現在兵力の COMMAND_COLLAPSE を一度に失う**。
 # COMMAND_COLLAPSE=1.0 は「壊滅で即敗北」（原案）に一致する — 全軍が0になり
 # 潰走判定が同じティックで立つので、勝敗も diff も自然に決まり、score の
 # 強制配線が要らない。1.0 未満は連続な中間で、値付けと調整ができる。
 # デッキに1枚まで（編成検証で縛る）。
 #
-# 値は §7.52 の実測から: 閾値40%は「後衛に置いた指揮官が実デッキ戦の約8%で
+# 値は §7.52 の実測から: 閾値40%は「後衛に置いた本陣が実デッキ戦の約8%で
 # 倒れる」点（15%だと前衛置きは74〜89%で倒れて成立せず、後衛置きは一度も
-# 倒れず無料になる）。兵力+1%はその危険とちょうど釣り合う実測の増分
-# （対照52.5%に対し52.8%）。**カードプールを変えたら測り直す**（ゲーム層）。
-COMMAND_MEN = 0.01
+# 倒れず無料になる）。兵力+3%は釣り合い点（+1%・対照52.5%に対し52.8%）より
+# 意図的に上で、超過分は特性の正の値段（design.TRAIT_PRICE["command"]・
+# ゲーム層の勝率→コスト点換算で実測）として払わせる。
+# **カードプールを変えたら測り直す**（ゲーム層）。
+COMMAND_MEN = 0.03
 COMMAND_ROUT = 0.40
 COMMAND_COLLAPSE = 1.0
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
@@ -2486,9 +2488,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     u.men *= 1.0 - COMMAND_COLLAPSE
                 if events is not None:
                     events.append(Event(t, "決着", 1,
-                        "陣頭に立つ{}、乱軍の中に倒れる！　{}軍の全軍に動揺が"
-                        "走った！".format(_who(cmds[0]),
-                                      _JP["A" if k == 0 else "B"])))
+                        "{}軍の本陣、破られる！　{}は乱軍の中に倒れ、全軍に"
+                        "動揺が走った！".format(_JP["A" if k == 0 else "B"],
+                                          _who(cmds[0]))))
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
         if series is not None:

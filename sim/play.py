@@ -158,6 +158,12 @@ def entry_of(cx, cards, player_id: str, name: str
                 es.append("恩賞の重み {:.2f} を足すと上限 {:g} を超える"
                           "（素 {:g} + 恩賞 {:.2f}）".format(extra, cap, base, extra))
             es += M.placement_errors(army)
+            # 本陣（§7.52）はデッキに1人まで。生まれつき＋恩賞の合流後に数える。
+            honjin = [c.name for c in army.cards
+                      if "command" in F.trait_keys(c.trait)]
+            if len(honjin) > 1:
+                es.append("本陣は1部隊に1人まで（いまは {}）"
+                          .format("、".join(honjin)))
         if es:
             reg_errs[i] = es
             errs += ["{}: {}".format(reg, e) for e in es]
