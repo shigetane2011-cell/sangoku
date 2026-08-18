@@ -279,7 +279,7 @@ def form_table(dt: float = 0.5, seeds: int = 40) -> None:
     **釣り合いの判定はデッキを広げた計器で行うこと**（§7.53。同じ round-robin
     を「2性格 × シード違い」の4デッキ/陣形で回す）。ここは早見として残す。
 
-    **カードを増やしたら測り直し、FORM_SURPLUS を合わせ直す。**
+    **カードを増やしたら測り直し、FORM_PAIR を合わせ直す。**
     """
     import statistics as st
     from collections import defaultdict
