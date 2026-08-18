@@ -248,6 +248,7 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
 .report { margin-top: 14px; }
 .draft-panel { margin-top: 14px; }
+.onsho-desc { flex-basis: 100%; font-size: 11px; line-height: 1.5; padding-left: 2px; }
 .draft-toggle {
   width: 100%; text-align: left; background: var(--panel2);
   border: 1px dashed var(--line); color: var(--sub); padding: 8px 10px;

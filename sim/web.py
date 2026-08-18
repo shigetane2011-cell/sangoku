@@ -46,10 +46,9 @@ SHELL = """<!doctype html>
 
 
 def _trait_names():
-    return {t["キー"]: t["名前"] if t["名前"] != t["キー"] else
-            {"vanguard": "陣頭", "vs_wei": "対魏", "vs_shu": "対蜀",
-             "vs_go": "対呉"}.get(t["キー"], t["キー"])
-            for t in R.traits()}
+    """特性キー → 表示名。**traits.csv の 名前 列が一次**（旧実装はここに
+    別の対応表を持っていて、同じ量の定義が2箇所になっていた）。"""
+    return {t["キー"]: t["名前"] for t in R.traits()}
 
 
 _MOD_JP = {"攻撃力": "攻撃力", "命中率": "攻撃力（命中）", "防御力": "防御力",
@@ -68,40 +67,92 @@ def _skill_display(g, sk_row) -> str:
     import re as _re
     sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
     v = F.SKILL_WITS.get(sk.kind, 0.0)
-    coef = float(g["武力"]) * (1.0 - v) + float(g["知力"]) * v
+    # g が無い（恩賞パネルなど、まだ持ち主が決まっていない）ときは実数に
+    # できないので、量がセット先しだいであることを言う。
+    coef = (float(g["武力"]) * (1.0 - v) + float(g["知力"]) * v) if g else None
     parts = []
     if sk.power > 0.0:
-        if sk.dur > 0.0:
-            parts.append("延焼 毎分約{:,.0f}人（{:.0f}分）".format(
+        if coef is None:
+            parts.append("損害（量は持ち主の武将しだい）")
+        elif sk.dur > 0.0:
+            parts.append("延焼 毎分約{:,.0f}人（{:.0f}分間）".format(
                 F.per_min(F.SKILL_SCALE * sk.power * coef), F.mins(sk.dur)))
         else:
-            parts.append("損害 約{:,.0f}人（敵の守りで目減り）".format(
+            # 「守りで目減り」の注記は毎行に付けず、凡例に1回書く（冗長の指摘）
+            parts.append("損害 約{:,.0f}人".format(
                 F.SKILL_SCALE * sk.power * coef))
     if sk.heal > 0.0:
-        total = F.HEAL_SCALE * sk.heal * coef * (sk.dur if sk.dur > 0 else 1.0)
-        parts.append("回復 約{:,.0f}人".format(total))
+        if coef is None:
+            parts.append("回復（量は持ち主の武将しだい）")
+        else:
+            total = F.HEAL_SCALE * sk.heal * coef * (sk.dur if sk.dur > 0 else 1.0)
+            parts.append("回復 約{:,.0f}人".format(total))
     raw = sk_row.get("効果", "")
     for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)"
                           r"\s*([+-]\d+)%（(\d+)秒）", raw):
-        parts.append("{} {}%（{:.0f}分）".format(
+        parts.append("{} {}%（{:.0f}分間）".format(
             _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
     m = _re.search(r"混乱\s*(\d+)%（(\d+)秒）", raw)
     if m:
-        parts.append("混乱 {}%（{:.0f}分）".format(m.group(1), F.mins(float(m.group(2)))))
+        parts.append("混乱 {}%（{:.0f}分間）".format(m.group(1), F.mins(float(m.group(2)))))
     m = _re.search(r"行動阻害\s*(\d+)秒", raw)
     if m:
-        parts.append("足止め {:.0f}分".format(F.mins(float(m.group(1)))))
+        parts.append("足止め {:.0f}分間".format(F.mins(float(m.group(1)))))
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
-        parts.append("代償 放つたび自隊のいまの兵力の{}%を失う".format(m.group(1)))
+        parts.append("代償 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
     m = _re.search(r"必殺技打消し（(\d+)秒）", raw)
     if m:
-        parts.append("打消しの構え 構え中の隊を狙う敵必殺技を丸ごと無効化（{:.0f}分）"
+        parts.append("打消し 構えた隊を狙う敵の必殺技を丸ごと無効化（{:.0f}分間）"
                      .format(F.mins(float(m.group(1)))))
     m = _re.search(r"ゲージ付与", raw)
     if m:
         parts.append("味方のゲージを進める")
     return " ＋ ".join(parts) if parts else raw
+
+
+_TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
+                "enemy_retreat": "敵の隊が崩れた時",
+                "self_low_hp": "自身の兵が減った時",
+                "ally_skill": "味方が必殺技を放った時"}
+
+
+def _trait_brief(g, key, t):
+    """特性1つの表示（説明文, 条件）。武将一覧と軍功枠の**両方がこれを使う**
+    （同じ特性が場所で違う説明にならないように）。g=None は持ち主未定。"""
+    import re as _re
+    note = t.get("備考") or ""
+    kind = t.get("型", "")
+    desc = t.get("効果", "")
+    cond = ""
+    if kind == "誘発":
+        m = _re.search(r"(\w+) で発動", note)
+        cond = _TRAIT_CONDS.get(m.group(1) if m else "", "")
+        m = _re.search(r"1戦(\d+)回", note)
+        if m:
+            cond += "・1戦{}回まで".format(m.group(1))
+        # 効果は必殺技と**同じ器で発動する**ので、表示も同じ換算を通す:
+        # 回復は実数、時間は分、命中率は攻撃力（命中）。対象が自分以外なら
+        # 明示する — 書かないと全部が自分バフに読める（テストプレイの指摘）。
+        m = _re.search(r"対象 ([^/]+)", note)
+        target = (m.group(1).strip() if m else "自分")
+        desc = _skill_display(g, {"効果": desc, "対象": target})
+        if target != "自分":
+            cond = "対象 {}・{}".format(target, cond)
+    # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）
+    if key == "vanguard":
+        # 「兵力+4.5%」だけだと本陣（全軍+3%）と並んだとき誰の兵力か
+        # 曖昧に読める（テストプレイの指摘）。自分の隊、と言い切る。
+        desc = "前衛に置くと自分の隊の兵力 +{:.1%}（後衛では働かない）".format(
+            F.VANGUARD_MEN)
+    elif key == "command":
+        desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
+                "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
+                ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
+    elif key in F.FACTION_OF:
+        desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
+            F.FACTION_OF[key], F.VS_FACTION)
+    return desc, cond
 
 
 def _roster_json():
@@ -118,36 +169,11 @@ def _roster_json():
     for g in R.generals():
         s = sk.get(g["必殺技"], {})
         traits = []
-        conds = {"ally_retreat": "味方の隊が崩れた時",
-                 "enemy_retreat": "敵の隊が崩れた時",
-                 "self_low_hp": "自身の兵が減った時",
-                 "ally_skill": "味方が必殺技を放った時"}
-        import re as _re
         for k in R.traits_of(g):
             t = tr.get(k, {})
-            note = t.get("備考") or ""
-            kind = t.get("型", "")
-            desc = t.get("効果", "")
-            cond = ""
-            if kind == "誘発":
-                m = _re.search(r"(\w+) で発動", note)
-                cond = conds.get(m.group(1) if m else "", "")
-                m = _re.search(r"1戦(\d+)回", note)
-                if m:
-                    cond += "・1戦{}回まで".format(m.group(1))
-            # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）
-            if k == "vanguard":
-                desc = "前衛に置くと兵力 +{:.1%}（後衛では働かない）".format(
-                    F.VANGUARD_MEN)
-            elif k == "command":
-                desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
-                        "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
-                        ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
-            elif k in F.FACTION_OF:
-                desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
-                    F.FACTION_OF[k], F.VS_FACTION)
+            desc, cond = _trait_brief(g, k, t)
             traits.append({"key": k, "name": names_jp.get(k, k),
-                           "kind": kind, "cond": cond, "desc": desc})
+                           "kind": t.get("型", ""), "cond": cond, "desc": desc})
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
             "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
@@ -374,11 +400,16 @@ class App(BaseHTTPRequestHandler):
                                                  me.display_name)
         from . import design as D
         names_jp = _trait_names()
-        onsho = [{"id": r["id"], "key": r["trait_key"],
-                  "name": names_jp.get(r["trait_key"], r["trait_key"]),
-                  "value": round(D.trait_value(r["trait_key"]), 2),
-                  "general": r["general_name"]}
-                 for r in P.owned_traits(cx, me.id)]
+        trs = {t["キー"]: t for t in R.traits()}
+        onsho = []
+        for r in P.owned_traits(cx, me.id):
+            key = r["trait_key"]
+            desc, cond = _trait_brief(None, key, trs.get(key, {}))
+            onsho.append({"id": r["id"], "key": key,
+                          "name": names_jp.get(key, key),
+                          "value": round(D.trait_value(key), 2),
+                          "desc": desc + ("（{}）".format(cond) if cond else ""),
+                          "general": r["general_name"]})
         saved = []
         for r in P.saved_decks(cx, me.id):
             army, _ = PL.parse_deck(cards, r["cards"], r["formation"])
