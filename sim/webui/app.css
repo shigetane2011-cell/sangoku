@@ -247,6 +247,18 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 .chart-panel h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .1em; }
 svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
 .report { margin-top: 14px; }
+.draft-panel { margin-top: 14px; }
+.draft-toggle {
+  width: 100%; text-align: left; background: var(--panel2);
+  border: 1px dashed var(--line); color: var(--sub); padding: 8px 10px;
+}
+.draft-toggle:hover { color: var(--ink); border-color: var(--gold); }
+.draft-q { display: flex; gap: 8px; align-items: baseline; margin: 5px 0; font-size: 12.5px; }
+.draft-q > span:first-child { min-width: 3.5em; color: var(--sub); }
+.draft-note {
+  margin-top: 6px; font-size: 12px; padding: 4px 8px;
+  border-left: 2px solid var(--gold); background: rgba(201, 162, 75, .06);
+}
 .notes { margin-top: 12px; }
 .notes .note-line {
   font-size: 12.5px; line-height: 1.7; color: var(--ink);

@@ -84,7 +84,8 @@ def _score(card: F.Card, p: Persona, want: float) -> float:
     return w * (1.0 + p.greed * (card.cost / max(want, 1e-6) - 1.0)) / (1.0 + d)
 
 
-def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
+def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
+               caps=None) -> M.Entry:
     """性格に沿って 3部隊18人を選ぶ。**規則を破る編成は作らない。**
 
     守るもの:
@@ -93,12 +94,15 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int) -> M.Entry:
 
     枚数が兵種ごとに決まっているので、残り枠の最小コストも**兵種別に**見ないと
     詰む（近接だけ安く残って弓兵が買えない、が起きる）。
+
+    caps を渡すと上限を差し替えられる（既定は M.REGULATIONS）。たたき台
+    生成（§7.54）が「上限の9割で組んで伸びしろを残す」ために使う。
     """
     rng = random.Random("{}/{}".format(p.name, seed))
     pool = sorted(cards, key=lambda c: (c.cost, c.name))
     used: set = set()
     units: List[F.Army] = []
-    for label, cap in M.REGULATIONS:
+    for label, cap in (caps if caps is not None else M.REGULATIONS):
         nf = FORM_BY_NAME[p.form].n_front
         want_arc = M.UNIT_SIZE - nf
         pick: List[F.Card] = []

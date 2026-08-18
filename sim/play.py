@@ -513,6 +513,56 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
     return out
 
 
+def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
+               faction: str, seed: int, exclude_persons=()) -> Tuple[List[str], str]:
+    """アンケートの回答から**たたき台**のデッキを組む（§7.54）。
+
+    ダミーの編成器（dummies.make_entry）をそのまま使う — 回答を性格
+    （役割・兵種の重み）へ写すだけで、規則（前衛は近接・後衛は弓・上限・
+    同一人物）を破らない編成が出る。同じ量の定義を2箇所に持たない。
+
+    **わざと少し弱く作る**: 上限の9割で組む。最強の答えを渡すと編成の探索が
+    死ぬ（§7.47 の開示設計と同じ理由）。余った1割が「入れ替えて仕上げる」
+    余白になる。seed を変えると引き直せる。
+    """
+    from . import dummies as DM
+    role_w = {
+        "力押し":  {F.TANK: 1.6, F.BAL: 1.6, F.DPS: 2.0, F.BURST: 0.5, F.SUP: 0.6},
+        "必殺技":  {F.TANK: 0.6, F.BAL: 0.8, F.DPS: 1.3, F.BURST: 2.4, F.SUP: 1.4},
+        "守り":    {F.TANK: 2.6, F.BAL: 1.0, F.DPS: 0.5, F.BURST: 0.4, F.SUP: 1.8},
+    }.get(style, {F.TANK: 1.0, F.BAL: 1.2, F.DPS: 1.0, F.BURST: 0.8, F.SUP: 0.8})
+    typ_w = ({t: 1.0 for t in (F.INF, F.CAV, F.ARC)} if typ not in F.TYPE_JP.values()
+             else {t: (2.2 if F.TYPE_JP[t] == typ else 0.8)
+                   for t in (F.INF, F.CAV, F.ARC)})
+    greed = {"力押し": 0.6, "守り": 0.3}.get(style, 0.5)
+    p = DM.Persona("たたき台", typ_w, role_w, form_name, greed)
+    reg_i = next(i for i, (n, _) in enumerate(M.REGULATIONS) if n == reg_name)
+    caps = tuple((n, round(c * 0.9)) for n, c in M.REGULATIONS)
+    note = "上限の9割で組んだたたき台。入れ替えと段位上げで仕上げよう"
+
+    def build(pool):
+        try:
+            e = DM.make_entry(pool, p, seed, caps=caps)
+        except ValueError:
+            # 候補が尽きて編成が立たない（勢力しばり等で池が痩せた）
+            return None
+        u = e.unit(reg_i)
+        ok = (len(u.cards) == M.UNIT_SIZE
+              and u.total_cost() <= M.REGULATIONS[reg_i][1] + 1e-9)
+        return [c.name for c in u.cards] if ok else None
+
+    pool = [c for c in cards if M.person_of(c) not in set(exclude_persons)]
+    if faction in ("魏", "蜀", "呉", "群雄"):
+        names = build([c for c in pool if c.faction == faction])
+        if names is not None:
+            return names, note
+        note = "その勢力だけでは埋まらず、他勢力も混ぜた。" + note
+    names = build(pool)
+    if names is None:
+        return [], "たたき台を組めなかった（他のデッキと人物が重なりすぎている）"
+    return names, note
+
+
 def battle_notes(ua, ub, r, series, me_first: bool) -> List[str]:
     """軍師の見立て（§9.5）。**記録からの読み取り専用**で、勝敗にも測定にも
     触れない（§9.3 の原則。実況・戦況図と同じ側）。

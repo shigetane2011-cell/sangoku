@@ -241,6 +241,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_savedeck(body)
             if url.path == "/api/deldeck":
                 return self._api_deldeck(body)
+            if url.path == "/api/draft":
+                return self._api_draft(body)
             if url.path == "/api/dev_heifu":
                 # 手元の試験用: 兵符を満タンへ。公開版ではこの口ごと消す。
                 me = self._me(self._cx())
@@ -512,6 +514,33 @@ class App(BaseHTTPRequestHandler):
                                "errors": ["{} の軍功枠は3つとも埋まっている".format(gen)]})
         P.set_trait(cx, me.id, oid, gen, slot)
         self._json({"ok": True})
+
+    def _api_draft(self, body):
+        """アンケート → たたき台デッキ（§7.54）。登録はしない — 編成欄へ
+        流し込むだけで、仕上げと登録はプレイヤーの手に残す。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+        if reg not in dict(M.REGULATIONS):
+            return self._json({"ok": False, "errors": ["そのレギュレーションは無い"]})
+        form = F.FORM_ALIAS.get(body.get("form", ""), body.get("form", "魚鱗"))
+        cards = M._roster_cards()
+        # 他のデッキで使っている人物は避ける（登録検証で両方塞がるため）
+        by_name = {c.name: c for c in cards}
+        exclude = set()
+        for r2, (raw, _f) in P.decks_of(cx, me.id).items():
+            if r2 == reg:
+                continue
+            for n in F.trait_keys(raw):
+                if n in by_name:
+                    exclude.add(M.person_of(by_name[n]))
+        names, note = PL.draft_deck(
+            cards, reg, form, str(body.get("style", "")),
+            str(body.get("typ", "")), str(body.get("faction", "")),
+            int(body.get("nonce", 0)), exclude)
+        self._json({"ok": bool(names), "cards": names, "note": note})
 
     def _api_savedeck(self, body):
         cx = self._cx()

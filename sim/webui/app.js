@@ -209,6 +209,7 @@ async function viewDeck(state) {
           <span id="deck-msg"></span>
         </div>
         <div class="entry-state" id="entrystate"></div>
+        <div class="draft-panel" id="draft"></div>
         <div class="library" id="library"></div>
         <div class="onsho-panel" id="onsho"></div>
       </div>
@@ -285,7 +286,55 @@ function drawTypeTabs() {
   $("#sortsel").onchange = () => { FILTER.sort = $("#sortsel").value; drawRoster(); };
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawLibrary(); drawOnsho(); drawSortieBar(); drawScout(); }
+function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawDraft(); drawLibrary(); drawOnsho(); drawSortieBar(); drawScout(); }
+
+/* ── たたき台（アンケート → 暫定デッキ・§7.54） ─────────── */
+const DRAFT = { style: "おまかせ", typ: "おまかせ", faction: "おまかせ",
+                nonce: 0, note: "", open: false };
+
+function drawDraft() {
+  const el = $("#draft");
+  if (!el) return;
+  if (!DRAFT.open) {
+    el.innerHTML = `<button id="draft-open" class="draft-toggle">
+      軍師に相談する<small>（アンケートでたたき台を組む）</small></button>`;
+    $("#draft-open").onclick = () => { DRAFT.open = true; drawDraft(); };
+    return;
+  }
+  const q = (key, label, opts) => `<div class="draft-q"><span>${label}</span>
+    <span class="filter-tabs">${opts.map((o) =>
+      `<button class="${DRAFT[key] === o ? "on" : ""}" data-k="${key}" data-v="${o}">${o}</button>`
+    ).join("")}</span></div>`;
+  el.innerHTML = `
+    <div class="side-label">─ 軍師に相談（たたき台） ─</div>
+    ${q("style", "戦い方", ["力押し", "必殺技", "守り", "おまかせ"])}
+    ${q("typ", "主役", ["歩兵", "騎兵", "弓兵", "おまかせ"])}
+    ${q("faction", "勢力", ["魏", "蜀", "呉", "群雄", "おまかせ"])}
+    <div class="draft-q muted"><span>陣形</span><span>上の陣形タブ（いま: ${esc(cur.form)}）で組む</span></div>
+    <div class="deck-actions">
+      <button id="draft-go">${DRAFT.nonce ? "引き直す" : "この方針で組む"}</button>
+      <button id="draft-close" class="ghost">閉じる</button>
+    </div>
+    ${DRAFT.note ? `<div class="draft-note muted">${esc(DRAFT.note)}</div>` : ""}`;
+  $$("#draft .filter-tabs button").forEach((b) => b.onclick = () => {
+    DRAFT[b.dataset.k] = b.dataset.v; drawDraft();
+  });
+  $("#draft-close").onclick = () => { DRAFT.open = false; drawDraft(); };
+  $("#draft-go").onclick = async () => {
+    DRAFT.nonce += 1;
+    const r = await api("/api/draft", {
+      reg: cur.reg, form: cur.form, style: DRAFT.style, typ: DRAFT.typ,
+      faction: DRAFT.faction, nonce: DRAFT.nonce });
+    if (r.ok) {
+      cur.cards = r.cards;
+      DRAFT.note = r.note;
+    } else {
+      DRAFT.note = (r.errors && r.errors[0]) || r.note || "組めなかった";
+    }
+    DRAFT.open = true;
+    drawAll();
+  };
+}
 
 function drawScout() {
   const el = $("#scout");
