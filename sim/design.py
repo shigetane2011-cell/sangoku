@@ -342,6 +342,24 @@ TARGET_REFL_PRICE = {"自分": 0.353, "味方前衛": 0.353, "味方後衛": 1.3
 TARGET_NCUT_PRICE = {"自分": 1.488, "味方前衛": 4.525, "味方1列": 3.394,
                      "味方後衛": 0.224, "味方全体": 4.954}
 SCUT_BASE = 30.0 * 30.0     # 実測時の 量30% × 30秒
+# 必殺技打消し（§7.51 機構5・30秒の窓あたり・実測）。量を持たない
+# （構えの有無だけ）ので値段は窓の秒数の関数だが、**秒数に比例しない** —
+# 必殺技は序盤に集中して撃たれるため、窓が30秒を超えるとほぼ飽和する
+# （前衛: 15秒3.50 / 30秒4.09 / 60秒4.09）。実測の錨点を折れ線でつなぎ、
+# 30秒以降は頭打ちにする。発動ごと丸ごと無効化なので値段は高い。
+TARGET_NULL_PRICE = {"自分": 4.092, "味方前衛": 4.092, "味方後衛": 5.099,
+                     "味方全体": 6.322}
+NULL_SECS_ANCHORS = ((0.0, 0.0), (15.0, 0.855), (30.0, 1.0))
+
+
+def null_secs_f(secs: float) -> float:
+    """打消し窓の秒数係数（30秒=1.0）。錨点の折れ線・30秒以降は飽和。"""
+    if secs <= 0.0:
+        return 0.0
+    for (x0, y0), (x1, y1) in zip(NULL_SECS_ANCHORS, NULL_SECS_ANCHORS[1:]):
+        if secs <= x1:
+            return y0 + (y1 - y0) * (secs - x0) / (x1 - x0)
+    return 1.0
 # 代償（スーサイド・§7.51 機構4）: 発動ごとに**現在兵力**のN%を失う。値段は
 # マイナス（効果予算を浮かせる側）。**線形ではない** — 現在兵力比なので発動を
 # 重ねるほど払う実数が目減りし、1%あたりの価値が量とともに落ちる
@@ -567,15 +585,18 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
             v += EFFECT_PRICE["stun"] * secs * fx
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
-        elif key in ("scut", "refl", "ncut"):
+        elif key in ("scut", "refl", "ncut", "null"):
             table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
-                     "ncut": TARGET_NCUT_PRICE}[key]
+                     "ncut": TARGET_NCUT_PRICE, "null": TARGET_NULL_PRICE}[key]
             base = next(iter(table.values()))
             for k, pv in table.items():
                 if k in target or target in k:
                     base = pv
                     break
-            v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
+            if key == "null":     # 量を持たない。秒数は飽和曲線（上の注記）
+                v += base * null_secs_f(secs)
+            else:
+                v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
         elif key == "chaos":
             v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
     # 代償は発動ごとに払うので他の効果と同じく段の重みに乗る。符号はマイナス。

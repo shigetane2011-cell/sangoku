@@ -1180,7 +1180,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1280,6 +1280,7 @@ class Unit:
         self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
         self.refl = 0.0         # 必殺技反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
+        self.nullify = False    # 必殺技打消しの構え（§7.51 機構5）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
@@ -1574,6 +1575,11 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
         out.append(("stun", -1.0, float(m.group(1))))
+    m = re.search(r"必殺技打消し（(\d+)秒）", effect)
+    if m:
+        # 打消しは量を持たない（構えが有るか無いか）。回数制は段差になって
+        # 値段が付かない（ゲージ付与と同じ轍）ので**時間の窓**にする。
+        out.append(("null", 1.0, float(m.group(1))))
     # 【廃止】ゲージ付与。**段差なので値段が付かない。**
     # 「自然増加のN秒ぶん」でも「消費のX%」でも、受け手が1回ぶんの閾値を越えるか
     # 越えないかで 0 か丸ごと1回ぶんになる。実測（味方全体・標準の段・2回）で
@@ -1720,6 +1726,10 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         return "{}の【{}】！　{}が同士討ちを始めた！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "buff":
+        if stat == "null":
+            # 打消しは量を持たないので % を出さない
+            return "{}の【{}】発動！　{}が打消しの構えを取った！（{:.0f}分）".format(
+                who, name, where, mins(secs))
         what = {"def": "守り", "spd": "足", "rate": "気勢",
                 "scut": "計略への備え", "refl": "刃返しの構え",
                 "ncut": "矢弾への備え"}.get(stat, "攻撃")
@@ -1807,7 +1817,20 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     tgts = _skill_targets(tstr, u, foe, own)
     if not tgts:
         return
-    if sk.sac > 0.0:
+    if kind_jp == "必殺技":
+        # 必殺技打消し（§7.51 機構5）。対象に「構え」持ちの敵が1体でも
+        # いれば発動ごと霧散する（ゲージは戻らない・代償も払わない）。
+        # 構えはティック頭の snapshot（_expire）なので同時解決を破らない。
+        # 味方対象の技は敵を含まず、素通しになる — 打消しは攻め技への備え。
+        blocker = next((f for f in tgts
+                        if f.side != u.side and f.nullify), None)
+        if blocker is not None:
+            if ev is not None and name:
+                ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp],
+                                "{}の【{}】！　だが{}の構えに阻まれ、"
+                                "霧散した！".format(_who(u), name,
+                                                _who(blocker)), 1.0))
+            return
         # 代償（スーサイド）: 現在兵力の割合を払う。遅延窓（_men_add）を通す
         # ので同時解決は保たれる。誰の与ダメにも数えない — 自傷であって
         # 敵の戦果ではない。
@@ -2014,7 +2037,7 @@ def _expire(units, t: float) -> None:
             if abs(amt) > abs(best.get(k, 0.0)):
                 best[k] = amt
         tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0,
-               "refl": 0.0, "ncut": 0.0}
+               "refl": 0.0, "ncut": 0.0, "null": 0.0}
         for (kind, _), amt in best.items():
             tot[kind] += amt
         for k in tot:
@@ -2031,6 +2054,9 @@ def _expire(units, t: float) -> None:
         u.refl = max(0.0, tot["refl"])
         # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
         u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
+        # 必殺技打消し（§7.51 機構5）。構えの有無だけ（±50%の丸めは通るが
+        # 符号しか見ないので影響しない）。
+        u.nullify = tot["null"] > 0.0
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
