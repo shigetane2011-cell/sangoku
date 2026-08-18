@@ -109,6 +109,7 @@ class Design:
     # 必殺技・固有特性に払うコスト点（`effect_value`）。**能力値から引く。**
     # ここが 0 のままだと、技の強い札が能力値も同じだけ持つことになる。
     effect: float = 0.0
+    lean: float = 0.0           # 役割寄せ（§7.56。field.role_men と同じ器）
 
 
 def total_value(men: float, atk: float, typ: str) -> float:
@@ -168,8 +169,10 @@ def derive(d: Design) -> Dict[str, float]:
     p = total_power(d.cost - e) / total_power(F.BASE_COST)   # コスト5を1とする
     s = p / F.ACT_COEF[d.typ]
 
-    # 2. 役割で 兵力 ↔ 攻撃力 を振る（積は保つので総合値は不変）
-    rm = ROLE_MEN[d.role]
+    # 2. 役割で 兵力 ↔ 攻撃力 を振る（積は保つので総合値は不変）。
+    # カード個別の寄せ（§7.56）も同じ交換レートを通る。**定義は field.role_men
+    # の1箇所**（ROLE_MEN が field の写しなので、ここも field を呼ぶ）。
+    rm = F.role_men(ROLE_KEY[d.role], d.lean)
     men = F.CARD_MEN * s * rm
     # **兵力と攻撃力の交換レートは 1:1 ではない。** 積を保つ（k=1）と、盤面では
     # 耐久が瞬発より 6.81 コスト点強くなる（総コスト30 の23%）。集中砲火の戦闘は
@@ -717,15 +720,18 @@ def check() -> int:
     print("\n[3] 役割は内訳だけを変え、総合値を変えないか")
     print("   {:<8}{:>10}{:>10}{:>12}".format("役割", "兵力", "攻撃力", "総合値"))
     base = None
-    for role in ROLE_MEN:
-        v = derive(Design(cost=6, typ=F.INF, role=role))
+    rows3 = [(role, 0.0) for role in ROLE_MEN]
+    rows3 += [("均衡", -1.0), ("均衡", +1.0)]   # 役割寄せ（§7.56）も同じ不変量
+    for role, lean in rows3:
+        v = derive(Design(cost=6, typ=F.INF, role=role, lean=lean))
+        tag = role if lean == 0.0 else "{}{:+.0f}寄".format(role, lean)
         print("   {:<8}{:>10.0f}{:>10.1f}{:>12.4f}".format(
-            role, v["兵力"], v["攻撃力"], v["総合値"]))
+            tag, v["兵力"], v["攻撃力"], v["総合値"]))
         if base is None:
             base = v["総合値"]
         elif abs(v["総合値"] - base) > 1e-9:
             bad += 1
-    print("   → 総合値が全行で一致すれば OK")
+    print("   → 総合値が全行で一致すれば OK（寄せの行も含む）")
 
     # (4) 効果予算を引くと能力値が下がるか（引かないと技の強い札が割安になる）
     print("\n[4] 効果予算は能力値から引かれているか")

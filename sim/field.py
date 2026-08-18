@@ -1126,6 +1126,18 @@ ROLE_JP = {TANK: "耐久", BAL: "均衡", DPS: "火力", BURST: "瞬発", SUP: "
 ROLE_MEN = {TANK: 1.4, BAL: 1.0, DPS: 1.0 / 1.4, BURST: 1.0 / 1.6, SUP: 1.15}
 MIXED_ROLES = (TANK, TANK, BAL, BAL, DPS, DPS)
 
+# 役割寄せ（§7.56）。カードごとに 兵力↔攻撃力 の配分を役割の型から少し
+# ずらす（lean ∈ [-1, +1]・正が兵寄せ）。交換レートは役割と同じ
+# ROLE_ATK_EXP を通るので**総合値は動かない**（設計式の検算[3]で確認）。
+# 生の攻撃力が役割5値の固定になって差が見えない、というテストプレイの
+# 指摘への答え。型の隣（耐久1.4 対 支援1.15 など）を跨がない幅に抑える。
+ROLE_LEAN_SPAN = 0.10
+
+
+def role_men(role: str, lean: float = 0.0) -> float:
+    """役割の兵力倍率に、カード個別の寄せを乗せる。"""
+    return ROLE_MEN[role] * (1.0 + ROLE_LEAN_SPAN * max(-1.0, min(1.0, lean)))
+
 
 @dataclass(frozen=True)
 class Card:
@@ -1142,6 +1154,7 @@ class Card:
     # 武力・知力。0 なら「指定なし」として BASE_ATK 相当に扱う（合成カード）。
     might: float = 0.0      # 武力
     wits: float = 0.0       # 知力
+    lean: float = 0.0       # 役割寄せ（§7.56。正=兵寄せ・負=攻寄せ）
     skill: str = ""
     gauge_cost: float = 100.0
     gauge_rate: float = 1.0
@@ -1242,7 +1255,7 @@ class Unit:
         #   SPLIT_EXP = 1.0 … 兵力 ∝ c、  攻撃 ∝ 一定 （軍全体の兵力も火力も Σc で加法）
         # どちらでも 1枚の総合値は c に比例するが、**軍としての合計**が加法になるのは
         # 1.0 のときだけ。コストの加算性はここで決まる。
-        rm = ROLE_MEN[card.role]
+        rm = role_men(card.role, card.lean)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm
         self.men = self.men0
         # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ

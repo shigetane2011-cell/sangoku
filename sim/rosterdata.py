@@ -330,7 +330,8 @@ def to_design(g: Dict[str, str]):
     eff += sum(D.trait_value(k) for k in traits_of(g))
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
-                    gauge_cost=gc, gauge_init=gi, effect=eff)
+                    gauge_cost=gc, gauge_init=gi, effect=eff,
+                    lean=float(g.get("役割寄せ") or 0.0))
 
 
 def to_cards(names=None):
@@ -356,6 +357,7 @@ def to_cards(names=None):
         typ=TYPE_MAP[g["兵種"]], role=ROLE_MAP[g["役割"]], name=g["名前"],
         trait=g["固有特性"], faction=g["勢力"], quote=g.get("台詞", ""),
         might=float(g["武力"]), wits=float(g["知力"]), skill=g["必殺技"],
+        lean=float(g.get("役割寄せ") or 0.0),
         gauge_cost=float(g["消費ゲージ%"]),
         # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
         gauge_rate=float(g["ゲージ上昇率"]) / 100.0,
@@ -412,7 +414,9 @@ COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種",
            # 演出列（§7.47・§9.4）。盤面は読まないが**表示の一次データ**なので
            # 書き出しで落とさない。⑤の書き戻しで一度落として Web の武将一覧を
            # 壊した（KeyError: 武勇）。extrasaction="ignore" は列を黙って捨てる。
-           "台詞", "武勇", "知略"]
+           "台詞", "武勇", "知略",
+           # 役割寄せ（§7.56）。設計の入力（authored）なので落とさない。
+           "役割寄せ"]
 
 
 def regenerate() -> int:

@@ -28,6 +28,8 @@ from . import players as P
 from . import rosterdata as R
 
 PORT = int(os.environ.get("SANGOKU_PORT", "8035"))
+# 攻勢の表示（§7.56）が仮定する「標準的な鎧」= 3兵種の平均。
+_DEF_MEAN = sum(F.DEF_BY_TYPE.values()) / len(F.DEF_BY_TYPE)
 WEBUI = os.path.join(os.path.dirname(__file__), "webui")
 
 VIEWS = {"/": "home", "/deck": "deck", "/replays": "replays", "/replay": "replay"}
@@ -152,7 +154,20 @@ def _roster_json():
             # 武勇・知略は**歴史イメージの演出値**（1〜100・盤面に不干渉）。
             # エンジン内部の武力・知力は帳簿なので出さない（§7.47）。
             "men": int(float(g["兵力"])), "might": int(g["武勇"]),
-            "wits": int(g["知略"]), "atk": round(float(g["攻撃力"])),
+            "wits": int(g["知略"]),
+            # 攻勢・守勢（§7.56）: 生の攻撃力・防御力は役割5種・兵種3種の
+            # 固定値で差が見えない（テストプレイの指摘）。**盤面の実式**で
+            # 実数へ焼き直す — 攻勢は毎分の削り（標準的な鎧の相手・開幕
+            # 基準）、守勢は鎧込みで受けきれる実効兵力。嘘の飾り値は
+            # 作らない（§7.47。戦闘ログと桁が合う量だけを見せる）。
+            "atk_pm": round(F.per_min(
+                float(g["兵力"]) * F.LETHALITY
+                * float(g["攻撃力"]) / F.BASE_ATK
+                / R.INTERVAL[g["兵種"]]
+                * 100.0 / (100.0 + _DEF_MEAN))),
+            "eff_men": round(float(g["兵力"])
+                             * (100.0 + float(g["防御力"])) / 100.0),
+            "atk": round(float(g["攻撃力"])),
             "dfn": round(float(g["防御力"])),
             "skill": g["必殺技"], "skill_desc": _skill_display(g, s),
             "skill_target": s.get("対象", ""),
