@@ -139,7 +139,7 @@ def _roster_json():
                     F.VANGUARD_MEN)
             elif k == "command":
                 desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
-                        "割ると全軍が総崩れ（デッキに1人まで・後衛向き）"
+                        "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
                         ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
             elif k in F.FACTION_OF:
                 desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(

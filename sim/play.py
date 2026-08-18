@@ -159,11 +159,19 @@ def entry_of(cx, cards, player_id: str, name: str
                           "（素 {:g} + 恩賞 {:.2f}）".format(extra, cap, base, extra))
             es += M.placement_errors(army)
             # 本陣（§7.52）はデッキに1人まで。生まれつき＋恩賞の合流後に数える。
-            honjin = [c.name for c in army.cards
+            honjin = [c for c in army.cards
                       if "command" in F.trait_keys(c.trait)]
             if len(honjin) > 1:
                 es.append("本陣は1部隊に1人まで（いまは {}）"
-                          .format("、".join(honjin)))
+                          .format("、".join(c.name for c in honjin)))
+            # 本陣は弓兵（＝後衛）専用。前衛の本陣は実測でほぼ必ず討たれる
+            # （§7.52・戦死74〜89%）ので、恩賞でのセットも含めて registration
+            # で弾く。生まれつきの3人（袁紹・費禕・劉表）は全員弓兵。
+            jp_typ = {F.INF: "歩兵", F.CAV: "騎兵", F.ARC: "弓兵"}
+            for c in honjin:
+                if c.typ != F.ARC:
+                    es.append("本陣は弓兵にだけ授けられる（{} は{}）"
+                              .format(c.name, jp_typ.get(c.typ, c.typ)))
         if es:
             reg_errs[i] = es
             errs += ["{}: {}".format(reg, e) for e in es]
