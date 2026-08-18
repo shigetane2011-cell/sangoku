@@ -902,6 +902,22 @@ TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
 # 位置は保ちつつ、コスト3から払える。
 VANGUARD_MEN = 0.045
 VS_FACTION = 0.10       # 対勢力: 該当する勢力の敵へのダメージ増
+
+# 陣頭指揮（§7.52・⑦）。**旧・総大将の opt-in 版。** この特性を持つ札が
+# いると軍全体の兵力が COMMAND_MEN ぶん増えるが、指揮官の隊が COMMAND_ROUT
+# を割った瞬間、全軍が動揺して**現在兵力の COMMAND_COLLAPSE を一度に失う**。
+# COMMAND_COLLAPSE=1.0 は「壊滅で即敗北」（原案）に一致する — 全軍が0になり
+# 潰走判定が同じティックで立つので、勝敗も diff も自然に決まり、score の
+# 強制配線が要らない。1.0 未満は連続な中間で、値付けと調整ができる。
+# デッキに1枚まで（編成検証で縛る）。
+#
+# 値は §7.52 の実測から: 閾値40%は「後衛に置いた指揮官が実デッキ戦の約8%で
+# 倒れる」点（15%だと前衛置きは74〜89%で倒れて成立せず、後衛置きは一度も
+# 倒れず無料になる）。兵力+1%はその危険とちょうど釣り合う実測の増分
+# （対照52.5%に対し52.8%）。**カードプールを変えたら測り直す**（ゲーム層）。
+COMMAND_MEN = 0.01
+COMMAND_ROUT = 0.40
+COMMAND_COLLAPSE = 1.0
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 
 # 1枚が複数の固有特性を持てる（生まれつきの複数持ち＋獲得してセットした分・§7.37）。
@@ -2237,6 +2253,17 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
 
     ua = build(a, +1, ka)
     ub = build(b, -1, kb)
+    # 陣頭指揮（§7.52）。指揮官が軍全体の兵力を底上げする。置き場所は前衛
+    # でも後衛でもよい（危険と引き換えの置き所そのものが選択）。代金は金で
+    # なく危険 — 下のティック処理で指揮官の隊が崩れると全軍が動揺する。
+    cmd_a = [u for u in ua if TRAITS_ON and "command" in u.traits]
+    cmd_b = [u for u in ub if TRAITS_ON and "command" in u.traits]
+    for us, cmds in ((ua, cmd_a), (ub, cmd_b)):
+        if cmds:
+            for u in us:
+                u.men0 *= 1.0 + COMMAND_MEN
+                u.men = u.men0
+    cmd_fell = [False, False]     # 動揺は1回だけ（指揮官は一度しか倒れない）
     if seed is not None and (RAND_SIGMA > 0.0 or SKILL_JITTER > 0.0):
         # **部隊ごとに独立の流れを持たせる。** 1本の流れを共有すると、引く順序が
         # 変わるだけで結果が動き、処理順の入れ替えに弱くなる。
@@ -2444,6 +2471,24 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         for u in ub:
             if u.fell_at is None and u.ratio() < ROUT_UNIT:
                 u.fell_at = t
+        # 陣頭指揮（§7.52）: 指揮官の隊が COMMAND_ROUT を割ったら全軍が動揺
+        # し、現在兵力の COMMAND_COLLAPSE を一度に失う。**両側の条件を見て
+        # から両方へ適用する**（先に崩れた側の動揺が相手の判定を変えない）。
+        if cmd_a or cmd_b:
+            hit = []
+            for k, cmds in enumerate((cmd_a, cmd_b)):
+                if cmds and not cmd_fell[k] and any(
+                        u.ratio() < COMMAND_ROUT for u in cmds):
+                    cmd_fell[k] = True
+                    hit.append((k, cmds))
+            for k, cmds in hit:
+                for u in (ua if k == 0 else ub):
+                    u.men *= 1.0 - COMMAND_COLLAPSE
+                if events is not None:
+                    events.append(Event(t, "決着", 1,
+                        "陣頭に立つ{}、乱軍の中に倒れる！　{}軍の全軍に動揺が"
+                        "走った！".format(_who(cmds[0]),
+                                      _JP["A" if k == 0 else "B"])))
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
         if series is not None:
@@ -2465,7 +2510,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     if events is not None:
         _log_close(events, seen, t, reason, ua, ub, ra, rb)
     diff = ra - rb
-    if GROUND_WEIGHT > 0.0:
+    if GROUND_WEIGHT > 0.0 and not (cmd_fell[0] or cmd_fell[1]):
+        # 押し込みは通常決着だけ。指揮官戦死の裁定を地歩が覆してはいけない
+        # （両指揮官が同時に倒れた引き分けを、押し込み差が勝敗にし得る）。
         # 押し込み。A は +y へ、B は -y へ進むのが前進。
         push_a = (sum(u.y for u in ua) / len(ua)) - y0a
         push_b = y0b - (sum(u.y for u in ub) / len(ub))
@@ -2487,6 +2534,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # どんな特性も 0.0000 になる（実測で7種が該当した）。
             "traits_a": sum(sum(u.fired.values()) for u in ua),
             "traits_b": sum(sum(u.fired.values()) for u in ub),
+            # 陣頭指揮（§7.52）: 指揮官が倒れたか（A側, B側）。計器が読む。
+            "cmd_fell": (cmd_fell[0], cmd_fell[1]),
             "routed_a": sum(1 for u in ua if u.ratio() < ROUT_UNIT),
             "routed_b": sum(1 for u in ub if u.ratio() < ROUT_UNIT)}
 
