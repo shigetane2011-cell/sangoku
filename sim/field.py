@@ -1180,7 +1180,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1277,6 +1277,7 @@ class Unit:
         self.chaos_until = 0.0  # その失効時刻
         self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
         self.dealt_skill = 0.0  # うち必殺技・特性によるぶん（§7.49）
+        self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
@@ -1547,7 +1548,7 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
 
 # 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
 _MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd",
-            "気勢": "rate"}
+            "気勢": "rate", "必殺技防御": "scut"}
 
 
 def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
@@ -1559,7 +1560,8 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(
-            r"(攻撃力|命中率|防御力|移動速度|気勢)\s*([+-]\d+)%（(\d+)秒）", effect):
+            r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御)\s*([+-]\d+)%（(\d+)秒）",
+            effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
@@ -1713,8 +1715,9 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         return "{}の【{}】！　{}が同士討ちを始めた！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "buff":
-        what = {"def": "守り", "spd": "足", "rate": "気勢"}.get(stat, "攻撃")
-        up = {"spd": "速まる"}.get(stat, "上がる")
+        what = {"def": "守り", "spd": "足", "rate": "気勢",
+                "scut": "計略への備え"}.get(stat, "攻撃")
+        up = {"spd": "速まる", "scut": "固まる"}.get(stat, "上がる")
         return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・{:.0f}分）".format(
             who, name, where, what, up, amount, mins(secs))
     what = {"def": "守りが乱れる"}.get(stat, "刃が鈍る")
@@ -1902,7 +1905,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             f.overtime.append((t + sk.dur, "dot", dmg))
             done += dmg
         else:
-            take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult)), f.men)
+            take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
+                       * f.scut_mult, f.men)
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
@@ -1961,7 +1965,8 @@ def _overtime(units, t: float, dt: float) -> None:
             if kind == "heal":
                 u.men = min(u.men0, u.men + per_sec * dt)
             else:
-                u.men = max(u.men - per_sec * dt
+                # 延焼も必殺技被害なので scut が効く（§7.51）
+                u.men = max(u.men - per_sec * dt * u.scut_mult
                             * (100.0 / (100.0 + u.dfn * u.def_mult)), 0.0)
 
 
@@ -1990,7 +1995,7 @@ def _expire(units, t: float) -> None:
             k = (kind, src)
             if abs(amt) > abs(best.get(k, 0.0)):
                 best[k] = amt
-        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0}
+        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0}
         for (kind, _), amt in best.items():
             tot[kind] += amt
         for k in tot:
@@ -2000,6 +2005,9 @@ def _expire(units, t: float) -> None:
         u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
         u.def_mult = 1.0 + tot["def"]
         u.rate_mult = 1.0 + tot["rate"]
+        # 必殺技防御（§7.51・コンセプトカード「必殺技メタ」）。必殺技と延焼の
+        # 被害だけを減らす。通常攻撃には効かない。
+        u.scut_mult = max(0.0, 1.0 - tot["scut"])
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:

@@ -241,6 +241,7 @@ EFFECT_PRICE = {
     "atk": 0.000724623, # 攻撃力・命中率 1% × 1秒 × 1体 あたり
     "def": 0.000305964, # 防御力 1% × 1秒 × 1体
     "stun": 0.119597,   # 行動阻害 1秒 × 1体 あたり
+    # scut（必殺技防御）は対象係数表が使えない（下の TARGET_SCUT_PRICE）
     "chaos": 0.000897109, # 混乱。**攻撃力の下げ幅に直した1% × 1秒 × 1体**あたり
     "spd":    0.0,      # **発動時刻しだい**。下の注記を参照
     "gauge":  0.0,      # 廃止（§7.18）
@@ -321,6 +322,16 @@ TARGET_FX_OWN = {"自分": 1.45, "味方1体（残兵力が最少）": 1.42,
 TARGET_FX_FOE = {"敵1体（最前）": 0.33, "敵1体（正面）": 1.33, "敵1列": 3.00,
                  "敵前衛": 3.50, "敵後衛": 1.12, "敵正面2体": 1.76,
                  "敵全体": 4.10}
+
+
+# 必殺技防御の値段（§7.51・+30%30秒あたりの実測・コスト点）。
+# **既存の対象係数表は流用できない。** 誰が必殺技を浴びるかは戦況で決まり、
+# 序盤は最大兵力の前衛・終盤は生き残りの後衛に集中する。後衛カットが前衛の
+# 2倍の価値になるのはそのため（通常攻撃は後衛に届かないので、後衛の被害は
+# ほぼ必殺技）。線形則（量×秒に比例）は他の状態効果と同じ仮定を置く。
+TARGET_SCUT_PRICE = {"自分": 0.713, "味方前衛": 0.713, "味方1列": 1.609,
+                     "味方後衛": 1.503, "味方全体": 1.954}
+SCUT_BASE = 30.0 * 30.0     # 実測時の 量30% × 30秒
 
 
 def target_fx(target: str) -> float:
@@ -528,6 +539,13 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
             v += EFFECT_PRICE["stun"] * secs * fx
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
+        elif key == "scut":
+            base = 0.713
+            for k, pv in TARGET_SCUT_PRICE.items():
+                if k in target or target in k:
+                    base = pv
+                    break
+            v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
         elif key == "chaos":
             v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
     # **上限時間の仮定を持たない。** 段の重みは対戦の集まりで測った実測値。
