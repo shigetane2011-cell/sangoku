@@ -342,6 +342,24 @@ TARGET_REFL_PRICE = {"自分": 0.353, "味方前衛": 0.353, "味方後衛": 1.3
 TARGET_NCUT_PRICE = {"自分": 1.488, "味方前衛": 4.525, "味方1列": 3.394,
                      "味方後衛": 0.224, "味方全体": 4.954}
 SCUT_BASE = 30.0 * 30.0     # 実測時の 量30% × 30秒
+# 代償（スーサイド・§7.51 機構4）: 発動ごとに**現在兵力**のN%を失う。値段は
+# マイナス（効果予算を浮かせる側）。**線形ではない** — 現在兵力比なので発動を
+# 重ねるほど払う実数が目減りし、1%あたりの価値が量とともに落ちる
+# （5%で0.435 → 30%で0.256）。線形係数を無理に置かず、実測の錨点を
+# 折れ線でつなぐ（キー: 量%、値: コスト点の絶対値）。
+SAC_ANCHORS = ((0.0, 0.0), (5.0, 2.175), (10.0, 3.558), (15.0, 5.164),
+               (20.0, 6.128), (30.0, 7.681))
+
+
+def sac_price(pct: float) -> float:
+    """代償 N%（現在兵力比・発動ごと）のコスト点（絶対値）。錨点の折れ線。"""
+    if pct <= 0.0:
+        return 0.0
+    for (x0, y0), (x1, y1) in zip(SAC_ANCHORS, SAC_ANCHORS[1:]):
+        if pct <= x1:
+            return y0 + (y1 - y0) * (pct - x0) / (x1 - x0)
+    (x0, y0), (x1, y1) = SAC_ANCHORS[-2], SAC_ANCHORS[-1]
+    return y1 + (y1 - y0) * (pct - x1) / (x1 - x0)
 
 
 def target_fx(target: str) -> float:
@@ -560,6 +578,9 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
             v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
         elif key == "chaos":
             v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
+    # 代償は発動ごとに払うので他の効果と同じく段の重みに乗る。符号はマイナス。
+    # 足し算の仮定は実測済み（ダメージ+代償10% の差 -3.81 対 単体 -3.56）。
+    v -= sac_price(skill.sac * 100.0)
     # **上限時間の仮定を持たない。** 段の重みは対戦の集まりで測った実測値。
     v *= tier_weight(gauge_cost, gauge_init)
     return v / CARD_COST_RATE

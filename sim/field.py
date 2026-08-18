@@ -1508,6 +1508,7 @@ class Skill:
     dur: float = 0.0        # 継続秒数。0 は打ち切り
     heal: float = 0.0       # 回復量（ダメージと同じ係数に掛ける）
     mods: Tuple[Tuple[str, float, float], ...] = ()   # (種別, 量, 秒数)
+    sac: float = 0.0        # 代償: 発動ごとに**現在兵力**のこの割合を失う
 
 
 def _skill_kind(effect: str, target: str) -> str:
@@ -1600,8 +1601,10 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
 def _parse_skill(effect: str, target: str) -> Skill:
     p, dur = _skill_power(effect)
     heal, hdur = _skill_heal(effect)
+    m = re.search(r"代償\s*兵力(\d+)%", effect)
     return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
-                 heal=heal, mods=_skill_mods(effect))
+                 heal=heal, mods=_skill_mods(effect),
+                 sac=float(m.group(1)) / 100.0 if m else 0.0)
 
 
 def _skill_targets(target: str, u, foe, own):
@@ -1804,6 +1807,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     tgts = _skill_targets(tstr, u, foe, own)
     if not tgts:
         return
+    if sk.sac > 0.0:
+        # 代償（スーサイド）: 現在兵力の割合を払う。遅延窓（_men_add）を通す
+        # ので同時解決は保たれる。誰の与ダメにも数えない — 自傷であって
+        # 敵の戦果ではない。
+        _men_add(u, -u.men * sk.sac)
     v = SKILL_WITS[sk.kind]
     coef = u.might * (1.0 - v) + u.wits * v
     n = max(len(tgts), 1)

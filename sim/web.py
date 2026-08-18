@@ -89,6 +89,9 @@ def _skill_display(g, sk_row) -> str:
     m = _re.search(r"行動阻害\s*(\d+)秒", raw)
     if m:
         parts.append("足止め {:.0f}分".format(F.mins(float(m.group(1)))))
+    m = _re.search(r"代償\s*兵力(\d+)%", raw)
+    if m:
+        parts.append("代償 放つたび自隊のいまの兵力の{}%を失う".format(m.group(1)))
     m = _re.search(r"ゲージ付与", raw)
     if m:
         parts.append("味方のゲージを進める")
