@@ -519,7 +519,7 @@ class App(BaseHTTPRequestHandler):
             desc, cond = _trait_brief(None, key, trs.get(key, {}))
             onsho.append({"id": r["id"], "key": key,
                           "name": names_jp.get(key, key),
-                          "value": round(D.trait_value(key), 2),
+                          "kou": PL.kou_of(key),
                           "desc": desc + ("（{}）".format(cond) if cond else ""),
                           "general": r["general_name"]})
         saved = []
@@ -544,6 +544,7 @@ class App(BaseHTTPRequestHandler):
             "entry_errors": entry_errors,
             "boards_ok": boards_ok,
             "onsho": onsho,
+            "onsho_budget": PL.ONSHO_BUDGET_KOU,
             "saved": saved,
         })
 

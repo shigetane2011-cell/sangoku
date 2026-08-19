@@ -650,11 +650,12 @@ function drawOnsho() {
   const el = $("#onsho");
   if (!D.onsho || !D.onsho.length) { el.innerHTML = ""; return; }
   const gens = deckGenerals();
-  el.innerHTML = "<div class='side-label'>─ 軍功枠（恩賞のセット） ─</div>" +
+  const budget = D.onsho_budget || 100;
+  el.innerHTML = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功 ─</div>` +
     D.onsho.map((o) => `
       <div class="onsho-row">
         <span class="oname">【${esc(o.name)}】</span>
-        <span class="val num">${o.value}点</span>
+        <span class="val num">${o.kou}功</span>
         <select data-id="${o.id}">
           <option value="">（外す）</option>
           ${gens.map((g) => `<option ${o.general === g ? "selected" : ""}>${esc(g)}</option>`).join("")}
@@ -663,8 +664,8 @@ function drawOnsho() {
         </select>
         ${o.desc ? `<div class="onsho-desc muted">${esc(o.desc)}</div>` : ""}
       </div>`).join("") +
-    "<p class='muted' style='font-size:11.5px'>セットした恩賞はその値段ぶん" +
-    "デッキのコスト上限に数える。</p>";
+    `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（1デッキ${budget}功・` +
+    "全員一律）から払う。デッキ本体の点は食わない。</p>";
   $$("#onsho select").forEach((sel) => sel.onchange = async () => {
     const r = await api("/api/onsho", { owned_id: +sel.dataset.id, general: sel.value });
     if (!r.ok) { flashMsg(r.errors.join("／"), true); }
@@ -873,25 +874,26 @@ function deckCost() {
   }, 0);
 }
 
-function onshoExtra() {
+function onshoKou() {
+  // このデッキに乗っている軍功（功）。予算は別枠（§7.61）— 本体の点を食わない
   if (!D.onsho) return 0;
   const inDeck = new Set(cur.cards);
   return D.onsho.filter((o) => inDeck.has(o.general))
-                .reduce((s, o) => s + o.value, 0);
+                .reduce((s, o) => s + (o.kou || 0), 0);
 }
 
 function drawMeter() {
   const cap = D.regs.find((r) => r.name === cur.reg).cap;
   const cost = deckCost();
-  const extra = onshoExtra();
-  const total = cost + extra;
   const m = $("#meter");
-  m.classList.toggle("over", total > cap + 1e-9);
-  m.querySelector(".fill").style.width = Math.min(100, total / cap * 100) + "%";
-  const ex = extra ? `（素${cost}+恩賞${extra.toFixed(2)}）` : "";
+  m.classList.toggle("over", cost > cap + 1e-9);
+  m.querySelector(".fill").style.width = Math.min(100, cost / cap * 100) + "%";
+  const kou = onshoKou();
+  const budget = D.onsho_budget || 100;
+  const ex = kou ? `　軍功 ${kou}／${budget}功${kou > budget ? "（超過！）" : ""}` : "";
   m.querySelector(".label").textContent =
-    `${+total.toFixed(2)} ／ ${cap}点${ex}` +
-    (total > cap + 1e-9 ? "　超過！" : (total < cap ? `　余り${+(cap - total).toFixed(2)}` : "　ぴったり"));
+    `${cost} ／ ${cap}点` +
+    (cost > cap + 1e-9 ? "　超過！" : (cost < cap ? `　余り${cap - cost}` : "　ぴったり")) + ex;
 }
 
 function drawEntryState() {
