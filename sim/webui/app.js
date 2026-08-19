@@ -719,12 +719,17 @@ function drawRoster() {
 function showCardInfo(name) {
   const c = D.roster.find((x) => x.name === name);
   if (!c) return;
-  const traits = (c.traits || []).map((t) => `
+  const traits = (c.traits || []).length ? (c.traits || []).map((t) => `
     <div class="ci-row">
       <span class="tag trait-tag">特性・${esc(t.kind)}</span>
       <b>【${esc(t.name)}】</b> ${esc(t.desc)}
       ${t.cond ? `<span class="muted">（${esc(t.cond)}）</span>` : ""}
-    </div>`).join("");
+    </div>`).join("")
+    : `<div class="ci-row muted">
+      <span class="tag trait-tag">特性</span>
+      生まれつきの特性は持たない — そのぶん技と地力にすべてを注いだ素朴な武将
+      （軍功枠の恩賞は付けられる）
+    </div>`;
   $("#cardinfo").innerHTML = `
     <img class="ci-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">
     <div class="ci-body">
@@ -839,8 +844,8 @@ function showTip(e, name) {
     <b>${esc(c.name)}</b>
     <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
     <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
-    <span class="muted">【${esc(c.skill)}】${c.traits.length
-      ? "　特性: " + c.traits.map((t) => t.name).join("・") : ""}</span><br>
+    <span class="muted">【${esc(c.skill)}】　特性: ${c.traits.length
+      ? c.traits.map((t) => t.name).join("・") : "─（持たない）"}</span><br>
     <span class="tip-hint">クリックで詳細</span>`;
   tip.style.display = "block";
   moveTip(e);
