@@ -26,13 +26,15 @@ from . import match as M
 from . import play as PL
 from . import players as P
 from . import rosterdata as R
+from . import senki as SK
 
 PORT = int(os.environ.get("SANGOKU_PORT", "8035"))
 # 攻勢の表示（§7.56）が仮定する「標準的な鎧」= 3兵種の平均。
 _DEF_MEAN = sum(F.DEF_BY_TYPE.values()) / len(F.DEF_BY_TYPE)
 WEBUI = os.path.join(os.path.dirname(__file__), "webui")
 
-VIEWS = {"/": "home", "/deck": "deck", "/replays": "replays", "/replay": "replay"}
+VIEWS = {"/": "home", "/senki": "senki", "/deck": "deck",
+         "/replays": "replays", "/replay": "replay"}
 
 SHELL = """<!doctype html>
 <meta charset="utf-8">
@@ -270,6 +272,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_state()
             if url.path == "/api/deckdata":
                 return self._api_deckdata()
+            if url.path == "/api/senki":
+                return self._api_senki()
             if url.path == "/api/replays":
                 return self._api_replays()
             if url.path == "/api/replay":
@@ -292,6 +296,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_deck(body)
             if url.path == "/api/attack":
                 return self._api_attack(body)
+            if url.path == "/api/senki_fight":
+                return self._api_senki_fight(body)
             if url.path == "/api/free":
                 return self._api_free(body)
             if url.path == "/api/room":
@@ -412,9 +418,20 @@ class App(BaseHTTPRequestHandler):
         boards_ok = {}
         heifu = None
         onsho = None
+        senki_info = None
         if me:
             entry, boards_ok, errs = PL.entry_of(cx, cards, me.id,
                                                  me.display_name)
+            # 帯の解放（§7.60: 官渡=第4章・赤壁=第6章。移行組は素通し）
+            gate = SK.board_gate(cx, me.id)
+            for bn, g in gate.items():
+                if not g:
+                    boards_ok[bn] = False
+            prog = SK.cleared(cx, me.id)
+            bs = SK.battles()
+            senki_info = {"cleared": prog, "total": len(bs), "gate": gate,
+                          "next": (bs[prog]["title"] if prog < len(bs)
+                                   else None)}
             entry_ok = any(boards_ok.values())
             n, wait = P.heifu(cx, me.id, now)
             heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait,
@@ -448,6 +465,7 @@ class App(BaseHTTPRequestHandler):
             "season": P.ledger_get(cx, "season"),
             "boards": boards, "entry_ok": entry_ok, "boards_ok": boards_ok,
             "heifu": heifu, "onsho": onsho, "tenka": tenka,
+            "senki": senki_info,
         })
 
     def _api_login(self, body):
@@ -688,6 +706,58 @@ class App(BaseHTTPRequestHandler):
         P.delete_saved_deck(cx, me.id, int(body.get("id", 0)))
         self._json({"ok": True})
 
+    def _api_senki(self):
+        """戦記の進行と戦の一覧（§7.60）。
+
+        見せ方: クリア済み＝戦果と登用を全部、次の戦＝前口上と敵将と登用予定、
+        その先＝章と戦名だけ（前口上も敵将も伏せる — 進む楽しみを残す）。
+        """
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        prog = SK.cleared(cx, me.id)
+        by_person = {g["人物"]: g for g in R.generals()}
+        chapters = []
+        for b in SK.battles():
+            if not chapters or chapters[-1]["ch"] != b["ch"]:
+                name, note = SK.CHAPTERS.get(b["ch"], ("", ""))
+                chapters.append({"ch": b["ch"], "name": name, "note": note,
+                                 "board": b["board"], "battles": []})
+            state = ("cleared" if b["i"] < prog
+                     else ("next" if b["i"] == prog else "locked"))
+            row = {"i": b["i"], "no": b["no"], "title": b["title"],
+                   "board": b["board"], "boss": b["boss"], "state": state}
+            if state != "locked":
+                row["intro"] = b["intro"]
+                # 敵将＝その戦の主役（登用筆頭）。デッキ先頭は並び順の都合で
+                # 端役のことがある（雁行だと大将が後衛に居る）
+                row["foe"] = (by_person[b["recruits"][0]]["名前"]
+                              if b["recruits"] else b["deck"][0])
+                row["recruits"] = [
+                    {"person": p,
+                     "name": by_person[p]["名前"],
+                     "cost": float(by_person[p]["コスト"])}
+                    for p in b["recruits"]]
+            chapters[-1]["battles"].append(row)
+        gate = SK.board_gate(cx, me.id)
+        _, boards_ok, _ = PL.entry_of(cx, M._roster_cards(), me.id,
+                                      me.display_name)
+        self._json({"cleared": prog, "total": len(SK.battles()),
+                    "chapters": chapters, "gate": gate,
+                    "boards_ok": boards_ok})
+
+    def _api_senki_fight(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        PL.tick(cx, cards, now)
+        r = SK.fight(cx, cards, me, int(body.get("i", -1)), now)
+        self._json(r, 200 if "error" not in r else 400)
+
     def _api_replays(self):
         cx = self._cx()
         me = self._me(cx)
@@ -696,9 +766,12 @@ class App(BaseHTTPRequestHandler):
         names = {p.id: p.display_name for p in P.all_players(cx)}
         import datetime
         mode_jp = {"ranked": "挑戦", "tenka": "天下", "free": "フリー",
-                   "room": "ルーム"}
+                   "room": "ルーム", "senki": "戦記"}
         rows = []
         for m in P.battles_of(cx, limit=60):
+            # 戦記は自分の記録にだけ出す（他家の一覧には載せない・§7.60）
+            if m["mode"] == "senki" and not (me and m["pid_a"] == me.id):
+                continue
             role = ""
             if me and m["mode"] == "ranked":
                 role = ("挑" if m["pid_a"] == me.id
@@ -707,7 +780,8 @@ class App(BaseHTTPRequestHandler):
                 "id": m["id"], "board": m["board"],
                 "mode": mode_jp.get(m["mode"], m["mode"]), "role": role,
                 "a": names.get(m["pid_a"], "?"),
-                "b": names.get(m["pid_b"], "?"),
+                "b": (SK.title_of(m["pid_b"]) if m["mode"] == "senki"
+                      else names.get(m["pid_b"], "?")),
                 "at": datetime.datetime.fromtimestamp(
                     m["played_at"]).strftime("%m/%d %H:%M"),
                 "mine": bool(me and me.id in (m["pid_a"], m["pid_b"]))})
@@ -723,6 +797,11 @@ class App(BaseHTTPRequestHandler):
         m = dict(row)
         cards = M._roster_cards()
         names = {p.id: p.display_name for p in P.all_players(cx)}
+        if m["mode"] == "senki":
+            # 戦記のリプレイは本人だけ（§7.60。番付のデッキ非公開と同じ筋）
+            if not (me and me.id == m["pid_a"]):
+                return self._json({"error": "その記録は無い"}, 404)
+            names[m["pid_b"]] = SK.title_of(m["pid_b"])
 
         def sides():
             if m["snap_a"] and m["snap_b"]:

@@ -42,7 +42,8 @@ function logoHTML(big) {
 /* ── 共通シェル ─────────────────────── */
 function shell(state) {
   const view = document.body.dataset.view;
-  const nav = [["/", "順位表"], ["/deck", "編成"], ["/replays", "リプレイ"]]
+  const nav = [["/", "順位表"], ["/senki", "戦記"], ["/deck", "編成"],
+               ["/replays", "リプレイ"]]
     .map(([p, t]) => `<a href="${p}" class="${location.pathname === p ? "on" : ""}">${t}</a>`)
     .join("");
   const chip = state.me
@@ -166,6 +167,10 @@ async function viewHome(state) {
       <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
     </div>
     ${tenka}
+    ${state.senki && state.senki.next ? `<div class="senki-chip fade-in">
+      <b>戦記</b> ${state.senki.cleared}／${state.senki.total}戦
+      　次は「<b>${esc(state.senki.next)}</b>」
+      <a href="/senki">進む →</a></div>` : ""}
     ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
       【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
     <div class="boards fade-in">${boards}</div>
@@ -226,13 +231,20 @@ function showBattleResult(label, r) {
   const delta = (r.rating_new !== undefined)
     ? Math.round(r.rating_new - r.rating_old) : null;
   const isReg = ["汜水関", "官渡", "赤壁"].includes(label);
+  const recruits = (r.recruits || []).map((g) => `
+    <div class="recruit-item">
+      <img src="/portrait/${encodeURIComponent(g.person)}" alt="">
+      <div><span class="rec-label">登用</span> <b>${esc(g.name)}</b>が軍門に降った！
+        ${g.quote ? `<div class="rec-quote">「${esc(g.quote)}」</div>` : ""}</div>
+    </div>`).join("");
   $("#overlay").innerHTML = `<div class="box result-box fade-in">
     <div class="stamp ${cls}">${stamp}</div>
-    <div class="result-sub">${esc(label)}　対 <b>${esc(r.foe)}</b></div>
+    <div class="result-sub">${esc(label)}${r.foe ? `　対 <b>${esc(r.foe)}</b>` : ""}</div>
     ${delta !== null ? `<div class="result-rate num">
       武名 ${Math.round(r.rating_new)}
       <span class="delta ${delta >= 0 ? "up" : "down"}">（${delta >= 0 ? "+" : ""}${delta}）</span>
     </div>` : ""}
+    ${recruits ? `<div class="recruit-list">${recruits}</div>` : ""}
     <div class="result-actions">
       ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
@@ -241,6 +253,71 @@ function showBattleResult(label, r) {
   </div>`;
   const ag = $("#again");
   if (ag) ag.onclick = () => { $("#overlay").remove(); doAttack(label); };
+}
+
+/* ── 戦記（討伐→登用・§7.60） ─────────────── */
+const KANJI_NUM = "一二三四五六七八九十";
+
+async function viewSenki(state) {
+  const d = await api("/api/senki");
+  const chap = d.chapters.map((c) => {
+    const rows = c.battles.map((b) => {
+      const st = b.state;
+      const recruits = (b.recruits || []).map((g) => `
+        <span class="rec-chip ${st === "cleared" ? "got" : ""}"
+              title="${st === "cleared" ? "登用済み" : "勝てば登用"}">
+          <img src="/portrait/${encodeURIComponent(g.person)}" alt="">${esc(g.person)}</span>`).join("");
+      return `<div class="senki-row ${st}">
+        <span class="s-ico">${st === "cleared" ? "✅" : (st === "next" ? "⚔️" : "🔒")}</span>
+        <span class="s-no num">${c.ch}-${b.no}</span>
+        <span class="s-title">${esc(b.title)}
+          ${b.boss ? '<span class="s-boss">章ボス</span>' : ""}</span>
+        <span class="s-board muted num">${esc(b.board)}</span>
+        ${st !== "locked" && b.foe
+          ? `<span class="s-foe muted">敵将 ${esc(b.foe)}</span>` : ""}
+        <span class="s-recruits">${recruits}</span>
+        ${st === "next"
+          ? `<button class="primary s-go" data-i="${b.i}" data-t="${esc(b.title)}">挑む</button>`
+          : (st === "cleared"
+             ? `<button class="ghost mini s-go" data-i="${b.i}" data-t="${esc(b.title)}">再戦</button>`
+             : "")}
+      </div>
+      ${st === "next" && b.intro ? `<div class="senki-intro">${esc(b.intro)}</div>` : ""}`;
+    }).join("");
+    return `<section class="senki-ch">
+      <h2 class="s-ch-head"><span class="s-ch-num">第${KANJI_NUM[c.ch - 1]}章</span>
+        ${esc(c.name)}<small class="muted">　${esc(c.note)}（${esc(c.board)}帯）</small></h2>
+      ${rows}
+    </section>`;
+  }).join("");
+  const done = d.cleared >= d.total;
+  $("#app").innerHTML = `
+    <div class="senki-head fade-in">
+      <h2>戦記 <small class="muted">倒した将を登用して、自軍を広げる</small></h2>
+      <div class="senki-bar num"><i style="width:${d.cleared / d.total * 100}%"></i>
+        <span>${d.cleared}／${d.total}戦</span></div>
+      ${done ? '<p class="muted">全戦を制した。乱世はここからが本番である（周回は近日）。</p>' : ""}
+    </div>
+    <div class="senki-list fade-in">${chap}</div>`;
+  $$(".s-go").forEach((b) =>
+    b.onclick = () => doSenkiFight(+b.dataset.i, b.dataset.t));
+}
+
+async function doSenkiFight(i, title) {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="overlay"><div class="box">
+      <div class="march">出　陣</div>
+      <p class="muted">${esc(title)} — 布陣を整えております……</p>
+    </div></div>`);
+  try {
+    const r = await api("/api/senki_fight", { i });
+    showBattleResult(title, r);
+  } catch (e) {
+    const ov = $("#overlay"); if (ov) ov.remove();
+    let msg = e.message;
+    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /*素通し */ }
+    alert(msg);
+  }
 }
 
 /* ── 編成 ──────────────────────── */
@@ -968,6 +1045,7 @@ async function viewReplay(state) {
   const view = document.body.dataset.view;
   if (!state.me && view !== "replay") return renderLogin(state);
   if (view === "home") return viewHome(state);
+  if (view === "senki") return viewSenki(state);
   if (view === "deck") return viewDeck(state);
   if (view === "replays") return viewReplays(state);
   if (view === "replay") return viewReplay(state);

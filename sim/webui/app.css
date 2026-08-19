@@ -174,6 +174,66 @@ td.rating { color: var(--gold); }
   color: var(--gold-hi); letter-spacing: .2em; margin-right: 4px; }
 .tenka-chip .ok { color: var(--win); margin: 0 6px; font-weight: 600; }
 .tenka-chip .warn { color: var(--sub); margin: 0 6px; }
+.senki-chip {
+  margin: 8px 0 14px; padding: 10px 14px;
+  background: linear-gradient(90deg, #2c1c10, var(--panel));
+  border: 1px solid #5a3a2a; border-left: 4px solid var(--accent);
+  border-radius: 10px; font-size: 13px;
+}
+.senki-chip > b { font-family: var(--font-min); font-size: 15px;
+  color: var(--accent-hi); letter-spacing: .2em; margin-right: 4px; }
+.senki-chip a { margin-left: 8px; }
+
+/* ── 戦記（討伐→登用・§7.60） ─────────────── */
+.senki-head h2 { margin: 0 0 6px; }
+.senki-bar { position: relative; height: 20px; max-width: 480px;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; margin: 8px 0 4px; }
+.senki-bar i { display: block; height: 100%;
+  background: linear-gradient(90deg, #7a3420, var(--accent)); }
+.senki-bar span { position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 11.5px; color: var(--ink); text-shadow: 0 1px 2px #000; }
+.senki-ch { margin: 22px 0; }
+.s-ch-head { font-size: 16px; border-bottom: 1px solid var(--line);
+  padding-bottom: 6px; margin-bottom: 4px; }
+.s-ch-num { color: var(--gold-hi); font-family: var(--font-brush);
+  margin-right: 10px; font-size: 19px; }
+.senki-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+  border-bottom: 1px solid #241d12; font-size: 13.5px; flex-wrap: wrap; }
+.senki-row.locked { opacity: .45; }
+.senki-row.next { background: linear-gradient(90deg, #2a1c1022, #d2452511);
+  border-left: 3px solid var(--accent); border-radius: 6px; }
+.senki-row .s-no { color: var(--faint); width: 2.6em; }
+.senki-row .s-title { font-family: var(--font-min); font-weight: 600;
+  min-width: 9em; }
+.s-boss { font-size: 10.5px; color: #ffb08a; border: 1px solid #a04a2a;
+  border-radius: 4px; padding: 0 5px; margin-left: 8px; vertical-align: 1px; }
+.senki-row .s-board { width: 3.5em; }
+.senki-row .s-foe { min-width: 8em; }
+.senki-row .s-recruits { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.rec-chip { display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--sub); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 20px; padding: 2px 9px 2px 3px; }
+.rec-chip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.rec-chip.got { color: var(--gold-hi); border-color: #5a4a30; }
+.senki-row .s-go { margin-left: auto; }
+.senki-intro { margin: 2px 0 10px 3em; padding: 8px 14px; font-size: 13px;
+  color: #d8c9a8; background: #201a1055; border-left: 3px solid var(--gold);
+  border-radius: 0 8px 8px 0; }
+
+/* 登用の演出（勝利画面） */
+.recruit-list { margin: 14px auto 4px; max-width: 340px; text-align: left; }
+.recruit-item { display: flex; gap: 10px; align-items: center; margin: 8px 0;
+  background: linear-gradient(90deg, #3a2c14, transparent);
+  border-left: 3px solid var(--gold); border-radius: 6px; padding: 8px 10px;
+  animation: fadein .6s ease; }
+.recruit-item img { width: 44px; height: 44px; border-radius: 8px;
+  object-fit: cover; border: 1px solid var(--gold); }
+.rec-label { font-size: 10.5px; color: var(--gold-hi); border: 1px solid var(--gold);
+  border-radius: 4px; padding: 0 4px; margin-right: 2px; }
+.rec-quote { color: #e8c98a; font-family: var(--font-brush); font-size: 12.5px;
+  margin-top: 2px; }
+
 .free-panel { margin-top: 18px; }
 .free-panel .free-row { margin: 10px 0; font-size: 13.5px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

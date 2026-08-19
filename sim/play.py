@@ -663,6 +663,11 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
     if not ok.get(reg_name):
         return {"error": "{} のデッキが出せる状態にない: {}".format(
             reg_name, "／".join(errs) or "未登録")}
+    from . import senki as SK
+    if not SK.board_gate(cx, me.id).get(reg_name, True):
+        need = "第四章（官渡）" if reg_name == "官渡" else "第六章"
+        return {"error": "{} の帯は戦記を{}まで進めると挑める".format(
+            reg_name, need)}
     reg_i = REG_NAMES.index(reg_name)
     dummies = ensure_dummies(cx, cards)
     cand = dict(dummies)

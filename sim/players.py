@@ -250,6 +250,12 @@ CREATE TABLE IF NOT EXISTS unlocks (
   got_at     TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (player_id, person)
 );
+-- 戦記の進行（§7.60）。cleared は通しでクリアした戦の数（=次に挑む戦の番号）。
+CREATE TABLE IF NOT EXISTS senki (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  cleared    INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
