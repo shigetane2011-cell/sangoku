@@ -426,10 +426,29 @@ TENKA_HOURS = (12, 21)          # 天下の開催時刻（サーバーの地方�
 TENKA_ANNOUNCE_SEC = 3600       # 開催の1時間前に組合せ発表
 
 
-def snap_army(army: F.Army) -> dict:
-    """デッキの魚拓。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。"""
-    return {"form": F.FORM_NAME[army.form.n_front],
-            "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
+def snap_army(army: F.Army, plus: float = 0.0) -> dict:
+    """デッキの魚拓。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
+
+    plus は戦記番付の周回上乗せ（§7.60: 敵全体に+N点）。魚拓に残さないと
+    リプレイが素の強さで再生されてしまう。
+    """
+    d = {"form": F.FORM_NAME[army.form.n_front],
+         "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
+    if plus:
+        d["plus"] = plus
+    return d
+
+
+def army_plus(army: F.Army, plus: float) -> F.Army:
+    """軍全体へ+plus点（§7.60 周回）。各カードの cost / stat_cost へ等分で
+    足す — 兵力・攻防はエンジン自身のコスト曲線から出るので、これが
+    「本当に+N点」の唯一の足し方（兵力だけ倍するのは別の量になる）。"""
+    import dataclasses
+    per = plus / max(1, len(army.cards))
+    cards = tuple(dataclasses.replace(
+        c, cost=c.cost + per,
+        stat_cost=(c.stat_cost or c.cost) + per) for c in army.cards)
+    return dataclasses.replace(army, cards=cards)
 
 
 def army_from_snap(cards, snap: dict) -> F.Army:
@@ -442,8 +461,11 @@ def army_from_snap(cards, snap: dict) -> F.Army:
         if c is None:
             raise KeyError(it["n"])
         picked.append(dataclasses.replace(c, trait=it.get("t", c.trait)))
-    return F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
+    army = F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
         snap["form"], snap["form"])])
+    if snap.get("plus"):
+        army = army_plus(army, float(snap["plus"]))
+    return army
 
 
 def snap_entry(entry) -> str:

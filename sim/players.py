@@ -256,6 +256,25 @@ CREATE TABLE IF NOT EXISTS senki (
   cleared    INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- 戦記番付の挑戦中の周回（§7.60）。lap=挑戦中の周回N・stage=倒したボス数・
+-- zanhei=その周でここまで積んだ残兵。負けても消えない（何度でも再挑戦）。
+CREATE TABLE IF NOT EXISTS senki_laps (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  lap        INTEGER NOT NULL DEFAULT 1,
+  stage      INTEGER NOT NULL DEFAULT 0,
+  zanhei     INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- 戦記番付の記録（完走した周回だけ）。**リセットなし**の恒久番付。version は
+-- 記録当時のカードプール版（バランス改訂で条件が変わるため「当時の記録」と読む）。
+CREATE TABLE IF NOT EXISTS senki_records (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  lap        INTEGER NOT NULL,
+  zanhei     INTEGER NOT NULL,
+  version    TEXT NOT NULL,
+  done_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, lap)
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,

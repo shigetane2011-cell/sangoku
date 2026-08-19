@@ -221,6 +221,23 @@ td.rating { color: var(--gold); }
   color: #d8c9a8; background: #201a1055; border-left: 3px solid var(--gold);
   border-radius: 0 8px 8px 0; }
 
+/* 周回（戦記番付） */
+.lap-panel { margin-bottom: 18px; }
+.lap-panel h2 .muted { font-size: 12px; font-weight: 400; }
+.lap-line { margin: 8px 0; font-size: 14px; }
+.lap-n { color: var(--gold-hi); font-size: 20px; font-family: var(--font-min); }
+.lap-bosses { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; }
+.lap-boss { font-size: 12px; color: var(--faint); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 9px; background: var(--panel2); }
+.lap-boss.beaten { color: var(--win); border-color: #6a5a2a; }
+.lap-boss.now { color: #ffd9c4; border-color: var(--accent);
+  background: #d2452518; font-weight: 600; }
+.lap-gain { margin: 10px 0 0; color: var(--gold-hi); }
+.lap-done { margin: 12px auto 0; max-width: 340px; padding: 10px 14px;
+  background: linear-gradient(90deg, #3a2c14, #2a1f10);
+  border: 1px solid var(--gold); border-radius: 10px; color: #ffe9c4;
+  animation: fadein .8s ease; }
+
 /* 登用の演出（勝利画面） */
 .recruit-list { margin: 14px auto 4px; max-width: 340px; text-align: left; }
 .recruit-item { display: flex; gap: 10px; align-items: center; margin: 8px 0;

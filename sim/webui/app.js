@@ -173,7 +173,18 @@ async function viewHome(state) {
       <a href="/senki">進む →</a></div>` : ""}
     ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
       【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
-    <div class="boards fade-in">${boards}</div>
+    <div class="boards fade-in">${boards}${(state.banzuke || []).length ? `
+      <div class="panel">
+        <h2>戦記番付<span class="sub">リセットなし</span></h2>
+        <table class="std">${state.banzuke.map((r, k) => `
+          <tr class="${r.me ? "me" : ""} ${k === 0 ? "top1" : ""}">
+            <td class="rank num">${k === 0 ? "①" : (k + 1) + "位"}</td>
+            <td>${esc(r.name)}</td>
+            <td class="num">周回${r.lap}</td>
+            <td class="num">残兵${(r.zanhei / 1000).toFixed(1)}千</td>
+          </tr>`).join("")}
+        </table>
+      </div>` : ""}</div>
     ${free}`;
   $$("button.attack").forEach((b) => b.onclick = () => doAttack(b.dataset.reg));
   const rf = $("#refill");
@@ -245,6 +256,11 @@ function showBattleResult(label, r) {
       <span class="delta ${delta >= 0 ? "up" : "down"}">（${delta >= 0 ? "+" : ""}${delta}）</span>
     </div>` : ""}
     ${recruits ? `<div class="recruit-list">${recruits}</div>` : ""}
+    ${r.gained ? `<div class="lap-gain num">残兵 <b>${(r.gained / 1000).toFixed(1)}千</b> を積んだ
+      （周回${r.lap}・${r.lap_done ? 8 : r.stage}人抜き・計${((r.lap_done ? r.lap_done.zanhei : r.zanhei) / 1000).toFixed(1)}千）</div>` : ""}
+    ${r.lap_done ? `<div class="lap-done">周回${r.lap_done.lap}を完走！
+      総残兵 <b class="num">${(r.lap_done.zanhei / 1000).toFixed(1)}千</b> を番付に刻んだ。
+      次の周は敵が<b>+1点</b>強くなる。</div>` : ""}
     <div class="result-actions">
       ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
@@ -291,16 +307,66 @@ async function viewSenki(state) {
     </section>`;
   }).join("");
   const done = d.cleared >= d.total;
+  const lap = d.lap ? `
+    <div class="panel lap-panel fade-in">
+      <h2>戦記番付 <small class="muted">章ボス8人抜き・敵は周回ごとに+1点・記録は消えない</small></h2>
+      <div class="lap-line num">周回 <b class="lap-n">${d.lap.lap}</b>
+        　${d.lap.stage}人抜き　積み残兵 <b>${(d.lap.zanhei / 1000).toFixed(1)}千</b>
+        ${d.lap.best ? `　<span class="muted">自己最高: 周回${d.lap.best.lap}・残兵${(d.lap.best.zanhei / 1000).toFixed(1)}千</span>` : ""}
+      </div>
+      <div class="lap-bosses">${d.lap.bosses.map((b, k) => `
+        <span class="lap-boss ${b.beaten ? "beaten" : (k === d.lap.stage ? "now" : "")}"
+              title="${esc(b.board)}帯">${b.beaten ? "✓" : ""}${esc(b.title)}</span>`).join("")}
+      </div>
+      <button class="primary" id="lap-go">
+        ${esc(d.lap.bosses[d.lap.stage].title)} に挑む（周回${d.lap.lap}）</button>
+      <span class="muted">　負けても積んだ残兵は消えない。デッキは番付に載らない</span>
+    </div>` : "";
+  const bz = (d.banzuke && d.banzuke.length) ? `
+    <div class="panel fade-in">
+      <h2>番付</h2>
+      <table class="std"><tr><th></th><th>武名</th><th>周回</th><th>総残兵</th><th>版</th><th></th></tr>
+      ${d.banzuke.map((r, k) => `
+        <tr class="${r.me ? "me" : ""}">
+          <td class="rank num">${k === 0 ? "①" : (k + 1) + "位"}</td>
+          <td>${esc(r.name)}</td>
+          <td class="num">周回${r.lap}</td>
+          <td class="num">${(r.zanhei / 1000).toFixed(1)}千</td>
+          <td class="num muted">${esc(r.version).slice(0, 6)}</td>
+          <td class="num muted">${esc(r.at)}</td>
+        </tr>`).join("")}
+      </table>
+    </div>` : "";
   $("#app").innerHTML = `
     <div class="senki-head fade-in">
       <h2>戦記 <small class="muted">倒した将を登用して、自軍を広げる</small></h2>
       <div class="senki-bar num"><i style="width:${d.cleared / d.total * 100}%"></i>
         <span>${d.cleared}／${d.total}戦</span></div>
-      ${done ? '<p class="muted">全戦を制した。乱世はここからが本番である（周回は近日）。</p>' : ""}
     </div>
+    ${lap}${bz}
     <div class="senki-list fade-in">${chap}</div>`;
   $$(".s-go").forEach((b) =>
     b.onclick = () => doSenkiFight(+b.dataset.i, b.dataset.t));
+  const lg = $("#lap-go");
+  if (lg) lg.onclick = () => doSenkiLap(d.lap);
+}
+
+async function doSenkiLap(lap) {
+  const title = lap.bosses[lap.stage].title;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="overlay"><div class="box">
+      <div class="march">出　陣</div>
+      <p class="muted">周回${lap.lap}・${esc(title)} — 布陣を整えております……</p>
+    </div></div>`);
+  try {
+    const r = await api("/api/senki_lap", {});
+    showBattleResult(r.title || title, r);
+  } catch (e) {
+    const ov = $("#overlay"); if (ov) ov.remove();
+    let msg = e.message;
+    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /* 素通し */ }
+    alert(msg);
+  }
 }
 
 async function doSenkiFight(i, title) {

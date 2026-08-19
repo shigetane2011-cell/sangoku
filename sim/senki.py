@@ -210,6 +210,105 @@ def fight(cx, cards, me, idx: int, now: int) -> Dict:
             "cleared": cleared(cx, me.id), "total": len(bs)}
 
 
+# ---------------------------------------------------------------- 周回（戦記番付）
+def pool_version() -> str:
+    """カードプールの版。記録に添える（後の改訂で条件が変わるため、番付は
+    「当時の記録」として読む — 陸上の世界記録と同じ扱い）。"""
+    import os
+    import zlib
+    p = os.path.join(R.DATA, "generals.csv")
+    with open(p, "rb") as f:
+        return format(zlib.crc32(f.read()) & 0xFFFFFFFF, "08x")
+
+
+def boss_battles() -> List[Dict]:
+    return [b for b in battles() if b["boss"]]
+
+
+def lap_state(cx, player_id: str) -> Dict:
+    r = cx.execute("SELECT lap, stage, zanhei FROM senki_laps"
+                   " WHERE player_id = ?", (player_id,)).fetchone()
+    if r is None:
+        return {"lap": 1, "stage": 0, "zanhei": 0}
+    return {"lap": r["lap"], "stage": r["stage"], "zanhei": r["zanhei"]}
+
+
+def _lap_save(cx, player_id: str, lap: int, stage: int, zanhei: int) -> None:
+    with cx:
+        cx.execute(
+            "INSERT INTO senki_laps (player_id, lap, stage, zanhei)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(player_id) DO UPDATE SET lap = excluded.lap,"
+            " stage = excluded.stage, zanhei = excluded.zanhei,"
+            " updated_at = datetime('now')",
+            (player_id, lap, stage, zanhei))
+
+
+def banzuke(cx, limit: int = 20) -> List[Dict]:
+    """戦記番付。各人の最高記録（＝最深の完走周回）を (周回, 残兵) の辞書順で。"""
+    rows = cx.execute(
+        "SELECT r.player_id, r.lap, r.zanhei, r.version, r.done_at"
+        " FROM senki_records r"
+        " JOIN (SELECT player_id, MAX(lap) AS ml FROM senki_records"
+        "       GROUP BY player_id) t"
+        "   ON t.player_id = r.player_id AND t.ml = r.lap"
+        " ORDER BY r.lap DESC, r.zanhei DESC, r.done_at LIMIT ?",
+        (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def lap_fight(cx, cards, me, now: int) -> Dict:
+    """戦記番付の1戦（全クリア後の章ボス8連戦・§7.60）。
+
+    周回Nの敵＝章ボスのデッキに **+N点**（army_plus — エンジン自身のコスト
+    曲線で足すので「+1点」が本当に+1点）。勝てば残兵（自軍の残り兵の合計）が
+    その周の点に積まれ、8人抜きで記録に登録して次の周へ。負けは何も減らない
+    （乱数式・再挑戦自由。スコアを伸ばすには編成か試行を重ねる）。
+    """
+    from . import play as PL
+    if cleared(cx, me.id) < len(battles()):
+        return {"error": "戦記番付は全戦クリア後に開く"}
+    st = lap_state(cx, me.id)
+    bs = boss_battles()
+    b = bs[st["stage"]]
+    entry, ok, errs = PL.entry_of(cx, cards, me.id, me.display_name)
+    if not ok.get(b["board"]):
+        return {"error": "{} のデッキが出せる状態にない".format(b["board"])}
+    reg_i = PL.REG_NAMES.index(b["board"])
+    plus = float(st["lap"])
+    foe = PL.army_plus(enemy_army(cards, b), plus)
+    seed = L.battle_seed("senki-lap", st["lap"], b["i"], me.id, now)
+    ua = entry.unit(reg_i)
+    r = M.play_one(PL.BoardEntry({reg_i: ua}), PL.BoardEntry({reg_i: foe}),
+                   reg_i, 0.5, seed=seed)
+    won = r["winner"] == "A"
+    bid = P.record_battle(
+        cx, "senki", b["board"], me.id, "senki:{}".format(b["i"]), seed,
+        _json.dumps(PL.snap_army(ua), ensure_ascii=False),
+        _json.dumps(PL.snap_army(foe, plus=plus), ensure_ascii=False),
+        PL.season_key(now), now)
+    out = {"battle_id": bid, "title": "{}（周回{}）".format(b["title"], st["lap"]),
+           "win": "勝ち" if won else ("負け" if r["winner"] == "B" else "引き分け"),
+           "lap": st["lap"], "stage": st["stage"], "zanhei": st["zanhei"]}
+    if won:
+        gained = round(sum(x[3] for x in r["結果"]["dealt_a"]))
+        stage, zanhei = st["stage"] + 1, st["zanhei"] + gained
+        out["gained"] = gained
+        if stage >= len(bs):
+            with cx:
+                cx.execute(
+                    "INSERT OR REPLACE INTO senki_records"
+                    " (player_id, lap, zanhei, version) VALUES (?, ?, ?, ?)",
+                    (me.id, st["lap"], zanhei, pool_version()))
+            _lap_save(cx, me.id, st["lap"] + 1, 0, 0)
+            out["lap_done"] = {"lap": st["lap"], "zanhei": zanhei}
+        else:
+            _lap_save(cx, me.id, st["lap"], stage, zanhei)
+            out["stage"] = stage
+            out["zanhei"] = zanhei
+    return out
+
+
 def title_of(pid: str) -> str:
     """battles 表の pid（"senki:12"）を戦名へ。リプレイ一覧の表示用。"""
     try:

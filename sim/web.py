@@ -298,6 +298,17 @@ class App(BaseHTTPRequestHandler):
                 return self._api_attack(body)
             if url.path == "/api/senki_fight":
                 return self._api_senki_fight(body)
+            if url.path == "/api/senki_lap":
+                return self._api_senki_lap(body)
+            if url.path == "/api/dev_senki":
+                # 手元の試験用: 戦記を全クリア扱いにして全員登用。公開版では消す。
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                SK.set_cleared(cx, me.id, len(SK.battles()))
+                P.unlock(cx, me.id, [g["人物"] for g in R.generals()], "dev")
+                return self._json({"ok": True})
             if url.path == "/api/free":
                 return self._api_free(body)
             if url.path == "/api/room":
@@ -466,6 +477,10 @@ class App(BaseHTTPRequestHandler):
             "boards": boards, "entry_ok": entry_ok, "boards_ok": boards_ok,
             "heifu": heifu, "onsho": onsho, "tenka": tenka,
             "senki": senki_info,
+            "banzuke": [{"name": names.get(r["player_id"], "?"),
+                         "me": bool(me and r["player_id"] == me.id),
+                         "lap": r["lap"], "zanhei": r["zanhei"]}
+                        for r in SK.banzuke(cx, 10)],
         })
 
     def _api_login(self, body):
@@ -743,9 +758,27 @@ class App(BaseHTTPRequestHandler):
         gate = SK.board_gate(cx, me.id)
         _, boards_ok, _ = PL.entry_of(cx, M._roster_cards(), me.id,
                                       me.display_name)
+        lap = None
+        if prog >= len(SK.battles()):
+            st = SK.lap_state(cx, me.id)
+            lap = dict(st)
+            lap["bosses"] = [
+                {"title": b["title"], "board": b["board"],
+                 "beaten": k < st["stage"]}
+                for k, b in enumerate(SK.boss_battles())]
+            best = cx.execute(
+                "SELECT lap, zanhei FROM senki_records WHERE player_id = ?"
+                " ORDER BY lap DESC LIMIT 1", (me.id,)).fetchone()
+            lap["best"] = dict(best) if best else None
+        names = {p.id: p.display_name for p in P.all_players(cx)}
+        banzuke = [{"name": names.get(r["player_id"], "?"),
+                    "me": r["player_id"] == me.id,
+                    "lap": r["lap"], "zanhei": r["zanhei"],
+                    "version": r["version"], "at": r["done_at"][:10]}
+                   for r in SK.banzuke(cx)]
         self._json({"cleared": prog, "total": len(SK.battles()),
                     "chapters": chapters, "gate": gate,
-                    "boards_ok": boards_ok})
+                    "boards_ok": boards_ok, "lap": lap, "banzuke": banzuke})
 
     def _api_senki_fight(self, body):
         cx = self._cx()
@@ -756,6 +789,17 @@ class App(BaseHTTPRequestHandler):
         now = int(time.time())
         PL.tick(cx, cards, now)
         r = SK.fight(cx, cards, me, int(body.get("i", -1)), now)
+        self._json(r, 200 if "error" not in r else 400)
+
+    def _api_senki_lap(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        PL.tick(cx, cards, now)
+        r = SK.lap_fight(cx, cards, me, now)
         self._json(r, 200 if "error" not in r else 400)
 
     def _api_replays(self):
