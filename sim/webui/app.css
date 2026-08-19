@@ -302,10 +302,24 @@ h2 button.attack { float: right; font-size: 13px; }
   font-size: 15px; border: 1px solid #5f4c1d; box-shadow: 0 2px 6px #000c;
 }
 .card .typ {
-  position: absolute; right: 6px; top: 6px; font-size: 11px; line-height: 1.5;
-  border-radius: 5px; padding: 0 5px; color: var(--ink);
+  position: absolute; right: 6px; top: 6px; display: inline-flex; gap: 3px;
+  border-radius: 5px; padding: 3px 4px;
   background: #14100cd0; border: 1px solid var(--line2);
 }
+.card .typ svg { width: 13px; height: 13px; }
+
+/* ── 兵種アイコン（§7.59）: 色は兵種で固定 ─────────────── */
+.tico { display: inline-flex; vertical-align: -0.13em; }
+.tico svg { width: 1em; height: 1em; }
+.t-inf { color: #a9c87e; }
+.t-cav { color: #85b4e2; }
+.t-arc { color: #e89a72; }
+.t-spr { color: #d9b56a; }
+.filter-tabs .tico { margin-right: 5px; vertical-align: -0.14em; }
+.filter-tabs button.on .tico { color: #ffe9dd; }
+.type-legend .tico { margin-right: 2px; }
+.slot .who .tico { margin: 0 2px; font-size: 13px; }
+.unit-row .uname .tico { font-size: 12px; }
 .card .usedby { position: absolute; right: 6px; bottom: 6px; font-size: 10px;
   color: #ffd9a8; background: #14100cd0; border-radius: 5px; padding: 0 5px; }
 .card .name { font-family: var(--font-min); font-size: 13.5px;

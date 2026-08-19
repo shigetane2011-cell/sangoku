@@ -7,6 +7,21 @@ const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
 const esc = (s) => String(s).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/* ── 兵種アイコン（§7.59）: 歩＝盾・騎＝馬首・弓＝弓矢・槍＝穂先 ── */
+const TYPE_ICON = {
+  "歩兵": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 19 5.7v5.5c0 4.9-2.8 8.1-7 9.8-4.2-1.7-7-4.9-7-9.8V5.7Z"/><path d="M12 7.3v9.4"/></svg>',
+  "騎兵": '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.2 21c-.2-3.9 1.2-6.6 3.6-8.5l-2.9-1.6c-1-.6-1.2-1.9-.4-2.7l3.2-3.2.7-2.5 1.2-.4c4.9.6 8 3.6 8 7.9 0 2.8-1.3 4.9-3.5 6 .9 1.3 1.5 2.9 1.6 5z"/><path d="M11.4 2.5 13.6 1l.5 2.4z"/></svg>',
+  "弓兵": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5c7.6 2.4 7.6 14.6 0 17"/><path d="M6.5 3.5v17"/><path d="M6.5 12h12.4"/><path d="M15.7 9.3l3.2 2.7-3.2 2.7"/></svg>',
+  "槍": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 12.3 11.7"/><path d="M20 4c-3.5.1-6.3 1.2-8.4 3.4l1.5 3.5 3.5 1.5C18.8 10.3 19.9 7.5 20 4Z" fill="currentColor" stroke-width="1"/></svg>',
+};
+const TYPE_CLS = { "歩兵": "t-inf", "騎兵": "t-cav", "弓兵": "t-arc", "槍": "t-spr" };
+function icoTyp(typ, spear) {
+  const one = (t) => TYPE_ICON[t]
+    ? `<span class="tico ${TYPE_CLS[t]}" title="${t === "槍" ? "槍持ち（後衛可）" : t}">${TYPE_ICON[t]}</span>`
+    : "";
+  return one(typ) + (spear ? one("槍") : "");
+}
+
 async function api(path, body) {
   const opt = body === undefined ? {} :
     { method: "POST", headers: { "Content-Type": "application/json" },
@@ -253,7 +268,7 @@ async function viewDeck(state) {
           <input id="search" placeholder="名で探す">
         </div>
         <div class="type-legend muted num">
-          歩兵＝近接・足は遅いが守り厚い　／　騎兵＝最速・初撃に突撃+60%・回り込みも可　／　弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　槍持ち＝後衛にも置け、前線越しに突く（威力半減）
+          ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
         </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
@@ -329,7 +344,7 @@ const BANDS = { "全帯": null, "低 1〜3": [1, 3], "中 4〜6": [4, 6], "高 7
 function chipTabs(sel, items, key) {
   const el = $(sel);
   el.innerHTML = items.map((t) =>
-    `<button class="${FILTER[key] === t ? "on" : ""}" data-t="${t}">${t}</button>`).join("");
+    `<button class="${FILTER[key] === t ? "on" : ""}" data-t="${t}">${icoTyp(t)}${t}</button>`).join("");
   $$(sel + " button").forEach((b) => b.onclick = () => {
     FILTER[key] = b.dataset.t; chipTabs(sel, items, key); drawRoster();
   });
@@ -524,7 +539,7 @@ function drawRoster() {
       <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
         loading="lazy" alt="">
         <span class="cost">${c.cost}</span>
-        <span class="typ">${c.typ.slice(0, 1)}${c.spear ? "槍" : ""}</span>
+        <span class="typ">${icoTyp(c.typ, c.spear)}</span>
         ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
             : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
       </div>
@@ -558,7 +573,7 @@ function showCardInfo(name) {
     <div class="ci-head">
       <span class="cost">${c.cost}</span>
       <span class="ci-name">${esc(c.name)}</span>
-      <span class="muted">${esc(c.faction)}・${esc(c.typ)}${c.spear ? "（槍・後衛可）" : ""}・${esc(c.role)}</span>
+      <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍・後衛可）" : ""}・${esc(c.role)}</span>
     </div>
     <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
     <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}
@@ -591,7 +606,7 @@ function drawSlots() {
          data-i="${i}" ${c ? 'draggable="true"' : ""}>
       <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
       ${c ? `<img class="mini-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">` : ""}
-      <span class="who">${c ? `<b>${esc(c.name)}</b> <small>${c.typ.slice(0, 1)}</small>
+      <span class="who">${c ? `<b>${esc(c.name)}</b> ${icoTyp(c.typ, c.spear)}
         ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
       ${c ? `<span class="cost num">${c.cost}点</span>
         <button class="mini" data-i="${i}" data-a="up" ${i === 0 ? "disabled" : ""}>↑</button>
@@ -664,7 +679,7 @@ function showTip(e, name) {
   }
   tip.innerHTML = `
     <b>${esc(c.name)}</b>
-    <span class="muted">${esc(c.faction)}・${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
+    <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
     <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
     <span class="muted">【${esc(c.skill)}】${c.traits.length
       ? "　特性: " + c.traits.map((t) => t.name).join("・") : ""}</span><br>
@@ -917,7 +932,7 @@ async function viewReplay(state) {
         const hp = u.men0 ? u.men / u.men0 : 0;
         const sk = u.skill_dealt || 0;
         return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""}">
-          <span class="uname">${esc(u.name)}<small>（${u.typ.slice(0, 1)}）</small></span>
+          <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
           <span class="bars">
             <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
             <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
