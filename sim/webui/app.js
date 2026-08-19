@@ -727,8 +727,7 @@ function showCardInfo(name) {
     </div>`).join("")
     : `<div class="ci-row muted">
       <span class="tag trait-tag">特性</span>
-      生まれつきの特性は持たない — そのぶん技と地力にすべてを注いだ素朴な武将
-      （軍功枠の恩賞は付けられる）
+      生まれつきの特性は持たない（軍功枠の恩賞は付けられる）
     </div>`;
   $("#cardinfo").innerHTML = `
     <img class="ci-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">
