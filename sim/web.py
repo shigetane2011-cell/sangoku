@@ -544,7 +544,8 @@ class App(BaseHTTPRequestHandler):
             "entry_errors": entry_errors,
             "boards_ok": boards_ok,
             "onsho": onsho,
-            "onsho_budget": PL.ONSHO_BUDGET_KOU,
+            "onsho_budgets": {n: PL.onsho_budget_kou(c)
+                              for n, c in M.REGULATIONS},
             "saved": saved,
         })
 
@@ -690,11 +691,12 @@ class App(BaseHTTPRequestHandler):
             for n in F.trait_keys(raw):
                 if n in by_name:
                     exclude.add(M.person_of(by_name[n]))
-        names, note = PL.draft_deck(
+        names, note, used_form = PL.draft_deck(
             cards, reg, form, str(body.get("style", "")),
             str(body.get("typ", "")), str(body.get("faction", "")),
             int(body.get("nonce", 0)), exclude)
-        self._json({"ok": bool(names), "cards": names, "note": note})
+        self._json({"ok": bool(names), "cards": names, "note": note,
+                    "form": used_form})
 
     def _api_savedeck(self, body):
         cx = self._cx()
@@ -893,7 +895,7 @@ class App(BaseHTTPRequestHandler):
                     games.append(g)
         except KeyError:
             return self._json({"error": "編成を再構成できない"
-                               "（その帯のデッキが外された）"}, 410)
+                               "（その戦場のデッキが外された）"}, 410)
         mine_id = m["pid_a"] if me_first else m["pid_b"]
         foe_id = m["pid_b"] if me_first else m["pid_a"]
         import datetime

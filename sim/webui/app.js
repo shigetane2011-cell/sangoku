@@ -131,7 +131,7 @@ async function viewHome(state) {
   const t = state.tenka || {};
   const tenka = `
     <div class="tenka-chip fade-in">
-      <b>天下</b>（三帯一括のBO3）次回 ${fmtClock(t.at)}（${Math.ceil(t.in_sec / 60)}分後）
+      <b>天下</b>（三つの戦場一括のBO3）次回 ${fmtClock(t.at)}（${Math.ceil(t.in_sec / 60)}分後）
       ${state.me ? (t.auto ? '<span class="ok">自動参加</span>'
                            : '<span class="warn">3デッキ揃えると自動参加</span>') : ""}
       ${t.foe ? `　対戦相手: <b>${esc(t.foe)}</b> <span class="form-tag">${esc(t.forms || "?")}</span>
@@ -161,7 +161,7 @@ async function viewHome(state) {
   app.innerHTML = `
     <div class="cta">
       <span class="hint">${!state.me ? "" : (!state.entry_ok
-        ? 'デッキを1つ登録すればその帯に出陣できる → <a href="/deck">編成へ</a>'
+        ? 'デッキを1つ登録すればその戦場に出陣できる → <a href="/deck">編成へ</a>'
         : "出陣すると同格の相手が選ばれる（相手は事前に分からない・同じ相手は1時間に1回まで）")}</span>
       ${heifuGauge}
       <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
@@ -302,7 +302,7 @@ async function viewSenki(state) {
     }).join("");
     return `<section class="senki-ch">
       <h2 class="s-ch-head"><span class="s-ch-num">第${KANJI_NUM[c.ch - 1]}章</span>
-        ${esc(c.name)}<small class="muted">　${esc(c.note)}（${esc(c.board)}帯）</small></h2>
+        ${esc(c.name)}<small class="muted">　${esc(c.note)}（戦場: ${esc(c.board)}）</small></h2>
       ${rows}
     </section>`;
   }).join("");
@@ -317,7 +317,7 @@ async function viewSenki(state) {
       </div>
       <div class="lap-bosses">${d.lap.bosses.map((b, k) => `
         <span class="lap-boss ${b.beaten ? "beaten" : (k === d.lap.stage ? "now" : "")}"
-              title="${esc(b.board)}帯">${b.beaten ? "✓" : ""}${esc(b.title)}</span>`).join("")}
+              title="戦場: ${esc(b.board)}">${b.beaten ? "✓" : ""}${esc(b.title)}</span>`).join("")}
       </div>
       <button class="primary" id="lap-go">
         ${esc(d.lap.bosses[d.lap.stage].title)} に挑む（周回${d.lap.lap}）</button>
@@ -461,7 +461,9 @@ function drawSortieBar() {
   b.textContent = `${cur.reg} に出陣`;
   b.disabled = !ok[cur.reg] || h.count < 1;
   $("#fight2hint").textContent = !ok[cur.reg]
-    ? "この帯のデッキを登録すれば出陣できる"
+    ? (STATE.senki && STATE.senki.gate && STATE.senki.gate[cur.reg] === false
+       ? "戦記を進めるとこの戦場に挑めるようになる"
+       : "この戦場のデッキを登録すれば出陣できる")
     : (h.count < 1 ? "兵符が無い（10分に1枚回復）"
        : `兵符1枚で同格の相手と戦う（残 ${h.count}/${h.cap}）`);
 }
@@ -496,8 +498,8 @@ function drawFormTabs() {
     cur.form = b.dataset.f; drawFormTabs(); drawAll();
   });
 }
-const FILTER = { typ: "すべて", band: "全帯", fac: "全勢力", sort: "cost-" };
-const BANDS = { "全帯": null, "低 1〜3": [1, 3], "中 4〜6": [4, 6], "高 7〜10": [7, 10] };
+const FILTER = { typ: "すべて", band: "全コスト", fac: "全勢力", sort: "cost-" };
+const BANDS = { "全コスト": null, "低 1〜3": [1, 3], "中 4〜6": [4, 6], "高 7〜10": [7, 10] };
 
 function chipTabs(sel, items, key) {
   const el = $(sel);
@@ -540,7 +542,7 @@ function drawDraft() {
     ${q("style", "戦い方", ["力押し", "必殺技", "守り", "おまかせ"])}
     ${q("typ", "主役", ["歩兵", "騎兵", "弓兵", "おまかせ"])}
     ${q("faction", "勢力", ["魏", "蜀", "呉", "群雄", "おまかせ"])}
-    <div class="draft-q muted"><span>陣形</span><span>上の陣形タブ（いま: ${esc(cur.form)}）で組む</span></div>
+    <div class="draft-q muted"><span>陣形</span><span>いまの陣形タブ（${esc(cur.form)}）で組む。主役を指定したら軍師が選び直すこともある</span></div>
     <div class="deck-actions">
       <button id="draft-go">${DRAFT.nonce ? "引き直す" : "この方針で組む"}</button>
       <button id="draft-close" class="ghost">閉じる</button>
@@ -557,11 +559,13 @@ function drawDraft() {
       faction: DRAFT.faction, nonce: DRAFT.nonce });
     if (r.ok) {
       cur.cards = r.cards;
+      if (r.form) cur.form = r.form;   // 主役指定なら軍師が陣形も選び直す
       DRAFT.note = r.note;
     } else {
       DRAFT.note = (r.errors && r.errors[0]) || r.note || "組めなかった";
     }
     DRAFT.open = true;
+    drawFormTabs();
     drawAll();
   };
 }
@@ -650,7 +654,7 @@ function drawOnsho() {
   const el = $("#onsho");
   if (!D.onsho || !D.onsho.length) { el.innerHTML = ""; return; }
   const gens = deckGenerals();
-  const budget = D.onsho_budget || 100;
+  const budget = (D.onsho_budgets || {})[cur.reg] || 100;
   el.innerHTML = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功 ─</div>` +
     D.onsho.map((o) => `
       <div class="onsho-row">
@@ -664,7 +668,7 @@ function drawOnsho() {
         </select>
         ${o.desc ? `<div class="onsho-desc muted">${esc(o.desc)}</div>` : ""}
       </div>`).join("") +
-    `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（1デッキ${budget}功・` +
+    `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（この戦場は${budget}功・` +
     "全員一律）から払う。デッキ本体の点は食わない。</p>";
   $$("#onsho select").forEach((sel) => sel.onchange = async () => {
     const r = await api("/api/onsho", { owned_id: +sel.dataset.id, general: sel.value });
@@ -889,7 +893,7 @@ function drawMeter() {
   m.classList.toggle("over", cost > cap + 1e-9);
   m.querySelector(".fill").style.width = Math.min(100, cost / cap * 100) + "%";
   const kou = onshoKou();
-  const budget = D.onsho_budget || 100;
+  const budget = (D.onsho_budgets || {})[cur.reg] || 100;
   const ex = kou ? `　軍功 ${kou}／${budget}功${kou > budget ? "（超過！）" : ""}` : "";
   m.querySelector(".label").textContent =
     `${cost} ／ ${cap}点` +

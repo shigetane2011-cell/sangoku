@@ -91,7 +91,11 @@ def parse_deck(cards, names_raw: str, form_name: str
 # 消費する。単位は「功」＝0.01コスト点の整数（表示に小数点を出さない）。
 # 全員一律なので、古参と新規の差は強さでなく品揃え（選択肢の数）だけになる
 # （§3.1: 在席時間を強さにしない）。値付けは従来の実測表のまま。
-ONSHO_BUDGET_KOU = 100
+# 予算は**戦場比例**: コスト上限×5功（汜水関90・官渡150・赤壁200）。
+
+
+def onsho_budget_kou(cap: float) -> int:
+    return int(round(cap * 5))
 
 
 def kou_of(key: str) -> int:
@@ -167,9 +171,10 @@ def entry_of(cx, cards, player_id: str, name: str
             base = sum(c.cost for c in army.cards)
             if base > cap + 1e-9:
                 es.append("合計コスト {:g} が上限 {:g} を超えている".format(base, cap))
-            if extra > ONSHO_BUDGET_KOU:
+            if extra > onsho_budget_kou(cap):
                 es.append("軍功 {}功 が予算 {}功 を超えている"
-                          "（恩賞を外すか安い物へ）".format(extra, ONSHO_BUDGET_KOU))
+                          "（恩賞を外すか安い物へ）".format(
+                              extra, onsho_budget_kou(cap)))
             es += M.placement_errors(army)
             # 本陣（§7.52）はデッキに1人まで。生まれつき＋恩賞の合流後に数える。
             honjin = [c for c in army.cards
@@ -716,7 +721,7 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
     from . import senki as SK
     if not SK.board_gate(cx, me.id).get(reg_name, True):
         need = "第四章（官渡）" if reg_name == "官渡" else "第六章"
-        return {"error": "{} の帯は戦記を{}まで進めると挑める".format(
+        return {"error": "{} の戦場は戦記を{}まで進めると挑める".format(
             reg_name, need)}
     reg_i = REG_NAMES.index(reg_name)
     dummies = ensure_dummies(cx, cards)
@@ -926,12 +931,19 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
 
 
 def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
-               faction: str, seed: int, exclude_persons=()) -> Tuple[List[str], str]:
+               faction: str, seed: int, exclude_persons=()
+               ) -> Tuple[List[str], str, str]:
     """アンケートの回答から**たたき台**のデッキを組む（§7.54）。
 
     ダミーの編成器（dummies.make_entry）をそのまま使う — 回答を性格
     （役割・兵種の重み）へ写すだけで、規則（前衛は近接・後衛は弓・上限・
     同一人物）を破らない編成が出る。同じ量の定義を2箇所に持たない。
+
+    **主役の兵種を指定されたら本気で寄せる**（テストプレイの指摘: 2.2倍の
+    重みでは主役率24〜42%で、弓が多数派になることさえあった）。重みを
+    12倍/0.15倍にし、**陣形も主役が並ぶ形へ軍師が選び直す** — 後衛は弓の
+    定石で組むので、近接主役は前衛の多い鶴翼、弓主役は後衛の多い雁行で
+    ないと物理的に枠が無い。戻り値は (名前, ひとこと, 使う陣形)。
 
     **わざと少し弱く作る**: 上限の9割で組む。最強の答えを渡すと編成の探索が
     死ぬ（§7.47 の開示設計と同じ理由）。余った1割が「入れ替えて仕上げる」
@@ -943,9 +955,17 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
         "必殺技":  {F.TANK: 0.6, F.BAL: 0.8, F.DPS: 1.3, F.BURST: 2.4, F.SUP: 1.4},
         "守り":    {F.TANK: 2.6, F.BAL: 1.0, F.DPS: 0.5, F.BURST: 0.4, F.SUP: 1.8},
     }.get(style, {F.TANK: 1.0, F.BAL: 1.2, F.DPS: 1.0, F.BURST: 0.8, F.SUP: 0.8})
-    typ_w = ({t: 1.0 for t in (F.INF, F.CAV, F.ARC)} if typ not in F.TYPE_JP.values()
-             else {t: (2.2 if F.TYPE_JP[t] == typ else 0.8)
-                   for t in (F.INF, F.CAV, F.ARC)})
+    note_head = ""
+    form_name = F.FORM_ALIAS.get(form_name, form_name)
+    if typ in F.TYPE_JP.values():
+        typ_w = {t: (12.0 if F.TYPE_JP[t] == typ else 0.15)
+                 for t in (F.INF, F.CAV, F.ARC)}
+        best = "雁行" if typ == "弓兵" else "鶴翼"
+        if form_name != best:
+            form_name = best
+            note_head = "主役の{}が並ぶよう陣形は{}にした。".format(typ, best)
+    else:
+        typ_w = {t: 1.0 for t in (F.INF, F.CAV, F.ARC)}
     greed = {"力押し": 0.6, "守り": 0.3}.get(style, 0.5)
     p = DM.Persona("たたき台", typ_w, role_w, form_name, greed)
     reg_i = next(i for i, (n, _) in enumerate(M.REGULATIONS) if n == reg_name)
@@ -963,16 +983,18 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
               and u.total_cost() <= M.REGULATIONS[reg_i][1] + 1e-9)
         return [c.name for c in u.cards] if ok else None
 
+    note = note_head + note
     pool = [c for c in cards if M.person_of(c) not in set(exclude_persons)]
     if faction in ("魏", "蜀", "呉", "群雄"):
         names = build([c for c in pool if c.faction == faction])
         if names is not None:
-            return names, note
+            return names, note, form_name
         note = "その勢力だけでは埋まらず、他勢力も混ぜた。" + note
     names = build(pool)
     if names is None:
-        return [], "たたき台を組めなかった（他のデッキと人物が重なりすぎている）"
-    return names, note
+        return ([], "たたき台を組めなかった（他のデッキと人物が重なりすぎている）",
+                form_name)
+    return names, note, form_name
 
 
 def battle_notes(ua, ub, r, series, me_first: bool) -> List[str]:
