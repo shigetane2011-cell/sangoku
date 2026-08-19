@@ -195,6 +195,52 @@ CREATE TABLE IF NOT EXISTS saved_decks (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (player_id, regulation, name)
 );
+-- ⑨（§7.58）対戦の記録v2。**デッキの魚拓を持つ** — 後からデッキを変えても
+-- リプレイが変わらない（旧 matches は登録デッキから再構成していて、差し替えで
+-- 過去のリプレイごと変わった）。勝敗は保存しない（種＋魚拓から決定的に再計算）。
+CREATE TABLE IF NOT EXISTS battles (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  mode       TEXT NOT NULL,             -- ranked / tenka / free / room
+  board      TEXT NOT NULL,             -- 汜水関/官渡/赤壁/天下
+  pid_a      TEXT NOT NULL,             -- ranked では挑んだ側
+  pid_b      TEXT NOT NULL,
+  seed       INTEGER NOT NULL,
+  snap_a     TEXT NOT NULL,             -- デッキ魚拓（JSON）。'' は旧記録
+  snap_b     TEXT NOT NULL,
+  season     TEXT NOT NULL,             -- YYYY-MM
+  played_at  INTEGER NOT NULL           -- unix秒
+);
+CREATE INDEX IF NOT EXISTS ix_battles_board ON battles(board, played_at);
+CREATE INDEX IF NOT EXISTS ix_battles_pid ON battles(pid_a, board, played_at);
+-- ルーム対戦（フリー・レート不変動）。番号を発行→相手が入力→即解決。
+CREATE TABLE IF NOT EXISTS rooms (
+  code       TEXT PRIMARY KEY,
+  creator    TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  regulation TEXT NOT NULL,
+  snap       TEXT NOT NULL,             -- 発行時点のデッキ魚拓
+  created_at INTEGER NOT NULL,
+  battle_id  INTEGER                    -- 成立したら battles.id
+);
+-- 定刻処理の台帳（天下の開催・月次リセット。**全部遅延評価** — cron が要らず、
+-- 手元でもクラウドでも同じ動きになる。兵符の回復と同じ考え方）。
+CREATE TABLE IF NOT EXISTS ledger (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- 順位表の毎時断面（表示用。レートの適用自体はマッチ即時 — 適用を毎時に
+-- まとめると、その1時間内の連戦の順序で結果が変わる歪みが出る）。
+CREATE TABLE IF NOT EXISTS standings_cache (
+  board    TEXT PRIMARY KEY,
+  hour_key TEXT NOT NULL,
+  data     TEXT NOT NULL
+);
+-- 月次の魚拓（シーズン末の順位表と全デッキ）。リセットの前に必ず焼く。
+CREATE TABLE IF NOT EXISTS archives (
+  season TEXT NOT NULL,
+  board  TEXT NOT NULL,
+  data   TEXT NOT NULL,
+  PRIMARY KEY (season, board)
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -509,7 +555,7 @@ def clear_pairs(cx: sqlite3.Connection, board: str, rnd: int) -> None:
 
 # ---------------------------------------------------------------- 兵符
 HEIFU_CAP = 10
-HEIFU_REGEN_SEC = 30 * 60
+HEIFU_REGEN_SEC = 10 * 60   # ⑨で 30分→10分（挑戦ラダーの回転・§7.58）
 
 
 def heifu(cx: sqlite3.Connection, player_id: str, now: int) -> Tuple[int, int]:
@@ -558,6 +604,89 @@ def refill_heifu(cx: sqlite3.Connection, player_id: str, now: int) -> None:
                    " ON CONFLICT(player_id) DO UPDATE SET"
                    " count = excluded.count, updated_at = excluded.updated_at",
                    (player_id, HEIFU_CAP, now))
+
+
+def record_battle(cx: sqlite3.Connection, mode: str, board: str,
+                  pid_a: str, pid_b: str, seed: int,
+                  snap_a: str, snap_b: str, season: str, now: int) -> int:
+    with cx:
+        cur = cx.execute(
+            "INSERT INTO battles (mode, board, pid_a, pid_b, seed,"
+            " snap_a, snap_b, season, played_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mode, board, pid_a, pid_b, seed, snap_a, snap_b, season, now))
+    return int(cur.lastrowid)
+
+
+def battles_of(cx: sqlite3.Connection, board: Optional[str] = None,
+               pid: Optional[str] = None, limit: int = 40) -> List[Dict]:
+    q = "SELECT * FROM battles WHERE 1=1"
+    args: list = []
+    if board:
+        q += " AND board = ?"; args.append(board)
+    if pid:
+        q += " AND (pid_a = ? OR pid_b = ?)"; args += [pid, pid]
+    q += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in cx.execute(q, args)]
+
+
+def fought_recently(cx: sqlite3.Connection, board: str, a: str, b: str,
+                    now: int, window: int = 3600) -> bool:
+    """同じ相手への連戦制限（§7.58: 1時間に1回まで。畑荒らし防止）。"""
+    r = cx.execute(
+        "SELECT 1 FROM battles WHERE board = ? AND mode = 'ranked'"
+        " AND played_at > ? AND ((pid_a = ? AND pid_b = ?)"
+        " OR (pid_a = ? AND pid_b = ?)) LIMIT 1",
+        (board, now - window, a, b, b, a)).fetchone()
+    return r is not None
+
+
+def ledger_get(cx: sqlite3.Connection, key: str, default: str = "") -> str:
+    r = cx.execute("SELECT value FROM ledger WHERE key = ?", (key,)).fetchone()
+    return r["value"] if r else default
+
+
+def ledger_set(cx: sqlite3.Connection, key: str, value: str) -> None:
+    with cx:
+        cx.execute("INSERT INTO ledger (key, value) VALUES (?, ?)"
+                   " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                   (key, value))
+
+
+def reset_ratings(cx: sqlite3.Connection) -> None:
+    """月次リセット（§7.58）。**魚拓を焼いてから呼ぶこと。** games も消すので
+    可変Kが月初を速く収束させる（全員K最大から数戦で実力帯へ）。"""
+    with cx:
+        cx.execute("DELETE FROM ratings")
+
+
+def room_create(cx: sqlite3.Connection, creator: str, regulation: str,
+                snap: str, now: int) -> str:
+    import zlib
+    for salt in range(1000):
+        code = "{:06d}".format(
+            zlib.crc32("{}/{}/{}".format(creator, now, salt).encode()) % 1000000)
+        try:
+            with cx:
+                cx.execute("INSERT INTO rooms (code, creator, regulation,"
+                           " snap, created_at) VALUES (?, ?, ?, ?, ?)",
+                           (code, creator, regulation, snap, now))
+            return code
+        except sqlite3.IntegrityError:
+            continue
+    raise RuntimeError("ルーム番号を発行できない")
+
+
+def room_get(cx: sqlite3.Connection, code: str) -> Optional[Dict]:
+    r = cx.execute("SELECT * FROM rooms WHERE code = ?", (code,)).fetchone()
+    return dict(r) if r else None
+
+
+def room_close(cx: sqlite3.Connection, code: str, battle_id: int) -> None:
+    with cx:
+        cx.execute("UPDATE rooms SET battle_id = ? WHERE code = ?",
+                   (battle_id, code))
 
 
 def record_match(cx: sqlite3.Connection, board: str, rnd: int,

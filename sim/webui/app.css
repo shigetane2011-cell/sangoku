@@ -248,6 +248,20 @@ td.rating, td.games { text-align: right; font-variant-numeric: tabular-nums; }
 svg.eval { width: 100%; background: #12100c; border: 1px solid var(--line); border-radius: 10px; }
 .report { margin-top: 14px; }
 .draft-panel { margin-top: 14px; }
+.tenka-chip {
+  margin: 10px 0; padding: 8px 12px; background: var(--panel2);
+  border: 1px solid var(--line); border-left: 3px solid var(--gold);
+  font-size: 13px;
+}
+.tenka-chip .ok { color: var(--gold); margin-left: 6px; }
+.tenka-chip .warn { color: var(--sub); margin-left: 6px; }
+.free-panel .free-row { margin: 8px 0; font-size: 13px; }
+.free-panel select, .free-panel input {
+  background: var(--panel2); color: var(--ink);
+  border: 1px solid var(--line); padding: 3px 6px;
+}
+.mode-tag { font-size: 11px; color: var(--sub); }
+h2 button.attack { float: right; }
 .onsho-desc { flex-basis: 100%; font-size: 11px; line-height: 1.5; padding-left: 2px; }
 .draft-toggle {
   width: 100%; text-align: left; background: var(--panel2);

@@ -66,8 +66,14 @@ function renderLogin(state, force) {
 }
 
 /* ── 順位表 ──────────────────────── */
+function fmtClock(epoch) {
+  const d = new Date(epoch * 1000);
+  return `${d.getHours()}時${String(d.getMinutes()).padStart(2, "0")}分`;
+}
+
 async function viewHome(state) {
   const app = $("#app");
+  const ok = state.boards_ok || {};
   const boards = state.boards.map((b) => {
     const rows = b.table.slice(0, 10).map((r) => `
       <tr class="${r.me ? "me" : ""} ${r.rank === 1 ? "top1" : ""}">
@@ -76,84 +82,134 @@ async function viewHome(state) {
         <td class="rating num">武名${Math.round(r.rating)}</td>
         <td class="games num">${r.games}戦</td>
       </tr>`).join("");
-    const next = b.next
-      ? `<div class="next-chip">次戦（第${b.next.round}巡）: 対 <b>${esc(b.next.foe)}</b>
-         <span class="form-tag">${esc(b.next.forms)}</span>
-         ${b.next.match_id ? `<a href="/replay?id=${b.next.match_id}">前の戦いを観る</a>` : ""}</div>`
+    const isBo1 = b.name !== "天下";
+    const btn = isBo1
+      ? `<button class="mini attack" data-reg="${b.name}"
+           ${state.me && ok[b.name] ? "" : "disabled"}>出陣（兵符1）</button>`
       : "";
     return `<div class="panel">
-      <h2>${esc(b.name)}<span class="sub">${b.round}巡</span></h2>
-      ${next}
+      <h2>${esc(b.name)}${btn}</h2>
       <table class="std">${rows || "<tr><td class='muted'>まだ戦いがない</td></tr>"}</table>
     </div>`;
   }).join("");
   const h = state.heifu;
-  const ok = state.boards_ok || {};
-  const bo1n = ["汜水関", "官渡", "赤壁"].filter((n) => ok[n]).length;
-  const enough = h && h.count >= bo1n && (bo1n > 0 || ok["天下"]);
   const heifuGauge = h ? `
-    <span class="heifu" title="兵符: BO1の3戦で3枚使う。30分に1枚回復・上限${h.cap}">
+    <span class="heifu" title="兵符: 出陣1回で1枚。10分に1枚回復・上限${h.cap}">
       ${"❙".repeat(h.count)}<span class="empty">${"❙".repeat(h.cap - h.count)}</span>
       <b>${h.count}</b>/${h.cap}
       ${h.next_in ? `<small>次の1枚まで ${Math.ceil(h.next_in / 60)}分</small>` : ""}
       <button class="mini ghost" id="refill" title="試験用">＋補充</button>
     </span>` : "";
+  const t = state.tenka || {};
+  const tenka = `
+    <div class="tenka-chip fade-in">
+      <b>天下</b>（三帯一括のBO3）次回 ${fmtClock(t.at)}（${Math.ceil(t.in_sec / 60)}分後）
+      ${state.me ? (t.auto ? '<span class="ok">自動参加</span>'
+                           : '<span class="warn">3デッキ揃えると自動参加</span>') : ""}
+      ${t.foe ? `　対戦相手: <b>${esc(t.foe)}</b> <span class="form-tag">${esc(t.forms || "?")}</span>
+        ${t.battle_id ? `<a href="/replay?id=${t.battle_id}">前の戦いを観る</a>` : ""}` : ""}
+      ${state.me ? '<button class="mini ghost" id="tenka-now" title="試験用">今すぐ開催</button>' : ""}
+    </div>`;
+  const dummies = (state.dummies || []).map((d) =>
+    `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+  const regs = ["汜水関", "官渡", "赤壁"].map((n) =>
+    `<option>${n}</option>`).join("");
+  const free = state.me ? `
+    <div class="panel free-panel fade-in">
+      <h2>フリー対戦<span class="sub">レートも兵符も動かない</span></h2>
+      <div class="free-row">在野と:
+        <select id="free-reg">${regs}</select>
+        <select id="free-foe">${dummies}</select>
+        <button class="mini" id="free-go">戦う</button>
+      </div>
+      <div class="free-row">友と（ルーム）:
+        <select id="room-reg">${regs}</select>
+        <button class="mini" id="room-make">番号を発行</button>
+        <span id="room-code" class="num"></span>
+        ／ <input id="room-in" placeholder="番号を入力" size="8">
+        <button class="mini" id="room-join">入る</button>
+      </div>
+    </div>` : "";
   app.innerHTML = `
     <div class="cta">
-      <button class="primary" id="fight"
-        ${state.entry_ok && enough ? "" : "disabled"}>出　陣</button>
-      <span class="hint">${!state.entry_ok
-        ? 'デッキを1つ登録すればその帯に出られる → <a href="/deck">編成へ</a>'
-        : (enough ? `出る順位表: ${["汜水関","官渡","赤壁"].filter(n=>ok[n]).join("・")}${ok["天下"] ? "・天下" : ""}（兵符${bo1n}枚）`
-                  : `兵符が足りない（${bo1n}枚必要）`)}</span>
+      <span class="hint">${!state.me ? "" : (!state.entry_ok
+        ? 'デッキを1つ登録すればその帯に出陣できる → <a href="/deck">編成へ</a>'
+        : "出陣すると同格の相手が選ばれる（相手は事前に分からない・同じ相手は1時間に1回まで）")}</span>
       ${heifuGauge}
+      <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
     </div>
+    ${tenka}
     ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
       【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
-    <div class="boards fade-in">${boards}</div>`;
-  const btn = $("#fight");
-  if (btn) btn.onclick = doSortie;
+    <div class="boards fade-in">${boards}</div>
+    ${free}`;
+  $$("button.attack").forEach((b) => b.onclick = () => doAttack(b.dataset.reg));
   const rf = $("#refill");
   if (rf) rf.onclick = async () => { await api("/api/dev_heifu", {}); location.reload(); };
+  const tn = $("#tenka-now");
+  if (tn) tn.onclick = async () => { await api("/api/dev_tenka", {}); location.reload(); };
+  const fg = $("#free-go");
+  if (fg) fg.onclick = async () => {
+    try {
+      const r = await api("/api/free", { reg: $("#free-reg").value,
+                                         foe: $("#free-foe").value });
+      showBattleResult("フリー", r);
+    } catch (e) { alert(e.message); }
+  };
+  const rm = $("#room-make");
+  if (rm) rm.onclick = async () => {
+    try {
+      const r = await api("/api/room", { action: "create",
+                                         reg: $("#room-reg").value });
+      $("#room-code").innerHTML = `番号 <b>${esc(r.code)}</b>（相手に伝える）`;
+    } catch (e) { alert(e.message); }
+  };
+  const rj = $("#room-join");
+  if (rj) rj.onclick = async () => {
+    try {
+      const r = await api("/api/room", { action: "join",
+                                         code: $("#room-in").value });
+      showBattleResult("ルーム", r);
+    } catch (e) { alert(e.message); }
+  };
 }
 
-async function doSortie() {
+async function doAttack(reg) {
   document.body.insertAdjacentHTML("beforeend", `
     <div id="overlay"><div class="box">
       <div class="march">出　陣</div>
-      <p class="muted">主公、軍を進めております……</p>
+      <p class="muted">${esc(reg)} — 相手を探しております……</p>
     </div></div>`);
   try {
-    const r = await api("/api/round", {});
-    showResults(r.results);
+    const r = await api("/api/attack", { reg });
+    showBattleResult(reg, r);
   } catch (e) {
-    $("#overlay").remove(); alert(e.message);
+    const ov = $("#overlay"); if (ov) ov.remove();
+    alert(e.message);
   }
 }
 
-function showResults(results) {
-  const rows = results.map((r) => {
-    if (r.note) {
-      return `<div class="result-row fade-in">
-        <span class="board">${esc(r.board)}</span>
-        <span class="muted">─ ${esc(r.note)}</span>
-      </div>`;
-    }
-    const cls = r.verdict === "勝ち" ? "win" : (r.verdict === "負け" ? "lose" : "draw");
-    const d = Math.round(r.delta);
-    return `<div class="result-row fade-in">
-      <span class="board">${esc(r.board)}</span>
-      <span class="verdict ${cls}">${r.verdict}</span>
-      <span class="muted">対 ${esc(r.foe)}${r.score ? "　" + r.score : ""}</span>
-      <span class="delta num ${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${d}</span>
-      <span class="muted num">武名${Math.round(r.rating)}・${r.rank}位</span>
-      ${r.match_id ? `<a href="/replay?id=${r.match_id}">観る</a>` : ""}
-    </div>`;
-  }).join("");
-  $("#overlay").innerHTML = `<div class="box" style="min-width:560px">
+function showBattleResult(label, r) {
+  if (!$("#overlay")) {
+    document.body.insertAdjacentHTML("beforeend",
+      '<div id="overlay"><div class="box"></div></div>');
+  }
+  const cls = r.win === "勝ち" ? "win" : (r.win === "負け" ? "lose" : "draw");
+  const delta = (r.rating_new !== undefined)
+    ? Math.round(r.rating_new - r.rating_old) : null;
+  $("#overlay").innerHTML = `<div class="box" style="min-width:480px">
     <h2 class="serif" style="letter-spacing:.3em">戦　果</h2>
-    <div class="results">${rows}</div>
-    <button class="primary" onclick="location.href='/'">順位表へ</button>
+    <div class="results"><div class="result-row fade-in">
+      <span class="board">${esc(label)}</span>
+      <span class="verdict ${cls}">${esc(r.win)}</span>
+      <span class="muted">対 ${esc(r.foe)}</span>
+      ${delta !== null ? `<span class="delta num ${delta >= 0 ? "up" : "down"}">
+        ${delta >= 0 ? "+" : ""}${delta}</span>
+        <span class="muted num">武名${Math.round(r.rating_new)}</span>` : ""}
+      ${r.battle_id ? `<a href="/replay?id=${r.battle_id}">観る</a>` : ""}
+    </div></div>
+    <button class="primary" onclick="document.getElementById('overlay').remove()">閉じる</button>
+    <button class="ghost" onclick="location.reload()">順位表へ</button>
   </div>`;
 }
 
@@ -217,7 +273,7 @@ async function viewDeck(state) {
   drawRegTabs(); drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
   $("#save").onclick = saveDeck;
-  $("#fight2").onclick = doSortie;
+  $("#fight2").onclick = () => doAttack(cur.reg);
   drawAll();
 }
 
@@ -226,14 +282,12 @@ function drawSortieBar() {
   if (!b || !STATE) return;
   const h = STATE.heifu || { count: 0, cap: 10 };
   const ok = D.boards_ok || {};
-  const bo1 = D.regs.map((r) => r.name).filter((n) => ok[n]);
-  const list = [...bo1, ...(ok["天下"] ? ["天下"] : [])];
-  const enough = h.count >= bo1.length;
-  b.disabled = !list.length || !enough;
-  $("#fight2hint").textContent = !list.length
-    ? "出られる順位表が無い（デッキを1つ登録すればその帯に出られる）"
-    : (!enough ? `兵符が足りない（${h.count}/${bo1.length}）`
-       : `出る順位表: ${list.join("・")}（兵符${bo1.length}枚）　残 ${h.count}/${h.cap}`);
+  b.textContent = `${cur.reg} に出陣`;
+  b.disabled = !ok[cur.reg] || h.count < 1;
+  $("#fight2hint").textContent = !ok[cur.reg]
+    ? "この帯のデッキを登録すれば出陣できる"
+    : (h.count < 1 ? "兵符が無い（10分に1枚回復）"
+       : `兵符1枚で同格の相手と戦う（残 ${h.count}/${h.cap}）`);
 }
 
 function usedPersons(exceptReg) {
@@ -337,14 +391,16 @@ function drawDraft() {
 }
 
 function drawScout() {
+  // BO1は相手が事前に分からない（挑戦ラダー・§7.58）。偵察の窓は天下だけ:
+  // 開催1時間前に組合せが出たら、ここで相手と陣形を見せて編成調整を促す。
   const el = $("#scout");
   if (!el || !STATE) return;
-  const b = (STATE.boards || []).find((x) => x.name === cur.reg);
-  const n = b && b.next;
-  el.innerHTML = n
-    ? `<div class="next-chip">次戦: 対 <b>${esc(n.foe)}</b>
-       <span class="form-tag">${esc(n.forms)}</span>
-       ${n.match_id ? `<a href="/replay?id=${n.match_id}">前の戦いを観る</a>` : ""}</div>`
+  const t = STATE.tenka;
+  el.innerHTML = (t && t.foe)
+    ? `<div class="next-chip">天下 ${fmtClock(t.at)}開催: 対 <b>${esc(t.foe)}</b>
+       <span class="form-tag">${esc(t.forms || "?")}</span>
+       ${t.battle_id ? `<a href="/replay?id=${t.battle_id}">前の戦いを観る</a>` : ""}
+       <small class="muted">開催まで編成を調整できる</small></div>`
     : "";
 }
 
@@ -631,15 +687,26 @@ async function saveDeck() {
 /* ── リプレイ一覧 ───────────────────── */
 async function viewReplays(state) {
   const d = await api("/api/replays");
-  $("#app").innerHTML = d.boards.map((b) => `
+  const row = (m) => `
+    <tr class="${m.mine ? "me" : ""}">
+      <td class="num">${esc(m.at)}</td>
+      <td><span class="mode-tag">${esc(m.mode)}${m.role === "防" ? "・防衛" : ""}</span></td>
+      <td>${esc(m.board)}</td>
+      <td>${esc(m.a)} <small>対</small> ${esc(m.b)}</td>
+      <td><a href="/replay?id=${m.id}">観る</a></td></tr>`;
+  const mine = d.battles.filter((m) => m.mine);
+  const rest = d.battles.filter((m) => !m.mine);
+  $("#app").innerHTML = `
     <div class="panel fade-in" style="margin-bottom:16px">
-      <h2>${esc(b.name)}</h2>
-      <table class="std">${b.matches.map((m) => `
-        <tr><td class="num">第${m.round + 1}巡</td>
-            <td>${esc(m.a)} <small>対</small> ${esc(m.b)}</td>
-            <td><a href="/replay?id=${m.id}">観る</a></td></tr>`).join("")
+      <h2>自分の戦歴<span class="sub">防衛戦（挑まれた側）も残る</span></h2>
+      <table class="std">${mine.map(row).join("")
         || "<tr><td class='muted'>記録なし</td></tr>"}</table>
-    </div>`).join("");
+    </div>
+    <div class="panel fade-in">
+      <h2>近ごろの合戦<span class="sub">他家の戦いも観て研究できる</span></h2>
+      <table class="std">${rest.map(row).join("")
+        || "<tr><td class='muted'>記録なし</td></tr>"}</table>
+    </div>`;
 }
 
 /* ── リプレイ再生 ───────────────────── */
@@ -654,7 +721,7 @@ async function viewReplay(state) {
   $("#app").innerHTML = `
     <div class="replay-head">
       <h2>${esc(d.title)}</h2>
-      <span class="muted">${esc(d.board)}・第${d.round + 1}巡</span>
+      <span class="muted">${esc(d.board)}・${esc(d.when || "")}</span>
     </div>
     ${tabs}
     <div class="replay-controls">

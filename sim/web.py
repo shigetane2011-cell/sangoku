@@ -275,8 +275,12 @@ class App(BaseHTTPRequestHandler):
                 return self._api_login(body)
             if url.path == "/api/deck":
                 return self._api_deck(body)
-            if url.path == "/api/round":
-                return self._api_round()
+            if url.path == "/api/attack":
+                return self._api_attack(body)
+            if url.path == "/api/free":
+                return self._api_free(body)
+            if url.path == "/api/room":
+                return self._api_room(body)
             if url.path == "/api/onsho":
                 return self._api_onsho(body)
             if url.path == "/api/savedeck":
@@ -292,6 +296,18 @@ class App(BaseHTTPRequestHandler):
                     return self._json({"error": "login"}, 401)
                 P.refill_heifu(self._cx(), me.id, int(time.time()))
                 return self._json({"ok": True})
+            if url.path == "/api/dev_tenka":
+                # 手元の試験用: 次の天下を今すぐ開催する。公開版では消す。
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                cards = M._roster_cards()
+                now = int(time.time())
+                serial, _t = PL.next_tenka(now)
+                n = PL._tenka_resolve(cx, cards, serial, now)
+                P.ledger_set(cx, "tenka_done", str(serial))
+                return self._json({"ok": True, "fought": n})
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)
@@ -308,69 +324,65 @@ class App(BaseHTTPRequestHandler):
     def _api_state(self):
         cx = self._cx()
         me = self._me(cx)
+        cards = M._roster_cards()
+        now = int(time.time())
+        PL.tick(cx, cards, now)     # 定刻処理の遅延評価（§7.58）
         players = P.all_players(cx)
         names = {p.id: p.display_name for p in players}
         kinds = {p.id: p.kind for p in players}
         boards = []
         for bn in L.BOARDS:
-            r = P.board_ratings(cx, bn)
-            b = PL.load_board(cx, bn)
-            table = [{"rank": i + 1, "name": names.get(pid, "?"),
-                      "kind": kinds.get(pid, "dummy"),
-                      "rating": b.get(pid), "games": b.games.get(pid, 0),
-                      "me": bool(me and pid == me.id)}
-                     for i, pid in enumerate(b.order(list(r)))]
-            boards.append({"name": bn, "round": P.board_round(cx, bn),
-                           "table": table})
+            # 順位表は毎時の断面（表示だけ。レートの適用はマッチ即時）
+            rows = PL.cached_standings(cx, bn)
+            table = [{"rank": i + 1, "name": names.get(r["pid"], "?"),
+                      "kind": kinds.get(r["pid"], "dummy"),
+                      "rating": r["rating"], "games": r["games"],
+                      "me": bool(me and r["pid"] == me.id)}
+                     for i, r in enumerate(rows)]
+            boards.append({"name": bn, "table": table})
+        # 天下（1日2回の定刻開催）
+        serial, at = PL.next_tenka(now)
+        tenka = {"at": at, "in_sec": at - now, "auto": False, "foe": None}
         entry_ok = False
         boards_ok = {}
         heifu = None
         onsho = None
         if me:
-            cards = M._roster_cards()
             entry, boards_ok, errs = PL.entry_of(cx, cards, me.id,
                                                  me.display_name)
             entry_ok = any(boards_ok.values())
-            n, wait = P.heifu(cx, me.id, int(time.time()))
-            heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait}
+            n, wait = P.heifu(cx, me.id, now)
+            heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait,
+                     "regen": P.HEIFU_REGEN_SEC}
             import datetime
             names_jp = _trait_names()
             key = P.daily_onsho(cx, me.id, list(names_jp),
                                 datetime.date.today().isoformat())
             if key:
                 onsho = {"key": key, "name": names_jp.get(key, key)}
-            # 告知（次の対戦相手と、その陣形）。§3 の駆け引きの入口。
-            dummies = PL.ensure_dummies(cx, cards)
-            humans_e = PL.all_human_entries(cx, cards)
-            names2 = {p.id: p.display_name for p in players}
-            for bd in boards:
-                entries = PL.full_board_entries(cx, dummies, humans_e,
-                                                bd["name"])
-                rnd, pairs = PL.announce(cx, entries, bd["name"])
-                mine = next((pr for pr in pairs if me.id in pr), None)
-                if mine is None:
-                    continue
+            tenka["auto"] = bool(boards_ok.get("天下"))
+            # 発表済み（開催1時間前〜）なら相手と陣形を見せる — 天下だけに
+            # 残した偵察→編成調整の窓（§7.58）
+            pairs = P.load_pairs(cx, "天下", serial)
+            mine = next((pr for pr in pairs if me.id in pr), None)
+            if mine is not None:
                 foe = mine[1] if mine[0] == me.id else mine[0]
-                fe = entries.get(foe)
-                reg = (PL.REG_NAMES.index(bd["name"])
-                       if bd["name"] in PL.REG_NAMES else None)
-                if fe is None:
-                    forms = "?"
-                elif reg is not None:
-                    forms = F.FORM_NAME.get(fe.unit(reg).form.n_front, "?")
-                else:
-                    forms = "・".join(F.FORM_NAME.get(u.form.n_front, "?")
-                                      for u in fe.units)
-                last = P.matches_of(cx, bd["name"], limit=1, pid=foe)
-                bd["next"] = {"foe": names2.get(foe, "?"), "forms": forms,
-                              "round": rnd + 1,
-                              "match_id": last[0]["id"] if last else None}
+                fe = PL._tenka_participants(cx, cards).get(foe)
+                tenka["foe"] = names.get(foe, "?")
+                tenka["forms"] = ("・".join(
+                    F.FORM_NAME.get(fe.unit(i).form.n_front, "?")
+                    for i in range(3)) if fe is not None else "?")
+                last = P.battles_of(cx, pid=foe, limit=1)
+                tenka["battle_id"] = last[0]["id"] if last else None
         self._json({
             "me": {"id": me.id, "name": me.display_name} if me else None,
             "humans": [{"id": p.id, "name": p.display_name}
                        for p in players if p.kind == P.HUMAN],
+            "dummies": [{"id": p.id, "name": p.display_name}
+                        for p in players if p.kind == P.DUMMY],
+            "season": P.ledger_get(cx, "season"),
             "boards": boards, "entry_ok": entry_ok, "boards_ok": boards_ok,
-            "heifu": heifu, "onsho": onsho,
+            "heifu": heifu, "onsho": onsho, "tenka": tenka,
         })
 
     def _api_login(self, body):
@@ -461,84 +473,62 @@ class App(BaseHTTPRequestHandler):
         self._json({"ok": True, "cost": army.total_cost(),
                     "entry_errors": entry_errors, "boards_ok": boards_ok})
 
-    def _api_round(self):
+    def _api_attack(self, body):
+        """BO1の出陣（§7.58）。兵符1枚・相手は同レート帯からシステムが選ぶ。"""
         cx = self._cx()
         me = self._me(cx)
         if me is None:
             return self._json({"error": "login"}, 401)
         cards = M._roster_cards()
-        entry, ok, errs = PL.entry_of(cx, cards, me.id, me.display_name)
-        if not any(ok.values()):
-            return self._json({"error": "出られる順位表が無い: "
-                               + ("／".join(errs) or "デッキ未登録")}, 400)
-        dummies = PL.ensure_dummies(cx, cards)
-        humans = {p.id for p in P.all_players(cx, kind=P.HUMAN)}
-        humans_e = PL.all_human_entries(cx, cards)
-        # 参加できる盤面を先に確定する（兵符は**実際に戦う盤面ぶんだけ**）。
-        # 告知済みの組に自分が居ない場合、その組が在野だけなら組み直してよい
-        # （誰への約束も破らない）。人間が居る組は約束なので崩さない。
-        fight = []
-        entries_by_board = {}
-        for bn in L.BOARDS:
-            entries = PL.full_board_entries(cx, dummies, humans_e, bn)
-            entries_by_board[bn] = entries
-            if not ok.get(bn):
-                continue
-            rnd, pairs = PL.announce(cx, entries, bn)
-            if not any(me.id in pr for pr in pairs):
-                if not any(x in humans for pr in pairs for x in pr):
-                    P.clear_pairs(cx, bn, rnd)
-                    rnd, pairs = PL.announce(cx, entries, bn)
-            if any(me.id in pr for pr in pairs):
-                fight.append(bn)
-        need = sum(1 for bn in fight if bn in PL.REG_NAMES)
-        if need and not P.spend_heifu(cx, me.id, need, int(time.time())):
-            return self._json({"error": "兵符が足りない（出る{}盤面で{}枚要る。"
-                               "30分に1枚回復する）".format(need, need)}, 402)
-        results = []
-        for bn in L.BOARDS:
-            # 解決は全員集合で（他の人間も告知どおり戦う。兵符を払うのは
-            # 出陣を押した本人だけ — 他の人間の対戦は自動参加扱い）
-            entries = entries_by_board[bn]
-            if bn not in fight and me.id in entries:
-                entries = {k: v for k, v in entries.items() if k != me.id}
-            before = PL.load_board(cx, bn).get(me.id)
-            b, rnd, pairs = PL.run_round(cx, cards, entries, bn)
-            mine = next((pr for pr in pairs if me.id in pr), None)
-            if mine is None:
-                # 出ていない盤面も**理由つきで**返す（黙って消さない・§7.48）
-                note = ("デッキ未登録か検証に不備" if not ok.get(bn)
-                        else "今巡は組に入れず（次巡から）")
-                results.append({"board": bn, "note": note})
-                continue
-            foe = mine[1] if mine[0] == me.id else mine[0]
-            seed = L.battle_seed(bn, rnd, mine[0], mine[1])
-            me_first = mine[0] == me.id
-            score = ""
-            if b.reg is None:
-                r = M.play(entries[mine[0]], entries[mine[1]], 0.5, seed=seed)
-                wa = r["wins_a"] if me_first else r["wins_b"]
-                wb = r["wins_b"] if me_first else r["wins_a"]
-                verdict = "勝ち" if wa > wb else ("負け" if wb > wa else "引き分け")
-                score = "{:g}-{:g}".format(wa, wb)
-            else:
-                r = M.play_one(entries[mine[0]], entries[mine[1]], b.reg, 0.5,
-                               seed=seed)
-                w = r["winner"]
-                verdict = ("勝ち" if (w == "A") == me_first else "負け") \
-                    if w != "引き分け" else "引き分け"
-            row = cx.execute(
-                "SELECT id FROM matches WHERE board=? AND round=?"
-                " AND (pid_a=? OR pid_b=?)", (bn, rnd, me.id, me.id)).fetchone()
-            names = {p.id: p.display_name for p in P.all_players(cx)}
-            results.append({
-                "board": bn, "rnd": rnd, "foe": names.get(foe, "?"),
-                "verdict": verdict, "score": score,
-                "rating": b.get(me.id), "delta": b.get(me.id) - before,
-                "rank": b.order(list(entries)).index(me.id) + 1,
-                "match_id": row["id"] if row else None,
-            })
-        self._json({"results": results})
+        now = int(time.time())
+        PL.tick(cx, cards, now)
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+        if reg not in PL.REG_NAMES:
+            return self._json({"error": "その順位表には出陣できない"}, 400)
+        r = PL.attack(cx, cards, me, reg, now)
+        self._json(r, 200 if "error" not in r else 400)
+
+    def _api_free(self, body):
+        """フリー対戦（在野戦）。レートも兵符も動かない。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+        if reg not in PL.REG_NAMES:
+            return self._json({"error": "レギュレーションが変"}, 400)
+        r = PL.free_battle(cx, cards, me, reg, str(body.get("foe", "")), now)
+        self._json(r, 200 if "error" not in r else 400)
+
+    def _api_room(self, body):
+        """ルーム対戦。create → 番号発行 / join → 即解決。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        act = body.get("action", "")
+        if act == "create":
+            reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+            if reg not in PL.REG_NAMES:
+                return self._json({"error": "レギュレーションが変"}, 400)
+            entry, ok, errs = PL.entry_of(cx, cards, me.id, me.display_name)
+            if not ok.get(reg):
+                return self._json({"error": "{} のデッキが出せる状態にない"
+                                   .format(reg)}, 400)
+            import json as _j
+            snap = _j.dumps(PL.snap_army(entry.unit(PL.REG_NAMES.index(reg))),
+                            ensure_ascii=False)
+            code = P.room_create(cx, me.id, reg, snap, now)
+            return self._json({"code": code, "reg": reg})
+        if act == "join":
+            r = PL.room_join(cx, cards, me, str(body.get("code", "")).strip(),
+                             now)
+            return self._json(r, 200 if "error" not in r else 400)
+        self._json({"error": "action は create か join"}, 400)
 
     def _api_onsho(self, body):
         cx = self._cx()
@@ -617,32 +607,58 @@ class App(BaseHTTPRequestHandler):
 
     def _api_replays(self):
         cx = self._cx()
+        me = self._me(cx)
+        cards = M._roster_cards()
+        PL.tick(cx, cards, int(time.time()))
         names = {p.id: p.display_name for p in P.all_players(cx)}
-        out = []
-        for bn in L.BOARDS:
-            ms = P.matches_of(cx, bn, limit=16)
-            out.append({"name": bn, "matches": [
-                {"id": m["id"], "round": m["round"],
-                 "a": names.get(m["pid_a"], "?"), "b": names.get(m["pid_b"], "?")}
-                for m in ms]})
-        self._json({"boards": out})
+        import datetime
+        mode_jp = {"ranked": "挑戦", "tenka": "天下", "free": "フリー",
+                   "room": "ルーム"}
+        rows = []
+        for m in P.battles_of(cx, limit=60):
+            role = ""
+            if me and m["mode"] == "ranked":
+                role = ("挑" if m["pid_a"] == me.id
+                        else ("防" if m["pid_b"] == me.id else ""))
+            rows.append({
+                "id": m["id"], "board": m["board"],
+                "mode": mode_jp.get(m["mode"], m["mode"]), "role": role,
+                "a": names.get(m["pid_a"], "?"),
+                "b": names.get(m["pid_b"], "?"),
+                "at": datetime.datetime.fromtimestamp(
+                    m["played_at"]).strftime("%m/%d %H:%M"),
+                "mine": bool(me and me.id in (m["pid_a"], m["pid_b"]))})
+        self._json({"battles": rows})
 
     def _api_replay(self, q):
         cx = self._cx()
         me = self._me(cx)
         mid = int(q.get("id", 0))
-        row = cx.execute("SELECT * FROM matches WHERE id = ?", (mid,)).fetchone()
+        row = cx.execute("SELECT * FROM battles WHERE id = ?", (mid,)).fetchone()
         if row is None:
             return self._json({"error": "その記録は無い"}, 404)
         m = dict(row)
         cards = M._roster_cards()
         names = {p.id: p.display_name for p in P.all_players(cx)}
-        entries = PL.ensure_dummies(cx, cards)
-        for p in P.all_players(cx, kind=P.HUMAN):
-            e, ok2, _ = PL.entry_of(cx, cards, p.id, p.display_name)
-            if any(ok2.values()):
-                entries[p.id] = e
-        a, b = entries.get(m["pid_a"]), entries.get(m["pid_b"])
+
+        def sides():
+            if m["snap_a"] and m["snap_b"]:
+                # 魚拓から再構成（§7.58）。後からデッキを変えても不変。
+                return (PL.entry_from_snap(cards, m["snap_a"]),
+                        PL.entry_from_snap(cards, m["snap_b"]))
+            # 旧記録（魚拓なし）。当時の登録デッキから再構成するので、
+            # 登録が変わっていれば再生できない。
+            entries = PL.ensure_dummies(cx, cards)
+            for p in P.all_players(cx, kind=P.HUMAN):
+                e, ok2, _ = PL.entry_of(cx, cards, p.id, p.display_name)
+                if any(ok2.values()):
+                    entries[p.id] = e
+            return entries.get(m["pid_a"]), entries.get(m["pid_b"])
+
+        try:
+            a, b = sides()
+        except KeyError:
+            a = b = None
         if a is None or b is None:
             return self._json({"error": "編成を再構成できない（登録が変わった）"}, 410)
         me_first = not (me and me.id == m["pid_b"])
@@ -668,10 +684,13 @@ class App(BaseHTTPRequestHandler):
                                "（その帯のデッキが外された）"}, 410)
         mine_id = m["pid_a"] if me_first else m["pid_b"]
         foe_id = m["pid_b"] if me_first else m["pid_a"]
+        import datetime
         self._json({
             "title": "{} 対 {}".format(names.get(m["pid_a"], "?"),
                                        names.get(m["pid_b"], "?")),
-            "board": m["board"], "round": m["round"],
+            "board": m["board"], "mode": m["mode"],
+            "when": datetime.datetime.fromtimestamp(
+                m["played_at"]).strftime("%m/%d %H:%M"),
             "mine_name": names.get(mine_id, "?"),
             "foe_name": names.get(foe_id, "?"),
             "me_first": me_first, "games": games,

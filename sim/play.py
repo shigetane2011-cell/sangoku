@@ -403,7 +403,344 @@ def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
     return b, rnd, pairs
 
 
+# ----------------------------------------------------------------------------
+# ⑨ 出陣（§7.58）: 挑戦ラダー・天下の定刻開催・フリー対戦・月次シーズン
+# ----------------------------------------------------------------------------
+#
+# 設計（テストプレイと合意した形）:
+#   BO1  = 非同期の挑戦ラダー。兵符1枚でいつでも出陣、相手は同レート帯から
+#          システムが選ぶ（対戦カードは事前に見えない）。受ける側は登録デッキが
+#          常に防衛に立ち、拒否できない。同じ相手には1時間に1回まで。
+#   天下 = 1日2回の定刻開催（12時・21時）。1時間前に組合せ発表 → 編成調整の
+#          猶予 → 定刻解決。3デッキ揃っていれば自動参加・兵符不要。
+#   フリー = 在野といつでも／ルーム番号でプレイヤー同士。レート不変動・兵符不要。
+#   シーズン = 月次。月末の順位表と全デッキを魚拓してからレートを完全リセット
+#          （可変Kが月初を数戦で収束させるので、ソフトリセットは要らない）。
+#
+# **定刻処理はすべて遅延評価**（tick）。cron が要らず、手元でもクラウドでも
+# 同じ動きになる — 兵符の回復と同じ考え方。
+
+import json as _json
+
+TENKA_HOURS = (12, 21)          # 天下の開催時刻（サーバーの地方時）
+TENKA_ANNOUNCE_SEC = 3600       # 開催の1時間前に組合せ発表
+
+
+def snap_army(army: F.Army) -> dict:
+    """デッキの魚拓。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。"""
+    return {"form": F.FORM_NAME[army.form.n_front],
+            "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
+
+
+def army_from_snap(cards, snap: dict) -> F.Army:
+    import dataclasses
+    from . import rosterdata as R
+    idx = {c.name: c for c in cards}
+    picked = []
+    for it in snap["cards"]:
+        c = idx.get(it["n"])
+        if c is None:
+            raise KeyError(it["n"])
+        picked.append(dataclasses.replace(c, trait=it.get("t", c.trait)))
+    return F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
+        snap["form"], snap["form"])])
+
+
+def snap_entry(entry) -> str:
+    return _json.dumps({"units": [snap_army(entry.unit(i))
+                                  for i in range(len(M.REGULATIONS))]},
+                       ensure_ascii=False)
+
+
+def entry_from_snap(cards, js: str):
+    d = _json.loads(js)
+    if "units" in d:
+        return M.Entry(tuple(army_from_snap(cards, s) for s in d["units"]))
+    return BoardEntry({i: army_from_snap(cards, d)
+                       for i in range(len(M.REGULATIONS))})
+
+
+def season_key(now: int) -> str:
+    import datetime
+    return datetime.datetime.fromtimestamp(now).strftime("%Y-%m")
+
+
+def hour_key(now: int) -> str:
+    import datetime
+    return datetime.datetime.fromtimestamp(now).strftime("%Y-%m-%d %H")
+
+
+def tenka_events(t0: int, t1: int):
+    """(t0, t1] にある天下の開催時刻を (通し番号, unix秒) で返す。"""
+    import datetime
+    out = []
+    day = datetime.datetime.fromtimestamp(t0).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    while day.timestamp() <= t1:
+        for h in TENKA_HOURS:
+            t = int(day.replace(hour=h).timestamp())
+            if t0 < t <= t1:
+                out.append((int(day.strftime("%Y%m%d")) * 100 + h, t))
+        day += datetime.timedelta(days=1)
+    return out
+
+
+def _season_archive(cx, season: str) -> None:
+    """シーズンの魚拓（§7.58）。順位表と全デッキを焼いてから消す。"""
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    kinds = {p.id: p.kind for p in P.all_players(cx)}
+    for bn in L.BOARDS:
+        b = load_board(cx, bn)
+        rows = [{"pid": pid, "name": names.get(pid, "?"),
+                 "kind": kinds.get(pid, "?"),
+                 "rating": round(b.get(pid), 1), "games": b.games.get(pid, 0)}
+                for pid in b.order(list(b.rating))]
+        with cx:
+            cx.execute("INSERT OR REPLACE INTO archives (season, board, data)"
+                       " VALUES (?, ?, ?)",
+                       (season, bn, _json.dumps(rows, ensure_ascii=False)))
+    decks = {}
+    for p in P.all_players(cx, kind=P.HUMAN):
+        decks[p.display_name] = {reg: {"cards": raw, "form": form}
+                                 for reg, (raw, form) in
+                                 P.decks_of(cx, p.id).items()}
+    with cx:
+        cx.execute("INSERT OR REPLACE INTO archives (season, board, data)"
+                   " VALUES (?, ?, ?)",
+                   (season, "デッキ", _json.dumps(decks, ensure_ascii=False)))
+
+
+def _tenka_participants(cx, cards):
+    """天下に出られる全員（3デッキ揃った人間 + 在野）。"""
+    dummies = ensure_dummies(cx, cards)
+    ents = dict(dummies)
+    for p in P.all_players(cx, kind=P.HUMAN):
+        e, ok, _ = entry_of(cx, cards, p.id, p.display_name)
+        if ok.get("天下"):
+            ents[p.id] = e
+    return ents
+
+
+def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
+    """天下1開催ぶんを解決する。発表済みの組があればそれを守る。"""
+    ents = _tenka_participants(cx, cards)
+    pairs = P.load_pairs(cx, "天下", serial)
+    if not pairs:
+        b = load_board(cx, "天下")
+        pairs = L.plan_round(b, list(ents), serial)
+    b = load_board(cx, "天下")
+    fought = 0
+    for a, y in pairs:
+        if a not in ents or y not in ents:
+            continue            # 締切までにデッキが崩れた側は不戦
+        seed = L.battle_seed("天下", serial, a, y)
+        r = M.play(ents[a], ents[y], 0.5, seed=seed)
+        sa = 1.0 if r["wins_a"] > r["wins_b"] else (
+            0.0 if r["wins_b"] > r["wins_a"] else 0.5)
+        ea = L.expected(b.get(a), b.get(y))
+        ka = L.k_of(b.games.get(a, 0)); kb = L.k_of(b.games.get(y, 0))
+        b.rating[a] = b.get(a) + ka * (sa - ea)
+        b.rating[y] = b.get(y) - kb * (sa - ea)
+        b.games[a] = b.games.get(a, 0) + 1
+        b.games[y] = b.games.get(y, 0) + 1
+        P.record_battle(cx, "tenka", "天下", a, y, seed,
+                        snap_entry(ents[a]), snap_entry(ents[y]),
+                        season_key(now), now)
+        fought += 1
+    save_board(cx, b)
+    P.clear_pairs(cx, "天下", serial)
+    return fought
+
+
+def tick(cx, cards, now: int) -> None:
+    """定刻処理の遅延評価。**どの入口からでも最初に呼ぶ。**
+
+    やること: (1) 月が変わっていたら魚拓→レートリセット (2) 期限の来た天下を
+    開催（複数たまっていれば順に） (3) 次の天下が1時間以内なら組合せを発表
+    (4) 順位表の毎時断面を更新。全部が冪等で、呼び忘れた時間は次の呼び出しが
+    まとめて片付ける。
+    """
+    # (0) 旧 matches からの引っ越し（1回だけ）。魚拓なし＝当時の登録から再構成
+    if not P.ledger_get(cx, "migrated_battles"):
+        for m in cx.execute("SELECT * FROM matches ORDER BY id"):
+            P.record_battle(cx, "tenka" if m["board"] == "天下" else "ranked",
+                            m["board"], m["pid_a"], m["pid_b"], m["seed"],
+                            "", "", season_key(now), now)
+        P.ledger_set(cx, "migrated_battles", "1")
+    # (1) シーズン
+    cur = season_key(now)
+    stored = P.ledger_get(cx, "season")
+    if not stored:
+        P.ledger_set(cx, "season", cur)
+    elif stored != cur:
+        _season_archive(cx, stored)
+        P.reset_ratings(cx)
+        P.ledger_set(cx, "season", cur)
+    # (2) 天下の解決
+    done = int(P.ledger_get(cx, "tenka_done", "0"))
+    t0 = int(P.ledger_get(cx, "tenka_anchor", "0")) or (now - 24 * 3600)
+    for serial, t in tenka_events(t0, now):
+        if serial > done:
+            _tenka_resolve(cx, cards, serial, now)
+            P.ledger_set(cx, "tenka_done", str(serial))
+    P.ledger_set(cx, "tenka_anchor", str(now))
+    # (3) 次の天下の組合せ発表（1時間前）
+    nxt = tenka_events(now, now + 24 * 3600)
+    if nxt:
+        serial, t = nxt[0]
+        if t - now <= TENKA_ANNOUNCE_SEC and not P.load_pairs(cx, "天下", serial):
+            ents = _tenka_participants(cx, cards)
+            b = load_board(cx, "天下")
+            P.save_pairs(cx, "天下", serial, L.plan_round(b, list(ents), serial))
+    # (4) 毎時断面
+    hk = hour_key(now)
+    for bn in L.BOARDS:
+        r = cx.execute("SELECT hour_key, data FROM standings_cache"
+                       " WHERE board = ?", (bn,)).fetchone()
+        empty = r is not None and r["data"] == "[]" and P.board_ratings(cx, bn)
+        if r is None or r["hour_key"] != hk or empty:
+            b = load_board(cx, bn)
+            rows = [{"pid": pid, "rating": round(b.get(pid), 1),
+                     "games": b.games.get(pid, 0)}
+                    for pid in b.order(list(b.rating))]
+            with cx:
+                cx.execute("INSERT OR REPLACE INTO standings_cache"
+                           " (board, hour_key, data) VALUES (?, ?, ?)",
+                           (bn, hk, _json.dumps(rows)))
+
+
+def next_tenka(now: int):
+    """次の天下（通し番号, unix秒）。表示用。"""
+    return tenka_events(now, now + 24 * 3600)[0]
+
+
+def cached_standings(cx, board: str):
+    r = cx.execute("SELECT data FROM standings_cache WHERE board = ?",
+                   (board,)).fetchone()
+    return _json.loads(r["data"]) if r else []
+
+
+def _rate_single(cx, board_name: str, a: str, y: str, sa: float) -> tuple:
+    """1試合ぶんのレート更新。戻りは (aの旧, aの新)。"""
+    b = load_board(cx, board_name)
+    ea = L.expected(b.get(a), b.get(y))
+    ka = L.k_of(b.games.get(a, 0)); kb = L.k_of(b.games.get(y, 0))
+    old = b.get(a)
+    b.rating[a] = old + ka * (sa - ea)
+    b.rating[y] = b.get(y) - kb * (sa - ea)
+    b.games[a] = b.games.get(a, 0) + 1
+    b.games[y] = b.games.get(y, 0) + 1
+    save_board(cx, b)
+    return old, b.rating[a]
+
+
+def attack(cx, cards, me, reg_name: str, now: int) -> dict:
+    """BO1の出陣（§7.58）。相手は同レート帯からシステムが選ぶ。
+
+    返り値: {"error": …} か {"battle_id", "foe", "win", "rating_old/new"}。
+    """
+    entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
+    if not ok.get(reg_name):
+        return {"error": "{} のデッキが出せる状態にない: {}".format(
+            reg_name, "／".join(errs) or "未登録")}
+    reg_i = REG_NAMES.index(reg_name)
+    dummies = ensure_dummies(cx, cards)
+    cand = dict(dummies)
+    for pid, (e, ok2) in all_human_entries(cx, cards).items():
+        if ok2.get(reg_name):
+            cand[pid] = e
+    cand = {pid: e for pid, e in cand.items() if pid != me.id}
+    if not cand:
+        return {"error": "相手が居ない"}
+    b = load_board(cx, reg_name)
+    mine_r = b.get(me.id)
+    order = sorted(cand, key=lambda p: (abs(b.get(p) - mine_r), p))
+    pool = [p for p in order[:5]
+            if not P.fought_recently(cx, reg_name, me.id, p, now)]
+    if not pool:        # 近い5人と全員戦ったばかりなら帯を広げる
+        pool = [p for p in order
+                if not P.fought_recently(cx, reg_name, me.id, p, now)][:5]
+    if not pool:
+        return {"error": "近い相手とは全員戦ったばかり（同じ相手には1時間に1回まで）"}
+    if not P.spend_heifu(cx, me.id, 1, now):
+        return {"error": "兵符が足りない（10分に1枚回復する）"}
+    import random as _random
+    foe = _random.choice(pool)
+    seed = L.battle_seed(reg_name, now, me.id, foe)
+    ua, ub = entry.unit(reg_i), cand[foe].unit(reg_i)
+    r = M.play_one(BoardEntry({reg_i: ua}), BoardEntry({reg_i: ub}),
+                   reg_i, 0.5, seed=seed)
+    sa = 1.0 if r["winner"] == "A" else (0.0 if r["winner"] == "B" else 0.5)
+    old, new = _rate_single(cx, reg_name, me.id, foe, sa)
+    bid = P.record_battle(
+        cx, "ranked", reg_name, me.id, foe, seed,
+        _json.dumps(snap_army(ua), ensure_ascii=False),
+        _json.dumps(snap_army(ub), ensure_ascii=False),
+        season_key(now), now)
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    return {"battle_id": bid, "foe": names.get(foe, "?"),
+            "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け")),
+            "rating_old": round(old, 1), "rating_new": round(new, 1)}
+
+
+def free_battle(cx, cards, me, reg_name: str, foe_pid: str, now: int) -> dict:
+    """フリー対戦（在野戦・§7.58）。レートも兵符も動かない。"""
+    entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
+    if not ok.get(reg_name):
+        return {"error": "{} のデッキが出せる状態にない".format(reg_name)}
+    dummies = ensure_dummies(cx, cards)
+    if foe_pid not in dummies:
+        return {"error": "その在野は居ない"}
+    reg_i = REG_NAMES.index(reg_name)
+    seed = L.battle_seed("free", now, me.id, foe_pid)
+    ua, ub = entry.unit(reg_i), dummies[foe_pid].unit(reg_i)
+    r = M.play_one(BoardEntry({reg_i: ua}), BoardEntry({reg_i: ub}),
+                   reg_i, 0.5, seed=seed)
+    sa = 1.0 if r["winner"] == "A" else (0.0 if r["winner"] == "B" else 0.5)
+    bid = P.record_battle(
+        cx, "free", reg_name, me.id, foe_pid, seed,
+        _json.dumps(snap_army(ua), ensure_ascii=False),
+        _json.dumps(snap_army(ub), ensure_ascii=False),
+        season_key(now), now)
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    return {"battle_id": bid, "foe": names.get(foe_pid, "?"),
+            "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け"))}
+
+
+def room_join(cx, cards, me, code: str, now: int) -> dict:
+    """ルーム対戦（§7.58）。番号を入れた瞬間に解決。レート不変動。"""
+    room = P.room_get(cx, code)
+    if room is None:
+        return {"error": "そのルーム番号は無い"}
+    if room["battle_id"]:
+        return {"error": "そのルームは対戦済み"}
+    if room["creator"] == me.id:
+        return {"error": "自分のルームには入れない"}
+    reg_name = room["regulation"]
+    reg_i = REG_NAMES.index(reg_name)
+    entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
+    if not ok.get(reg_name):
+        return {"error": "{} のデッキが出せる状態にない".format(reg_name)}
+    ua = army_from_snap(cards, _json.loads(room["snap"]))   # 発行側の魚拓
+    ub = entry.unit(reg_i)
+    seed = L.battle_seed("room", code, now)
+    r = M.play_one(BoardEntry({reg_i: ua}), BoardEntry({reg_i: ub}),
+                   reg_i, 0.5, seed=seed)
+    sb = 1.0 if r["winner"] == "B" else (0.0 if r["winner"] == "A" else 0.5)
+    bid = P.record_battle(
+        cx, "room", reg_name, room["creator"], me.id, seed,
+        room["snap"], _json.dumps(snap_army(ub), ensure_ascii=False),
+        season_key(now), now)
+    P.room_close(cx, code, bid)
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    return {"battle_id": bid, "foe": names.get(room["creator"], "?"),
+            "win": ("勝ち" if sb > 0.5 else ("負け" if sb < 0.5 else "引き分け"))}
+
+
 def cmd_round(args) -> None:
+    print("この操作は⑨（§7.58）で廃止した。出陣は Web の各盤面の「出陣」"
+          "（挑戦ラダー）、天下は定刻開催（試験は /api/dev_tenka）を使う。")
+    sys.exit(1)
     cx = P.connect(args.db)
     cards = M._roster_cards()
     pl = P.get(cx, args.player)
