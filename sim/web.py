@@ -249,6 +249,9 @@ class App(BaseHTTPRequestHandler):
                 return self._send(svg, 200, "image/svg+xml")
             if url.path.startswith("/static/"):
                 return self._static(url.path[len("/static/"):])
+            if url.path.startswith("/portrait/"):
+                return self._portrait(
+                    urllib.parse.unquote(url.path[len("/portrait/"):]))
             if url.path in VIEWS:
                 return self._send(SHELL.format(view=VIEWS[url.path]).encode())
             if url.path == "/api/state":
@@ -311,6 +314,56 @@ class App(BaseHTTPRequestHandler):
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)
+
+    # 顔絵（§7.59）。**差し替え式**: sim/webui/portraits/ に「人物名.png」
+    # （jpg/webp/svgも可）を置けばそれを出す。無ければ勢力色＋姓の一字の
+    # 生成SVG（明らかにダミーと分かる置き絵）を返す。素材の出所と権利は
+    # 差し替える人が確かめる — こちらからフリー素材を焼き込むことはしない。
+    _PORTRAIT_DIR = os.path.join(WEBUI, "portraits")
+    _FACTION_HEX = {"魏": ("#2a3d5e", "#46689c"), "蜀": ("#28492f", "#47825a"),
+                    "呉": ("#5e2727", "#a04343"), "群雄": ("#4d4122", "#8a7640")}
+
+    def _portrait(self, person: str):
+        person = os.path.basename(person).split(".")[0]
+        for ext in ("png", "jpg", "jpeg", "webp", "svg"):
+            path = os.path.join(self._PORTRAIT_DIR, person + "." + ext)
+            if os.path.exists(path):
+                ctype = {"svg": "image/svg+xml", "png": "image/png",
+                         "webp": "image/webp"}.get(ext, "image/jpeg")
+                with open(path, "rb") as f:
+                    return self._send(f.read(), 200, ctype)
+        g = next((x for x in R.generals() if x["人物"] == person), None)
+        fac = (g or {}).get("勢力", "群雄")
+        typ = (g or {}).get("兵種", "")[:1]
+        c1, c2 = self._FACTION_HEX.get(fac, self._FACTION_HEX["群雄"])
+        kanji = person[:1] or "将"
+        import zlib
+        tilt = (zlib.crc32(person.encode()) % 13) - 6   # 人ごとに少し違う表情
+        svg = """<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 320'>
+<defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>
+<stop offset='0' stop-color='{c2}'/><stop offset='1' stop-color='{c1}'/>
+</linearGradient><radialGradient id='v' cx='.5' cy='.38' r='.9'>
+<stop offset='.45' stop-color='#00000000'/><stop offset='1' stop-color='#00000066'/>
+</radialGradient></defs>
+<rect width='240' height='320' fill='url(#g)'/>
+<circle cx='120' cy='128' r='86' fill='none' stroke='#f0e6d055' stroke-width='2'/>
+<circle cx='120' cy='128' r='78' fill='none' stroke='#f0e6d022' stroke-width='1'/>
+<text x='120' y='168' text-anchor='middle' font-size='118'
+ font-family='Hiragino Mincho ProN,Yu Mincho,serif' fill='#f0e6d0'
+ fill-opacity='.88' transform='rotate({tilt} 120 128)'>{kanji}</text>
+<text x='214' y='42' text-anchor='middle' font-size='26'
+ font-family='Hiragino Mincho ProN,serif' fill='#f0e6d0' fill-opacity='.5'>{typ}</text>
+<rect width='240' height='320' fill='url(#v)'/>
+<rect x='4' y='4' width='232' height='312' fill='none'
+ stroke='#00000055' stroke-width='8'/>
+</svg>""".format(c1=c1, c2=c2, kanji=kanji, typ=typ, tilt=tilt)
+        self.send_response(200)
+        body = svg.encode()
+        self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _static(self, name: str):
         path = os.path.join(WEBUI, os.path.basename(name))

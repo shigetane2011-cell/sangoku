@@ -195,22 +195,25 @@ function showBattleResult(label, r) {
       '<div id="overlay"><div class="box"></div></div>');
   }
   const cls = r.win === "勝ち" ? "win" : (r.win === "負け" ? "lose" : "draw");
+  const stamp = r.win === "勝ち" ? "勝" : (r.win === "負け" ? "敗" : "分");
   const delta = (r.rating_new !== undefined)
     ? Math.round(r.rating_new - r.rating_old) : null;
-  $("#overlay").innerHTML = `<div class="box" style="min-width:480px">
-    <h2 class="serif" style="letter-spacing:.3em">戦　果</h2>
-    <div class="results"><div class="result-row fade-in">
-      <span class="board">${esc(label)}</span>
-      <span class="verdict ${cls}">${esc(r.win)}</span>
-      <span class="muted">対 ${esc(r.foe)}</span>
-      ${delta !== null ? `<span class="delta num ${delta >= 0 ? "up" : "down"}">
-        ${delta >= 0 ? "+" : ""}${delta}</span>
-        <span class="muted num">武名${Math.round(r.rating_new)}</span>` : ""}
-      ${r.battle_id ? `<a href="/replay?id=${r.battle_id}">観る</a>` : ""}
-    </div></div>
-    <button class="primary" onclick="document.getElementById('overlay').remove()">閉じる</button>
-    <button class="ghost" onclick="location.reload()">順位表へ</button>
+  const isReg = ["汜水関", "官渡", "赤壁"].includes(label);
+  $("#overlay").innerHTML = `<div class="box result-box fade-in">
+    <div class="stamp ${cls}">${stamp}</div>
+    <div class="result-sub">${esc(label)}　対 <b>${esc(r.foe)}</b></div>
+    ${delta !== null ? `<div class="result-rate num">
+      武名 ${Math.round(r.rating_new)}
+      <span class="delta ${delta >= 0 ? "up" : "down"}">（${delta >= 0 ? "+" : ""}${delta}）</span>
+    </div>` : ""}
+    <div class="result-actions">
+      ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
+      ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
+      <button class="ghost" onclick="location.reload()">閉じる</button>
+    </div>
   </div>`;
+  const ag = $("#again");
+  if (ag) ag.onclick = () => { $("#overlay").remove(); doAttack(label); };
 }
 
 /* ── 編成 ──────────────────────── */
@@ -518,14 +521,16 @@ function drawRoster() {
                               return x && x.person === c.person && x.name !== c.name; });
     const off = u || dup;
     return `<div class="card f${c.faction} ${off ? "used" : ""}" data-n="${esc(c.name)}">
-      ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
-          : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
-      <div class="top"><span class="cost">${c.cost}</span>
+      <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
+        loading="lazy" alt="">
+        <span class="cost">${c.cost}</span>
         <span class="typ">${c.typ.slice(0, 1)}${c.spear ? "槍" : ""}</span>
-        <span class="role">${esc(c.role)}</span></div>
-      <div class="name">${esc(c.name)}</div>
-      <div class="stats num">武勇${c.might} 知略${c.wits}</div>
-      <div class="stats num">攻勢${c.atk_pm}/分 守勢${(c.eff_men / 1000).toFixed(1)}千</div>
+        ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
+            : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
+      </div>
+      <div class="name">${esc(c.name)}<span class="role">${esc(c.role)}</span></div>
+      <div class="stats num">武勇${c.might}　知略${c.wits}</div>
+      <div class="stats num">攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</div>
       <div class="skill">【${esc(c.skill)}】</div>
     </div>`;
   }).join("");
@@ -548,6 +553,8 @@ function showCardInfo(name) {
       ${t.cond ? `<span class="muted">（${esc(t.cond)}）</span>` : ""}
     </div>`).join("");
   $("#cardinfo").innerHTML = `
+    <img class="ci-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">
+    <div class="ci-body">
     <div class="ci-head">
       <span class="cost">${c.cost}</span>
       <span class="ci-name">${esc(c.name)}</span>
@@ -564,7 +571,8 @@ function showCardInfo(name) {
       <span class="muted">ゲージ: 消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span>
     </div>
     ${traits}
-    ${c.quote ? `<div class="ci-quote">「${esc(c.quote)}」</div>` : ""}`;
+    ${c.quote ? `<div class="ci-quote">「${esc(c.quote)}」</div>` : ""}
+    </div>`;
 }
 
 function drawSlots() {
@@ -582,6 +590,7 @@ function drawSlots() {
     rows.push(`<div class="slot ${front ? "front" : "rear"} ${c ? "" : "empty"}"
          data-i="${i}" ${c ? 'draggable="true"' : ""}>
       <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
+      ${c ? `<img class="mini-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">` : ""}
       <span class="who">${c ? `<b>${esc(c.name)}</b> <small>${c.typ.slice(0, 1)}</small>
         ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
       ${c ? `<span class="cost num">${c.cost}点</span>
