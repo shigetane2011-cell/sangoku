@@ -51,9 +51,39 @@ header {
   backdrop-filter: blur(4px);
   border-bottom: 1px solid var(--line);
 }
-header h1 { font-family: var(--font-brush); font-size: 26px; margin: 0;
-  letter-spacing: .1em; font-weight: 400; }
-header h1 .tsuki { color: var(--accent-hi); text-shadow: 0 0 14px #d24a2b44; }
+header h1 { margin: 0; font-weight: 400; }
+
+/* ── 題字（§7.59）: 朱印の落款＋金の筆文字 ─────────────── */
+.logo { display: inline-flex; align-items: center; gap: 11px; line-height: 1; }
+.logo-seal {
+  display: grid; place-items: center; align-content: center; gap: 1px;
+  width: 36px; height: 36px; flex: none;
+  background: radial-gradient(circle at 32% 26%, #e05535, #b02f15 72%);
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 2px #f3e9d838, inset 0 0 14px #77190a,
+    0 2px 12px #d2452550;
+  outline: 1px solid #d8542f66; outline-offset: 2px;
+  transform: rotate(-4deg);
+  font-family: var(--font-min); font-weight: 800;
+  color: #f8edd8; text-shadow: 0 0 2px #7c1d0a;
+}
+.logo-seal span { font-size: 14px; display: block; }
+.logo-text {
+  font-family: var(--font-brush); letter-spacing: .14em;
+  font-size: 31px; padding-right: .1em;
+  background: linear-gradient(168deg, #f7e0a0 12%, #e3b65e 46%, #b07c2e 82%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 2px #000c);
+}
+.login-hero { text-align: center; margin: 68px 0 8px; }
+.login-hero .logo-big { gap: 20px; }
+.logo-big .logo-seal { width: 78px; height: 78px; border-radius: 13px; gap: 4px;
+  box-shadow: inset 0 0 0 3px #f3e9d838, inset 0 0 26px #77190a,
+    0 4px 26px #d2452555; outline-width: 2px; outline-offset: 4px; }
+.logo-big .logo-seal span { font-size: 29px; }
+.logo-big .logo-text { font-size: 74px; letter-spacing: .16em; }
+.logo-tag { margin-top: 20px; color: var(--sub); font-family: var(--font-min);
+  font-size: 13.5px; letter-spacing: .52em; text-indent: .52em; }
 nav { display: flex; gap: 4px; }
 nav a {
   color: var(--sub); text-decoration: none; padding: 6px 14px; border-radius: 8px;
@@ -470,7 +500,15 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
      ので、下タブを viewport に留めるためモバイルでは切る */
   header { position: sticky; gap: 10px; padding: 10px 0 8px; margin-bottom: 14px;
     backdrop-filter: none; background: #14100cf7; }
-  header h1 { font-size: 19px; }
+  .logo { gap: 8px; }
+  .logo-seal { width: 27px; height: 27px; border-radius: 5px; }
+  .logo-seal span { font-size: 10.5px; }
+  .logo-text { font-size: 23px; }
+  .logo-big .logo-seal { width: 58px; height: 58px; }
+  .logo-big .logo-seal span { font-size: 22px; }
+  .logo-big .logo-text { font-size: 52px; }
+  .login-hero { margin-top: 40px; }
+  .logo-tag { letter-spacing: .3em; text-indent: .3em; }
   .player-chip { font-size: 12px; }
   /* ナビは親指の届く下タブへ */
   nav {

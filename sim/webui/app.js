@@ -31,6 +31,14 @@ async function api(path, body) {
   return r.json();
 }
 
+/* ── 題字（朱印の落款＋金の筆文字） ─────────────────── */
+function logoHTML(big) {
+  return `<span class="logo ${big ? "logo-big" : ""}">
+    <span class="logo-seal" aria-hidden="true"><span>三</span><span>国</span></span>
+    <span class="logo-text">布陣</span>
+  </span>`;
+}
+
 /* ── 共通シェル ─────────────────────── */
 function shell(state) {
   const view = document.body.dataset.view;
@@ -43,7 +51,7 @@ function shell(state) {
     : "";
   $("#app").insertAdjacentHTML("beforebegin", `
     <header>
-      <h1><span class="tsuki">三国</span>布陣</h1>
+      <h1>${logoHTML(false)}</h1>
       <nav>${nav}</nav>${chip}
     </header>`);
   const sw = $("#switch");
@@ -56,6 +64,10 @@ function renderLogin(state, force) {
   const opts = state.humans.map((h) =>
     `<option value="${h.id}">${esc(h.name)}</option>`).join("");
   app.innerHTML = `
+    <div class="login-hero fade-in">
+      ${logoHTML(true)}
+      <div class="logo-tag">知略を布き、乱世を制せ</div>
+    </div>
     <div class="login-panel panel fade-in">
       <h2>名乗りを上げよ、主公</h2>
       ${state.humans.length ? `
