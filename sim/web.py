@@ -762,6 +762,11 @@ class App(BaseHTTPRequestHandler):
         if prog >= len(SK.battles()):
             st = SK.lap_state(cx, me.id)
             lap = dict(st)
+            _, plus_pts, mult = SK.lap_enemy(
+                M._roster_cards(), SK.boss_battles()[st["stage"]], st["lap"])
+            lap["plus_pts"] = plus_pts
+            lap["mult_pct"] = round((mult - 1.0) * 100, 1)
+            lap["step_every"] = SK.LAP_STEP_EVERY
             lap["bosses"] = [
                 {"title": b["title"], "board": b["board"],
                  "beaten": k < st["stage"]}

@@ -1180,6 +1180,12 @@ class Card:
     # 決めゼリフ（generals.csv「台詞」）。技の初回発動時に実況へ出す。**飾りで
     # あり測定に影響しない**（events を渡したときだけ読まれる）。
     quote: str = ""
+    # 兵力の乗数（§7.60 戦記番付の周回スケーリング。PvE専用）。ダメージは
+    # men×atk に比例するので、**兵力だけ掛ければ耐久と火力が同率で上がる**
+    # （atk まで掛けると二乗で効く）。必殺技は兵力に比例しない設計（§7.5）の
+    # ため掛からない — 周回が深いほど技より地力の比重が上がる。既定 1.0 で
+    # PvP経路には一切現れない（零点・dt不変は既定値で従来と同一）。
+    boost: float = 1.0
 
     def label(self) -> str:
         if self.name:
@@ -1302,6 +1308,11 @@ class Unit:
         self.traits = trait_keys(card.trait)
         if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
+            self.men = self.men0
+        # 周回スケーリング（§7.60）。atk 算出（上の f）より後に掛けること —
+        # 先に掛けると per-man の atk が薄まって出力が上がらない。
+        if card.boost != 1.0:
+            self.men0 *= card.boost
             self.men = self.men0
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
         self.interval = INTERVAL[card.typ]

@@ -32,6 +32,21 @@ from . import rosterdata as R
 
 BOSS_EXTRA = 2          # 章ボスの「格上」ぶん（コスト点）
 
+# 周回スケーリング（§7.60）: **2周に1点、家来を強い実カードへ差し替える。**
+#   周回Nの敵 ＝ 章ボスのデッキの雑兵を（大将と登用対象は固定のまま）
+#   同兵種・+1点の実在カードへ順に入れ替えたもの（合計 素+⌊N/2⌋点）。
+# 差し替えなら**技ごと強くなる**。ここに至る棄却の履歴:
+#   1) +N点を cost へ等分 → コスト曲線は兵力に平らで技が買えず、雑兵構成の
+#      ボスは+30点でも脅威にならなかった（実測）。
+#   2) 兵力×(1+1.2%N) の乗算 → 効くが、毎周同じ敵の数字が増えるだけで、
+#      技の穴も残る。差し替え式は毎周顔ぶれが変わり、パズルが更新される。
+# ペースは実測合わせ: 1点/周だと壁が周回3〜5に来て急すぎた。2周に1点で
+# 最初の壁（黄巾）が周回8〜10・赤壁12〜14・五丈原26〜30（例デッキ据え置き）。
+# デッキがフル強化に達したら以後は兵力+1.2%/周の乗算へ接続（LAP_RATE）。
+# プール改訂時は senki の壁も測り直すこと。
+LAP_STEP_EVERY = 2      # 何周ごとに家来が1点ぶん入れ替わるか
+LAP_RATE = 0.012        # フル強化後の継続スケール（兵力/周）
+
 # 章の看板（番号 → (章名, 舞台の説明)）。戦の中身は CSV が正本。
 CHAPTERS: Dict[int, tuple] = {
     1: ("黄巾の乱", "義勇の旗揚げ。妖術の霧の中で初陣を飾る"),
@@ -257,13 +272,81 @@ def banzuke(cx, limit: int = 20) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
+def _upgraded(cards, b: Dict, steps: int):
+    """章ボスのデッキへ差し替えを steps 点ぶん適用した軍と、実際に足せた
+    点数を返す（§7.60 周回）。
+
+    規則（決定論 — 全プレイヤーに同一の敵が出る）:
+      - 大将と登用対象（recruits の人物）は固定。ボスの顔は変えない。
+      - それ以外の**最安**の家来から、同兵種・+1点（無ければ+2、+3…）の
+        実在カードへ差し替える。後衛の枠は弓か槍持ちだけ（配置規則を保つ）。
+      - 同点の候補は 武勇+知略が高い順 → 名前順（プール改訂で変わり得るが、
+        記録には版が付くので「当時の記録」として読める）。
+    """
+    import dataclasses
+    base = enemy_army(cards, b)
+    fixed = set(b["recruits"])
+    deck = list(base.cards)
+    n_front = base.form.n_front
+    total = base.total_cost()
+    target = total + steps
+    used = 0
+    guard = 0
+    while total < target and guard < 200:
+        guard += 1
+        persons = {M.person_of(c) for c in deck}
+        order = sorted((i for i, c in enumerate(deck)
+                        if M.person_of(c) not in fixed),
+                       key=lambda i: (deck[i].cost, deck[i].name))
+        done = False
+        for inc in (1, 2, 3):
+            if total + inc > target + 1e-9:
+                break
+            for i in order:
+                c = deck[i]
+                rear = i >= n_front
+                cand = [x for x in cards
+                        if abs(x.cost - (c.cost + inc)) < 1e-9
+                        and x.typ == c.typ
+                        and (not rear or x.typ == F.ARC or x.spear)
+                        and M.person_of(x) not in persons]
+                if cand:
+                    cand.sort(key=lambda x: (-(x.might + x.wits), x.name))
+                    deck[i] = cand[0]
+                    total += inc
+                    used += inc
+                    done = True
+                    break
+            if done:
+                break
+        if not done:
+            break                    # フル強化（もう上がない）
+    return dataclasses.replace(base, cards=tuple(deck)), used
+
+
+def lap_enemy(cards, b: Dict, lap: int):
+    """周回 lap の敵。戻りは (army, 実際に足した点数, 乗算)。
+
+    2周に1点、家来を実カードへ差し替える。デッキがフル強化に達したら、
+    以後の周は兵力×(1 + LAP_RATE×経過周) の乗算で継続（打ち止めを作らない）。
+    """
+    from . import play as PL
+    steps = lap // LAP_STEP_EVERY
+    army, used = _upgraded(cards, b, steps)
+    mult = 1.0
+    if used < steps:
+        mult = 1.0 + LAP_RATE * (lap - used * LAP_STEP_EVERY)
+        army = PL.army_boost(army, mult)
+    return army, used, mult
+
+
 def lap_fight(cx, cards, me, now: int) -> Dict:
     """戦記番付の1戦（全クリア後の章ボス8連戦・§7.60）。
 
-    周回Nの敵＝章ボスのデッキに **+N点**（army_plus — エンジン自身のコスト
-    曲線で足すので「+1点」が本当に+1点）。勝てば残兵（自軍の残り兵の合計）が
-    その周の点に積まれ、8人抜きで記録に登録して次の周へ。負けは何も減らない
-    （乱数式・再挑戦自由。スコアを伸ばすには編成か試行を重ねる）。
+    周回Nの敵＝lap_enemy（家来の差し替え＝技ごと強くなる）。勝てば残兵
+    （自軍の残り兵の合計）がその周の点に積まれ、8人抜きで記録に登録して
+    次の周へ。負けは何も減らない（乱数式・再挑戦自由。スコアを伸ばすには
+    編成か試行を重ねる）。
     """
     from . import play as PL
     if cleared(cx, me.id) < len(battles()):
@@ -275,8 +358,7 @@ def lap_fight(cx, cards, me, now: int) -> Dict:
     if not ok.get(b["board"]):
         return {"error": "{} のデッキが出せる状態にない".format(b["board"])}
     reg_i = PL.REG_NAMES.index(b["board"])
-    plus = float(st["lap"])
-    foe = PL.army_plus(enemy_army(cards, b), plus)
+    foe, plus_pts, mult = lap_enemy(cards, b, st["lap"])
     seed = L.battle_seed("senki-lap", st["lap"], b["i"], me.id, now)
     ua = entry.unit(reg_i)
     r = M.play_one(PL.BoardEntry({reg_i: ua}), PL.BoardEntry({reg_i: foe}),
@@ -285,11 +367,13 @@ def lap_fight(cx, cards, me, now: int) -> Dict:
     bid = P.record_battle(
         cx, "senki", b["board"], me.id, "senki:{}".format(b["i"]), seed,
         _json.dumps(PL.snap_army(ua), ensure_ascii=False),
-        _json.dumps(PL.snap_army(foe, plus=plus), ensure_ascii=False),
+        _json.dumps(PL.snap_army(foe, mult=mult), ensure_ascii=False),
         PL.season_key(now), now)
     out = {"battle_id": bid, "title": "{}（周回{}）".format(b["title"], st["lap"]),
            "win": "勝ち" if won else ("負け" if r["winner"] == "B" else "引き分け"),
-           "lap": st["lap"], "stage": st["stage"], "zanhei": st["zanhei"]}
+           "lap": st["lap"], "stage": st["stage"], "zanhei": st["zanhei"],
+           "plus_pts": plus_pts,
+           "mult_pct": round((mult - 1.0) * 100, 1)}
     if won:
         gained = round(sum(x[3] for x in r["結果"]["dealt_a"]))
         stage, zanhei = st["stage"] + 1, st["zanhei"] + gained

@@ -260,7 +260,7 @@ function showBattleResult(label, r) {
       （周回${r.lap}・${r.lap_done ? 8 : r.stage}人抜き・計${((r.lap_done ? r.lap_done.zanhei : r.zanhei) / 1000).toFixed(1)}千）</div>` : ""}
     ${r.lap_done ? `<div class="lap-done">周回${r.lap_done.lap}を完走！
       総残兵 <b class="num">${(r.lap_done.zanhei / 1000).toFixed(1)}千</b> を番付に刻んだ。
-      次の周は敵が<b>+1点</b>強くなる。</div>` : ""}
+      周回を重ねると敵の家来が強い実物へ入れ替わっていく。</div>` : ""}
     <div class="result-actions">
       ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
@@ -309,8 +309,9 @@ async function viewSenki(state) {
   const done = d.cleared >= d.total;
   const lap = d.lap ? `
     <div class="panel lap-panel fade-in">
-      <h2>戦記番付 <small class="muted">章ボス8人抜き・敵は周回ごとに+1点・記録は消えない</small></h2>
+      <h2>戦記番付 <small class="muted">章ボス8人抜き・${d.lap.step_every}周ごとに敵の家来が強い実物へ入れ替わる・記録は消えない</small></h2>
       <div class="lap-line num">周回 <b class="lap-n">${d.lap.lap}</b>
+        <span class="muted">（敵の陣容 +${d.lap.plus_pts}点${d.lap.mult_pct ? "・兵+" + d.lap.mult_pct + "%" : ""}）</span>
         　${d.lap.stage}人抜き　積み残兵 <b>${(d.lap.zanhei / 1000).toFixed(1)}千</b>
         ${d.lap.best ? `　<span class="muted">自己最高: 周回${d.lap.best.lap}・残兵${(d.lap.best.zanhei / 1000).toFixed(1)}千</span>` : ""}
       </div>

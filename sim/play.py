@@ -426,23 +426,36 @@ TENKA_HOURS = (12, 21)          # 天下の開催時刻（サーバーの地方�
 TENKA_ANNOUNCE_SEC = 3600       # 開催の1時間前に組合せ発表
 
 
-def snap_army(army: F.Army, plus: float = 0.0) -> dict:
+def snap_army(army: F.Army, mult: float = 1.0) -> dict:
     """デッキの魚拓。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
 
-    plus は戦記番付の周回上乗せ（§7.60: 敵全体に+N点）。魚拓に残さないと
-    リプレイが素の強さで再生されてしまう。
+    mult は戦記番付の周回スケーリング（§7.60: 敵全体の兵力×mult）。
+    魚拓に残さないとリプレイが素の強さで再生されてしまう。
     """
     d = {"form": F.FORM_NAME[army.form.n_front],
          "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
-    if plus:
-        d["plus"] = plus
+    if mult != 1.0:
+        d["mult"] = mult
     return d
 
 
+def army_boost(army: F.Army, mult: float) -> F.Army:
+    """軍全体の兵力を mult 倍する（§7.60 周回。F.Card.boost）。ダメージは
+    men×atk 比例なので耐久と火力が同率で上がる。
+
+    当初の「+N点を cost/stat_cost へ等分」は棄却した — コスト曲線は兵力に
+    対して極端に平ら（値段の大半は技が占める）な上、技は足せないので、
+    雑兵構成のボスでは+30点でも脅威にならなかった（実測）。乗算なら
+    どの構成にも同じ率で効き、飽和しない。"""
+    import dataclasses
+    cards = tuple(dataclasses.replace(c, boost=c.boost * mult)
+                  for c in army.cards)
+    return dataclasses.replace(army, cards=cards)
+
+
 def army_plus(army: F.Army, plus: float) -> F.Army:
-    """軍全体へ+plus点（§7.60 周回）。各カードの cost / stat_cost へ等分で
-    足す — 兵力・攻防はエンジン自身のコスト曲線から出るので、これが
-    「本当に+N点」の唯一の足し方（兵力だけ倍するのは別の量になる）。"""
+    """旧・周回上乗せ（+N点を cost/stat_cost へ等分）。**新規には使わない** —
+    切り替え前に焼いた魚拓（"plus" 入り）の再生専用に残してある。"""
     import dataclasses
     per = plus / max(1, len(army.cards))
     cards = tuple(dataclasses.replace(
@@ -463,8 +476,10 @@ def army_from_snap(cards, snap: dict) -> F.Army:
         picked.append(dataclasses.replace(c, trait=it.get("t", c.trait)))
     army = F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
         snap["form"], snap["form"])])
-    if snap.get("plus"):
+    if snap.get("plus"):        # 旧形式（切り替え前の魚拓）
         army = army_plus(army, float(snap["plus"]))
+    if snap.get("mult"):
+        army = army_boost(army, float(snap["mult"]))
     return army
 
 
