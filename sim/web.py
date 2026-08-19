@@ -38,11 +38,18 @@ SHELL = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>三国布陣</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="/static/app.css">
 <body data-view="{view}">
 <div class="wrap"><div id="app"><p class="muted">読み込み中……</p></div></div>
 <script src="/static/app.js"></script>
 """
+# フォントは Google Fonts（すべて OFL）: 題字・判＝Yuji Syuku（筆文字）、
+# 見出し・武将名＝Shippori Mincho B1（太骨格の明朝）、本文＝Zen Kaku Gothic
+# New。**オフラインでは読み込みに失敗してよい** — CSS のフォールバック
+# （ヒラギノ明朝/游明朝/システムゴシック）へ自然に落ちる。
 
 
 def _trait_names():

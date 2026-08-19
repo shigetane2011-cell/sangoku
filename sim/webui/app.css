@@ -2,6 +2,11 @@
    §7.59: 同系ゲームのUI文法（顔絵カード・コスト印・大きな出陣・勝敗の判）を
    参考に組んだ。スマホは下タブで動く。 */
 :root {
+  /* フォント（§7.59）: 題字・判＝筆文字 / 見出し・武将名＝太骨格の明朝 /
+     本文＝現代ゴシック。Webフォントが読めない（オフライン）時は後段へ落ちる */
+  --font-body: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", Meiryo, sans-serif;
+  --font-min: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif;
+  --font-brush: "Yuji Syuku", "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --bg: #14100c;
   --bg2: #1b150f;
   --panel: #211a13;
@@ -31,10 +36,10 @@ body {
     radial-gradient(1100px 500px at 50% -180px, #2a1f14cc, transparent 70%),
     radial-gradient(900px 700px at 100% 100%, #1c130b99, transparent 60%),
     var(--bg);
-  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", Meiryo, sans-serif;
+  font-family: var(--font-body);
   font-size: 14.5px; line-height: 1.7;
 }
-.serif, h1, h2, h3 { font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif; }
+.serif, h1, h2, h3 { font-family: var(--font-min); }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px 90px; }
 
 /* ── ヘッダー / ナビ ─────────────────────── */
@@ -46,12 +51,13 @@ header {
   backdrop-filter: blur(4px);
   border-bottom: 1px solid var(--line);
 }
-header h1 { font-size: 23px; margin: 0; letter-spacing: .14em; font-weight: 700; }
+header h1 { font-family: var(--font-brush); font-size: 26px; margin: 0;
+  letter-spacing: .1em; font-weight: 400; }
 header h1 .tsuki { color: var(--accent-hi); text-shadow: 0 0 14px #d24a2b44; }
 nav { display: flex; gap: 4px; }
 nav a {
   color: var(--sub); text-decoration: none; padding: 6px 14px; border-radius: 8px;
-  letter-spacing: .1em; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  letter-spacing: .1em; font-family: var(--font-min);
 }
 nav a:hover { color: var(--ink); background: var(--panel2); }
 nav a.on { color: var(--gold-hi); background: var(--panel2);
@@ -62,7 +68,7 @@ nav a.on { color: var(--gold-hi); background: var(--panel2);
 
 h2 { font-size: 17px; letter-spacing: .12em; font-weight: 600; margin: 26px 0 12px; }
 h2 .sub { font-size: 12px; color: var(--sub); letter-spacing: .05em; margin-left: 10px;
-  font-family: "Hiragino Kaku Gothic ProN", sans-serif; font-weight: 400; }
+  font-family: var(--font-body); font-weight: 400; }
 a { color: var(--gold); }
 small, .muted { color: var(--sub); }
 .num { font-variant-numeric: tabular-nums; }
@@ -127,14 +133,14 @@ td.rating { color: var(--gold); }
 .next-chip b { color: var(--ink); }
 .form-tag { display: inline-block; margin-left: 6px; padding: 0 7px;
   border: 1px solid var(--gold); border-radius: 4px; color: var(--gold-hi);
-  font-family: "Hiragino Mincho ProN", serif; font-size: 12px; }
+  font-family: var(--font-min); font-size: 12px; }
 .tenka-chip {
   margin: 8px 0 14px; padding: 10px 14px;
   background: linear-gradient(90deg, #33270f, var(--panel));
   border: 1px solid #5a4a30; border-left: 4px solid var(--gold);
   border-radius: 10px; font-size: 13px;
 }
-.tenka-chip > b { font-family: "Hiragino Mincho ProN", serif; font-size: 15px;
+.tenka-chip > b { font-family: var(--font-min); font-size: 15px;
   color: var(--gold-hi); letter-spacing: .2em; margin-right: 4px; }
 .tenka-chip .ok { color: var(--win); margin: 0 6px; font-weight: 600; }
 .tenka-chip .warn { color: var(--sub); margin: 0 6px; }
@@ -157,8 +163,8 @@ h2 button.attack { float: right; font-size: 13px; }
 }
 #overlay .box { text-align: center; max-width: 520px; width: 100%; }
 #overlay .march {
-  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-  font-size: 30px; letter-spacing: .4em; color: var(--gold-hi);
+  font-family: var(--font-brush);
+  font-size: 34px; letter-spacing: .4em; color: var(--gold-hi);
   animation: pulse 1.6s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: .35; } }
@@ -171,8 +177,8 @@ h2 button.attack { float: right; font-size: 13px; }
 .stamp {
   width: 108px; height: 108px; margin: 0 auto 14px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-  font-size: 62px; font-weight: 700; transform: rotate(-8deg);
+  font-family: var(--font-brush);
+  font-size: 62px; font-weight: 400; transform: rotate(-8deg);
   border: 4px solid; animation: stamp .25s ease-out;
 }
 @keyframes stamp { from { transform: rotate(-8deg) scale(1.8); opacity: 0; } }
@@ -181,7 +187,7 @@ h2 button.attack { float: right; font-size: 13px; }
 .stamp.lose { color: var(--lose); border-color: var(--lose); }
 .stamp.draw { color: var(--sub); border-color: var(--sub); }
 .result-sub { font-size: 15px; margin: 4px 0; }
-.result-sub b { color: var(--gold-hi); font-family: "Hiragino Mincho ProN", serif; }
+.result-sub b { color: var(--gold-hi); font-family: var(--font-min); }
 .result-rate { color: var(--sub); margin-bottom: 8px; }
 .delta.up { color: var(--win); font-weight: 700; }
 .delta.down { color: var(--lose); }
@@ -194,8 +200,8 @@ h2 button.attack { float: right; font-size: 13px; }
   padding: 10px 16px;
 }
 .result-row .board { width: 7.5em; color: var(--sub); }
-.verdict { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
-  font-size: 18px; font-weight: 700; width: 3.5em; text-align: center; }
+.verdict { font-family: var(--font-brush);
+  font-size: 19px; font-weight: 400; width: 3.5em; text-align: center; }
 .verdict.win { color: var(--win); }
 .verdict.lose { color: var(--lose); }
 .verdict.draw { color: var(--sub); }
@@ -210,7 +216,7 @@ h2 button.attack { float: right; font-size: 13px; }
   background: linear-gradient(180deg, #8a3826, var(--accent-soft));
   border-color: var(--accent); color: #ffe9dd;
 }
-.form-tabs button b { font-family: "Hiragino Mincho ProN", serif; margin-right: 4px; }
+.form-tabs button b { font-family: var(--font-min); margin-right: 4px; }
 
 .cost-meter { position: relative; height: 24px; background: var(--panel2);
   border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 8px 0 14px; }
@@ -234,7 +240,7 @@ h2 button.attack { float: right; font-size: 13px; }
   border: 1px solid var(--line2); flex: none; }
 .slot .who { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
-.slot .who b { font-family: "Hiragino Mincho ProN", serif; letter-spacing: .04em; }
+.slot .who b { font-family: var(--font-min); letter-spacing: .04em; }
 .slot .cost { color: var(--gold); font-variant-numeric: tabular-nums; }
 .slot.empty .who { color: var(--faint); }
 .slot[draggable="true"] { cursor: grab; }
@@ -280,7 +286,7 @@ h2 button.attack { float: right; font-size: 13px; }
   position: absolute; left: 6px; top: 6px; width: 30px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f2c65e, #9a7226);
-  color: #241a08; font-family: "Hiragino Mincho ProN", serif; font-weight: 800;
+  color: #241a08; font-family: var(--font-min); font-weight: 800;
   font-size: 15px; border: 1px solid #5f4c1d; box-shadow: 0 2px 6px #000c;
 }
 .card .typ {
@@ -290,7 +296,7 @@ h2 button.attack { float: right; font-size: 13px; }
 }
 .card .usedby { position: absolute; right: 6px; bottom: 6px; font-size: 10px;
   color: #ffd9a8; background: #14100cd0; border-radius: 5px; padding: 0 5px; }
-.card .name { font-family: "Hiragino Mincho ProN", serif; font-size: 13.5px;
+.card .name { font-family: var(--font-min); font-size: 13.5px;
   margin: 5px 4px 0; letter-spacing: .02em; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .card .name .role { font-size: 10px; color: var(--faint); margin-left: 5px; }
@@ -307,9 +313,9 @@ h2 button.attack { float: right; font-size: 13px; }
   border: 1px solid var(--line2); flex: none; }
 .ci-body { min-width: 0; }
 .ci-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.ci-head .cost { font-family: "Hiragino Mincho ProN", serif; font-size: 18px;
+.ci-head .cost { font-family: var(--font-min); font-size: 18px;
   color: var(--gold-hi); font-weight: 700; }
-.ci-name { font-family: "Hiragino Mincho ProN", serif; font-size: 15px; color: var(--ink); }
+.ci-name { font-family: var(--font-min); font-size: 15px; color: var(--ink); }
 .ci-stats { color: var(--ink); margin: 2px 0; }
 .ci-row { margin: 2px 0; color: var(--ink); }
 .ci-row b { color: #ffb08a; font-weight: 600; }
@@ -318,7 +324,7 @@ h2 button.attack { float: right; font-size: 13px; }
 .skill-tag { color: #ff9d73; border: 1px solid #7a3a22; background: #33201689; }
 .trait-tag { color: #9fc6a8; border: 1px solid #3a5a44; background: #1a281f; }
 .type-legend { font-size: 11.5px; margin-bottom: 8px; }
-.ci-quote { color: #e8c98a; font-family: "Hiragino Mincho ProN", serif; font-size: 12.5px; }
+.ci-quote { color: #e8c98a; font-family: var(--font-brush); font-size: 13.5px; }
 
 /* ── リプレイ ───────────────────────── */
 .replay-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
@@ -337,9 +343,9 @@ h2 button.attack { float: right; font-size: 13px; }
 .log .t { color: var(--faint); font-size: 12px; margin-right: 8px;
   font-variant-numeric: tabular-nums; }
 .log .band { color: var(--gold); letter-spacing: .12em;
-  font-family: "Hiragino Mincho ProN", serif; margin: 4px 0; }
-.log .quote { color: #e8c98a; font-family: "Hiragino Mincho ProN", serif;
-  padding-left: 3.2em; }
+  font-family: var(--font-brush); font-size: 15px; margin: 4px 0; }
+.log .quote { color: #e8c98a; font-family: var(--font-brush);
+  font-size: 14px; padding-left: 3.2em; }
 .log .check { color: #9fb6d0; }
 .log .art { color: var(--accent-hi); margin-right: 4px; }
 .log .skillname { color: #ffb08a; }
@@ -393,7 +399,7 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 .onsho-banner { background: linear-gradient(90deg, #3a2c14, var(--panel));
   border: 1px solid var(--gold); border-radius: 12px; padding: 10px 16px;
   margin-bottom: 16px; color: var(--gold-hi); }
-.onsho-banner b { font-family: "Hiragino Mincho ProN", serif; }
+.onsho-banner b { font-family: var(--font-min); }
 .library { margin-top: 14px; }
 .lib-save { display: flex; gap: 6px; margin-bottom: 8px; }
 .lib-save input { flex: 1; font: inherit; font-size: 12.5px; background: var(--panel2);
@@ -403,7 +409,7 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 .lib-line1 { display: flex; align-items: center; gap: 8px; }
 .lib-line2 { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .lib-line2 .lib-btns { margin-left: auto; }
-.lib-row .lname { font-family: "Hiragino Mincho ProN", serif; }
+.lib-row .lname { font-family: var(--font-min); }
 .lib-row .val { color: var(--sub); } .lib-row .val.warn { color: #e08a5a; }
 .lib-row.active .lname { color: var(--gold-hi); }
 .active-tag { font-size: 10px; color: var(--gold); border: 1px solid var(--gold);
@@ -412,7 +418,7 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 .onsho-panel { margin-top: 14px; }
 .onsho-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px;
   flex-wrap: wrap; }
-.onsho-row .oname { font-family: "Hiragino Mincho ProN", serif; }
+.onsho-row .oname { font-family: var(--font-min); }
 .onsho-row .val { color: var(--sub); width: 4em; }
 .onsho-row select { font: inherit; font-size: 12px; background: var(--panel2);
   color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
