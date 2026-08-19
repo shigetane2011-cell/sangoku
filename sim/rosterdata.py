@@ -41,6 +41,19 @@ def traits() -> List[Dict[str, str]]:
     return [r for r in _load("traits.csv") if r.get("キー")]
 
 
+def senki_start() -> List[str]:
+    """初期セット（戦記・§7.60）の人物名。generals.csv と突き合わせて検証する
+    — データの誤字は起動時に大声で死ぬほうが、静かに40人未満で配るより安い。"""
+    known = {g["人物"] for g in generals()}
+    persons = [r["人物"] for r in _load("senki_start.csv") if r.get("人物")]
+    bad = [p for p in persons if p not in known]
+    if bad:
+        raise ValueError("senki_start.csv に居ない人物: " + "・".join(bad))
+    if len(set(persons)) != len(persons):
+        raise ValueError("senki_start.csv に重複がある")
+    return persons
+
+
 def power(g: Dict[str, str]) -> float:
     """CSV の1行から総合値を計算する。**定義は `design.total_value` に一本化。**
 

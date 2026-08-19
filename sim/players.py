@@ -241,6 +241,15 @@ CREATE TABLE IF NOT EXISTS archives (
   data   TEXT NOT NULL,
   PRIMARY KEY (season, board)
 );
+-- 武将の解放（戦記の登用・§7.60）。**人物名で持つ**（カード名でなく）—
+-- 同一人物の別バージョンが増えても登用は1回で済む。無い人物は使えない。
+CREATE TABLE IF NOT EXISTS unlocks (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  person     TEXT NOT NULL,
+  source     TEXT NOT NULL,                -- start / senki:4-2 / migration / dev
+  got_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, person)
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -604,6 +613,28 @@ def refill_heifu(cx: sqlite3.Connection, player_id: str, now: int) -> None:
                    " ON CONFLICT(player_id) DO UPDATE SET"
                    " count = excluded.count, updated_at = excluded.updated_at",
                    (player_id, HEIFU_CAP, now))
+
+
+# ---------------------------------------------------------------- 解放（登用）
+def unlocked(cx: sqlite3.Connection, player_id: str) -> set:
+    """解放済みの人物名の集合。"""
+    return {r["person"] for r in cx.execute(
+        "SELECT person FROM unlocks WHERE player_id = ?", (player_id,))}
+
+
+def unlock(cx: sqlite3.Connection, player_id: str, persons,
+           source: str) -> int:
+    """人物を解放する（登用）。既に持っていれば黙って何もしない。
+    戻りは新しく増えた数。"""
+    before = cx.execute("SELECT COUNT(*) AS n FROM unlocks WHERE player_id = ?",
+                        (player_id,)).fetchone()["n"]
+    with cx:
+        cx.executemany(
+            "INSERT OR IGNORE INTO unlocks (player_id, person, source)"
+            " VALUES (?, ?, ?)", [(player_id, p, source) for p in persons])
+    after = cx.execute("SELECT COUNT(*) AS n FROM unlocks WHERE player_id = ?",
+                       (player_id,)).fetchone()["n"]
+    return after - before
 
 
 def record_battle(cx: sqlite3.Connection, mode: str, board: str,

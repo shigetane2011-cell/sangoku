@@ -278,6 +278,8 @@ async function viewDeck(state) {
             <option value="eff_men-">守勢 高い順</option>
           </select>
           <input id="search" placeholder="名で探す">
+          ${D.pool ? `<span class="pool-note muted num"
+            title="武将は戦記で登用して増える">登用 ${D.pool.unlocked}／${D.pool.total}</span>` : ""}
         </div>
         <div class="type-legend muted num">
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）

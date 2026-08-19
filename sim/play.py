@@ -567,6 +567,14 @@ def tick(cx, cards, now: int) -> None:
                             m["board"], m["pid_a"], m["pid_b"], m["seed"],
                             "", "", season_key(now), now)
         P.ledger_set(cx, "migrated_battles", "1")
+    # (0b) 解放の種まき（1回だけ・§7.60）。この時点で居る人間は**全解放で救済**
+    #      — 一度全部使えた物を後から取り上げると必ず揉める。以後の新規は
+    #      初期セット（ensure_unlocks / ログイン時）。
+    if not P.ledger_get(cx, "unlocks_seeded"):
+        persons = sorted({M.person_of(c) for c in cards})
+        for pl in P.all_players(cx, P.HUMAN):
+            P.unlock(cx, pl.id, persons, "migration")
+        P.ledger_set(cx, "unlocks_seeded", "1")
     # (1) シーズン
     cur = season_key(now)
     stored = P.ledger_get(cx, "season")
@@ -607,6 +615,18 @@ def tick(cx, cards, now: int) -> None:
                 cx.execute("INSERT OR REPLACE INTO standings_cache"
                            " (board, hour_key, data) VALUES (?, ?, ?)",
                            (bn, hk, _json.dumps(rows)))
+
+
+def ensure_unlocks(cx, player_id: str) -> set:
+    """解放済みの人物集合（§7.60）。1行も無ければ初期セットを配ってから返す
+    — 登録の入口をどこに増やしても取りこぼさない安全網。既存プレイヤーは
+    tick() の種まきが先に全解放しているので、ここへは落ちてこない。"""
+    unl = P.unlocked(cx, player_id)
+    if not unl:
+        from . import rosterdata as R
+        P.unlock(cx, player_id, R.senki_start(), "start")
+        unl = P.unlocked(cx, player_id)
+    return unl
 
 
 def next_tenka(now: int):

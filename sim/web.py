@@ -162,18 +162,23 @@ def _trait_brief(g, key, t):
     return desc, cond
 
 
-def _roster_json():
+def _roster_json(only=None):
     """武将一覧（§7.47 の開示設計）。
 
     見せるのは**プレイヤーが支払う・選ぶ判断に使う量**だけ: 能力値・技の中身・
     特性の中身・ゲージ。内部帳簿（能力値コスト・効果予算・総合値・実力比・
     値段表）は出さない — 正解表になって編成の探索が死ぬため。
+
+    only を渡すと**解放済みの人物だけ**返す（§7.60。未登用は姿も見せない —
+    戦記で出会うのが初対面になる）。
     """
     sk = {s["技名"]: s for s in R.skills()}
     tr = {t["キー"]: t for t in R.traits()}
     names_jp = _trait_names()
     out = []
     for g in R.generals():
+        if only is not None and g["人物"] not in only:
+            continue
         s = sk.get(g["必殺技"], {})
         traits = []
         for k in R.traits_of(g):
@@ -453,6 +458,8 @@ class App(BaseHTTPRequestHandler):
             pl = P.register(cx, new, kind=P.HUMAN,
                             email="local+{}@example.invalid".format(P.new_id()[:8]))
             pid = pl.id
+            # 新規は初期セットから（§7.60）。既存の救済は PL.tick が済ませている
+            P.unlock(cx, pid, R.senki_start(), "start")
         if P.get(cx, pid) is None:
             return self._json({"ok": False}, 400)
         self._json({"ok": True}, cookie="pid={}; Path=/; SameSite=Lax".format(pid))
@@ -493,9 +500,13 @@ class App(BaseHTTPRequestHandler):
                                if x.strip()],
                 "cost": army.total_cost() if army else None,
             })
+        unl = PL.ensure_unlocks(cx, me.id)
         self._json({
             "regs": [{"name": n, "cap": c} for n, c in M.REGULATIONS],
-            "roster": _roster_json(),
+            "roster": _roster_json(only=unl),
+            "pool": {"unlocked": sum(1 for g in R.generals()
+                                     if g["人物"] in unl),
+                     "total": len(R.generals())},
             "decks": decks,
             "entry_errors": entry_errors,
             "boards_ok": boards_ok,
@@ -525,6 +536,12 @@ class App(BaseHTTPRequestHandler):
             if len(army.cards) != M.UNIT_SIZE:
                 errs.append("{}人必要（いまは{}人）".format(
                     M.UNIT_SIZE, len(army.cards)))
+            # 未登用の武将は登録できない（§7.60。検証は登録の瞬間だけ —
+            # 保存庫の下書きは自由のまま）
+            unl = PL.ensure_unlocks(cx, me.id)
+            locked = sorted({M.person_of(c) for c in army.cards} - unl)
+            if locked:
+                errs.append("まだ登用していない: " + "・".join(locked))
         if errs:
             return self._json({"ok": False, "errors": errs})
         P.set_deck(cx, me.id, reg, raw, fm)
@@ -603,8 +620,12 @@ class App(BaseHTTPRequestHandler):
         if not gen:
             P.set_trait(cx, me.id, oid, "", None)
             return self._json({"ok": True})
-        if not any(g["名前"] == gen for g in R.generals()):
+        gr = next((g for g in R.generals() if g["名前"] == gen), None)
+        if gr is None:
             return self._json({"ok": False, "errors": ["その武将はいない"]})
+        if gr["人物"] not in PL.ensure_unlocks(cx, me.id):
+            return self._json({"ok": False,
+                               "errors": ["まだ登用していない武将には付けられない"]})
         slot = P.free_slot(cx, me.id, gen)
         if slot is None:
             return self._json({"ok": False,
@@ -623,7 +644,9 @@ class App(BaseHTTPRequestHandler):
         if reg not in dict(M.REGULATIONS):
             return self._json({"ok": False, "errors": ["そのレギュレーションは無い"]})
         form = F.FORM_ALIAS.get(body.get("form", ""), body.get("form", "魚鱗"))
-        cards = M._roster_cards()
+        # 軍師も未登用は知らない（§7.60）— たたき台は手持ちだけで組む
+        unl = PL.ensure_unlocks(cx, me.id)
+        cards = [c for c in M._roster_cards() if M.person_of(c) in unl]
         # 他のデッキで使っている人物は避ける（登録検証で両方塞がるため）
         by_name = {c.name: c for c in cards}
         exclude = set()
