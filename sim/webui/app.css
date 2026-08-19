@@ -246,6 +246,18 @@ h2 button.attack { float: right; font-size: 13px; }
 .slot[draggable="true"] { cursor: grab; }
 .slot.dragging { opacity: .35; }
 .slot.dragover { border-style: solid; border-color: var(--gold); background: #2a2419; }
+.slot:not(.empty) { cursor: pointer; }
+.slot:not(.empty):hover { border-color: var(--line2); background: #251d13; }
+.slot.selected { border-style: solid; border-color: var(--gold);
+  box-shadow: 0 0 0 1px #d9ac4f33; }
+#tip {
+  position: fixed; z-index: 60; display: none; pointer-events: none;
+  max-width: 300px; padding: 9px 12px; font-size: 12.5px; line-height: 1.6;
+  background: #171209f6; border: 1px solid var(--line2); border-radius: 10px;
+  box-shadow: 0 10px 28px #000000aa; color: var(--ink);
+}
+#tip b { font-family: var(--font-min); color: var(--gold-hi); margin-right: 6px; }
+#tip .tip-hint { color: var(--faint); font-size: 11px; }
 .slot .warn { color: #e08a5a; font-size: 11px; }
 .deck-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px;
   flex-wrap: wrap; }

@@ -607,12 +607,29 @@ function drawSlots() {
     if (b.dataset.a === "dn") [cur.cards[i + 1], cur.cards[i]] = [cur.cards[i], cur.cards[i + 1]];
     drawAll();
   });
+  // 枠の武将: マウスオンで概要チップ、クリックで上の詳細パネルへ固定表示
+  $$("#slots .slot:not(.empty)").forEach((sl) => {
+    const name = cur.cards[+sl.dataset.i];
+    sl.onmouseenter = (e) => showTip(e, name);
+    sl.onmousemove = (e) => moveTip(e);
+    sl.onmouseleave = hideTip;
+    sl.onclick = (e) => {
+      if (e.target.closest("button")) return;   // ↑↓✕は並べ替え操作
+      hideTip();
+      showCardInfo(name);
+      $$("#slots .slot").forEach((x) => x.classList.remove("selected"));
+      sl.classList.add("selected");
+      const ci = $("#cardinfo");
+      if (ci && window.innerWidth <= 760) ci.scrollIntoView({ behavior: "smooth" });
+    };
+  });
   // ドラッグ＆ドロップで並べ替え（↑↓はタッチ環境用に残す）
   let dragFrom = null;
   $$("#slots .slot").forEach((sl) => {
     sl.ondragstart = (e) => {
       dragFrom = +sl.dataset.i;
       sl.classList.add("dragging");
+      hideTip();
       e.dataTransfer.effectAllowed = "move";
     };
     sl.ondragend = () => {
@@ -634,6 +651,43 @@ function drawSlots() {
       drawAll();
     };
   });
+}
+
+/* ── 概要チップ（枠の武将のマウスオン・§7.59） ─────────── */
+function showTip(e, name) {
+  const c = D.roster.find((x) => x.name === name);
+  if (!c || window.innerWidth <= 760) return;   // タッチ環境はクリックで詳細
+  let tip = $("#tip");
+  if (!tip) {
+    document.body.insertAdjacentHTML("beforeend", '<div id="tip"></div>');
+    tip = $("#tip");
+  }
+  tip.innerHTML = `
+    <b>${esc(c.name)}</b>
+    <span class="muted">${esc(c.faction)}・${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
+    <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
+    <span class="muted">【${esc(c.skill)}】${c.traits.length
+      ? "　特性: " + c.traits.map((t) => t.name).join("・") : ""}</span><br>
+    <span class="tip-hint">クリックで詳細</span>`;
+  tip.style.display = "block";
+  moveTip(e);
+}
+
+function moveTip(e) {
+  const tip = $("#tip");
+  if (!tip || tip.style.display === "none") return;
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+
+function hideTip() {
+  const tip = $("#tip");
+  if (tip) tip.style.display = "none";
 }
 
 function deckCost() {
