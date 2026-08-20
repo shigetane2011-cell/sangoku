@@ -251,6 +251,29 @@ def check_deck(cx, cards, me, b: Dict, names, form):
     return (None, errs) if errs else (army, [])
 
 
+def save_last_deck(cx, player_id: str, i: int, names, form: str) -> None:
+    """その戦へ持ち込んだ編成を覚える（§7.62）。負けても消えない。"""
+    with cx:
+        cx.execute(
+            "INSERT INTO senki_decks (player_id, battle_i, cards, formation)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(player_id, battle_i) DO UPDATE SET"
+            " cards = excluded.cards, formation = excluded.formation,"
+            " updated_at = datetime('now')",
+            (player_id, i, F.TRAIT_SEP.join(names), form))
+
+
+def last_deck(cx, player_id: str, i: int):
+    r = cx.execute("SELECT cards, formation FROM senki_decks"
+                   " WHERE player_id = ? AND battle_i = ?",
+                   (player_id, i)).fetchone()
+    if r is None:
+        return None
+    return {"cards": [x.strip() for x in r["cards"].split(F.TRAIT_SEP)
+                      if x.strip()],
+            "form": r["formation"]}
+
+
 # ---------------------------------------------------------------- 戦闘
 def fight(cx, cards, me, idx: int, now: int, deck=None) -> Dict:
     """戦記の1戦。勝てば（未クリアの戦なら）進行が進み、登用が起きる。
@@ -277,6 +300,7 @@ def fight(cx, cards, me, idx: int, now: int, deck=None) -> Dict:
     ua, errs = check_deck(cx, cards, me, b, names, form)
     if errs:
         return {"error": "／".join(errs)}
+    save_last_deck(cx, me.id, b["i"], names, form)
     reg_i = PL.REG_NAMES.index(b["board"])
     foe = enemy_army(cards, b)
     seed = L.battle_seed("senki", b["i"], me.id, now)

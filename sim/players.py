@@ -275,6 +275,16 @@ CREATE TABLE IF NOT EXISTS senki_records (
   done_at    TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (player_id, lap)
 );
+-- 戦記でその戦へ最後に持ち込んだ編成（§7.62）。負けて挑み直すときに
+-- **直した編成が消えないように**戦ごとに覚えておく（草案で上書きしない）。
+CREATE TABLE IF NOT EXISTS senki_decks (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  battle_i   INTEGER NOT NULL,
+  cards      TEXT NOT NULL,
+  formation  TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, battle_i)
+);
 -- 決済代行の顧客IDと権利状態だけ。**カード情報は持たない。**
 CREATE TABLE IF NOT EXISTS billing (
   player_id     TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,

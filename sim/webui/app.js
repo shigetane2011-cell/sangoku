@@ -232,7 +232,7 @@ async function doAttack(reg) {
   }
 }
 
-function showBattleResult(label, r) {
+function showBattleResult(label, r, retry) {
   if (!$("#overlay")) {
     document.body.insertAdjacentHTML("beforeend",
       '<div id="overlay"><div class="box"></div></div>');
@@ -264,11 +264,14 @@ function showBattleResult(label, r) {
     <div class="result-actions">
       ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
+      ${retry ? `<button id="reprep">${r.win === "勝ち" ? "編成を見直す" : "編成を直して再挑戦"}</button>` : ""}
       <button class="ghost" onclick="location.reload()">閉じる</button>
     </div>
   </div>`;
   const ag = $("#again");
   if (ag) ag.onclick = () => { $("#overlay").remove(); doAttack(label); };
+  const rp = $("#reprep");
+  if (rp) rp.onclick = retry;
 }
 
 /* ── 戦記（討伐→登用・§7.60） ─────────────── */
@@ -379,12 +382,12 @@ async function doSenkiFight(i, title, deck) {
   try {
     const r = await api("/api/senki_fight",
                         Object.assign({ i }, deck || {}));
-    showBattleResult(title, r);
+    showBattleResult(title, r, () => { $("#overlay").remove(); viewSenkiPrep(i); });
   } catch (e) {
     const ov = $("#overlay"); if (ov) ov.remove();
     let msg = e.message;
     try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /* 素通し */ }
-    alert(msg);
+    if (PREP && $("#deck-msg")) drawPrep(msg); else alert(msg);
   }
 }
 
@@ -394,8 +397,11 @@ async function viewSenkiPrep(i) {
                                     api("/api/deckdata")]);
   D = d;
   PREP = p;
-  cur = { reg: p.board, form: p.suggest.form || p.enemy.form,
-          cards: [...p.suggest.cards] };
+  // 前回この戦へ持ち込んだ編成があればそれを初期値に（負けて挑み直すとき、
+  // 直した編成が草案で上書きされるのを防ぐ・§7.62）
+  const start = p.last || p.suggest;
+  cur = { reg: p.board, form: start.form || p.enemy.form,
+          cards: [...start.cards] };
   const foe = p.enemy.cards.map((c) => `
     <div class="foe-card f${c.faction}">
       <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
@@ -411,7 +417,8 @@ async function viewSenkiPrep(i) {
   const rewards = p.recruits.map((g) => `
     <span class="rec-chip"><img src="/portrait/${encodeURIComponent(g.person)}"
       alt="">${esc(g.name)}</span>`).join("");
-  const sources = [`<option value="suggest">軍師の草案</option>`]
+  const sources = (p.last ? [`<option value="last">前回の編成</option>`] : [])
+    .concat([`<option value="suggest">軍師の草案</option>`])
     .concat(p.registered ? [`<option value="reg">登録デッキ（${p.registered.cost}点）</option>`] : [])
     .concat(p.saved.map((s, k) => `<option value="s${k}">保存庫: ${esc(s.name)}（${s.cost}点）</option>`))
     .join("");
@@ -474,7 +481,8 @@ async function viewSenkiPrep(i) {
   };
   $("#prep-src").onchange = () => {
     const v = $("#prep-src").value;
-    const src = v === "suggest" ? PREP.suggest
+    const src = v === "last" ? PREP.last
+              : v === "suggest" ? PREP.suggest
               : v === "reg" ? PREP.registered
               : PREP.saved[+v.slice(1)];
     if (!src) return;
@@ -487,17 +495,22 @@ async function viewSenkiPrep(i) {
   drawPrep();
 }
 
-function drawPrep() {
+function drawPrep(msg) {
   for (const f of [drawRoster, drawSlots, drawMeter]) {
     try { f(); } catch (e) { console.error("drawPrep:", f.name, e); }
   }
   const over = deckCost() > PREP.cap + 1e-9;
   const n = cur.cards.length;
+  // 配置の不備（弓でない後衛など）は枠に⚠が出る。出陣はそれごと止める
+  const bad = $$("#slots .warn").length;
   const go = $("#prep-go");
-  go.disabled = over || n !== 6;
-  $("#deck-msg").textContent = over
-    ? `上限 ${PREP.cap}点を ${(deckCost() - PREP.cap).toFixed(0)}点 超えている`
-    : (n !== 6 ? `あと${6 - n}人（6人で出陣）` : "");
+  go.disabled = over || n !== 6 || bad > 0;
+  const el = $("#deck-msg");
+  el.className = (over || bad) ? "err" : "";
+  el.textContent = msg ? msg
+    : over ? `上限 ${PREP.cap}点を ${(deckCost() - PREP.cap).toFixed(0)}点 超えている`
+    : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
+       : (bad ? "置けない兵がいる（⚠の枠を直す）" : ""));
 }
 
 /* ── 編成 ──────────────────────── */
@@ -640,6 +653,9 @@ function drawTypeTabs() {
 }
 
 function drawAll() {
+  // 戦前の間（§7.62）では描き直しをそちらへ回す — 枠の増減・並べ替え・
+  // 一覧クリックの経路が全部ここを通るので、出陣可否の判定を一本化できる
+  if (PREP) return drawPrep();
   // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
   // 後続の枠（軍師に相談・保存庫・軍功枠…）を巻き添えにしないように。
   for (const f of [drawRoster, drawSlots, drawMeter, drawEntryState, drawDraft,
