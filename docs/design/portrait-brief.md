@@ -202,6 +202,10 @@ headroom, crop below the chest. No text, no signature, no border, no watermark.
 - [ ] 画像内に文字・署名・透かしが無い
 - [ ] 120枚で画風・光の向き・彩度が揃っている（並べて確認）
 
+**候補の絵柄を決めるとき**は `docs/design/portrait-preview.html` をブラウザで開き、
+候補画像を放り込む。実際の5寸法（カード128px・詳細64px・編成枠30×38・敵陣42px・
+登用チップ20px円）で並ぶので、**20pxで誰か分かるか**が一目で判る。
+
 置いて確かめる手順:
 1. `sim/webui/portraits/` に入れる
 2. ゲームを開いて再読み込み（Ctrl+F5）
