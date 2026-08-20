@@ -159,17 +159,12 @@ def _ch_first(ch: int) -> int:
 
 
 def board_gate(cx, player_id: str) -> Dict[str, bool]:
-    """挑戦ラダーの帯解放（§7.60: 官渡=第4章到達・赤壁=第6章到達）。
+    """挑戦ラダーの戦場解放（§7.60: 官渡=第4章到達・赤壁=第6章到達）。
 
-    **移行組（全解放で救済された既存プレイヤー）は全帯そのまま** — 遊べていた
-    盤面を後から閉じない。フリー対戦・ルーム・天下はこの門を通さない
-    （天下は3デッキ登録が実質の門になっている）。
+    フリー対戦・ルーム・天下はこの門を通さない（天下は3デッキ登録が実質の
+    門になっている）。試験用の全部持ち（dev_senki）は cleared を進めるので
+    自然に全戦場が開く。
     """
-    row = cx.execute(
-        "SELECT 1 FROM unlocks WHERE player_id = ? AND source = 'migration'"
-        " LIMIT 1", (player_id,)).fetchone()
-    if row is not None:
-        return {"汜水関": True, "官渡": True, "赤壁": True}
     c = cleared(cx, player_id)
     return {"汜水関": True,
             "官渡": c >= _ch_first(4),

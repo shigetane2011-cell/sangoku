@@ -309,6 +309,18 @@ class App(BaseHTTPRequestHandler):
                 SK.set_cleared(cx, me.id, len(SK.battles()))
                 P.unlock(cx, me.id, [g["人物"] for g in R.generals()], "dev")
                 return self._json({"ok": True})
+            if url.path == "/api/dev_onsho":
+                # 手元の試験用: 全種の恩賞を1つずつ獲得（未所持ぶんだけ）。
+                # 公開版では消す（dev_heifu / dev_tenka / dev_senki と同じ口）。
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                have = {r["trait_key"] for r in P.owned_traits(cx, me.id)}
+                for key in _trait_names():
+                    if key not in have:
+                        P.grant_trait(cx, me.id, key)
+                return self._json({"ok": True})
             if url.path == "/api/free":
                 return self._api_free(body)
             if url.path == "/api/room":
@@ -513,15 +525,25 @@ class App(BaseHTTPRequestHandler):
         from . import design as D
         names_jp = _trait_names()
         trs = {t["キー"]: t for t in R.traits()}
-        onsho = []
+        # 恩賞は**種類ごとにまとめる**（毎日1つ授かるので同種が溜まる。
+        # 1行ずつ並べると同じ名前がずらり — テストプレイの指摘）
+        groups: dict = {}
         for r in P.owned_traits(cx, me.id):
             key = r["trait_key"]
-            desc, cond = _trait_brief(None, key, trs.get(key, {}))
-            onsho.append({"id": r["id"], "key": key,
-                          "name": names_jp.get(key, key),
-                          "kou": PL.kou_of(key),
-                          "desc": desc + ("（{}）".format(cond) if cond else ""),
-                          "general": r["general_name"]})
+            g2 = groups.get(key)
+            if g2 is None:
+                desc, cond = _trait_brief(None, key, trs.get(key, {}))
+                g2 = groups[key] = {
+                    "key": key, "name": names_jp.get(key, key),
+                    "kou": PL.kou_of(key),
+                    "desc": desc + ("（{}）".format(cond) if cond else ""),
+                    "total": 0, "sets": [], "unset": []}
+            g2["total"] += 1
+            if r["general_name"]:
+                g2["sets"].append({"id": r["id"], "general": r["general_name"]})
+            else:
+                g2["unset"].append(r["id"])
+        onsho = sorted(groups.values(), key=lambda g2: -g2["kou"])
         saved = []
         for r in P.saved_decks(cx, me.id):
             army, _ = PL.parse_deck(cards, r["cards"], r["formation"])

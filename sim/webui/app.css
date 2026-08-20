@@ -383,6 +383,11 @@ h2 button.attack { float: right; font-size: 13px; }
 .roster-tools .filter-tabs { margin-bottom: 0; }
 .roster-tools .filter-tabs button { padding: 4px 11px; font-size: 12.5px; min-height: 32px; }
 .pool-note { font-size: 12px; white-space: nowrap; }
+.onsho-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.onsho-set { background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 14px; padding: 1px 4px 1px 10px; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 4px; }
+button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
 
 /* ── 武将カード（顔絵つき） ─────────────── */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }

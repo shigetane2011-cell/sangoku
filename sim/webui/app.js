@@ -424,6 +424,8 @@ async function viewDeck(state) {
           <input id="search" placeholder="名で探す">
           ${D.pool ? `<span class="pool-note muted num"
             title="武将は戦記で登用して増える">登用 ${D.pool.unlocked}／${D.pool.total}</span>` : ""}
+          ${D.pool && D.pool.unlocked < D.pool.total
+            ? '<button class="mini ghost" id="dev-unlock" title="試験用: 戦記全クリア扱いで全員登用">全登用</button>' : ""}
         </div>
         <div class="type-legend muted num">
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
@@ -450,6 +452,8 @@ async function viewDeck(state) {
   $("#search").oninput = drawRoster;
   $("#save").onclick = saveDeck;
   $("#fight2").onclick = () => doAttack(cur.reg);
+  const du = $("#dev-unlock");
+  if (du) du.onclick = async () => { await api("/api/dev_senki", {}); location.reload(); };
   drawAll();
 }
 
@@ -652,30 +656,44 @@ function deckGenerals() {
 
 function drawOnsho() {
   const el = $("#onsho");
-  if (!D.onsho || !D.onsho.length) { el.innerHTML = ""; return; }
-  const gens = deckGenerals();
   const budget = (D.onsho_budgets || {})[cur.reg] || 100;
-  el.innerHTML = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功 ─</div>` +
-    D.onsho.map((o) => `
+  const head = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功
+    <button class="mini ghost" id="dev-onsho" title="試験用: 全種の恩賞を1つずつ獲得">全恩賞</button> ─</div>`;
+  const gens = deckGenerals();
+  const rows = (D.onsho || []).map((o) => `
       <div class="onsho-row">
-        <span class="oname">【${esc(o.name)}】</span>
-        <span class="val num">${o.kou}功</span>
-        <select data-id="${o.id}">
-          <option value="">（外す）</option>
-          ${gens.map((g) => `<option ${o.general === g ? "selected" : ""}>${esc(g)}</option>`).join("")}
-          ${o.general && !gens.includes(o.general)
-            ? `<option selected>${esc(o.general)}</option>` : ""}
-        </select>
+        <div class="onsho-line1">
+          <span class="oname">【${esc(o.name)}】</span>
+          <span class="val num">${o.kou}功</span>
+          <span class="muted num">×${o.total}</span>
+          ${o.sets.map((s) => `<span class="onsho-set num">${esc(s.general)}
+            <button class="mini tiny" data-id="${s.id}" data-g="">✕</button></span>`).join("")}
+          ${o.unset.length ? `
+            <select data-id="${o.unset[0]}">
+              <option value="">（セット先を選ぶ${o.unset.length > 1 ? `・残${o.unset.length}` : ""}）</option>
+              ${gens.map((g) => `<option>${esc(g)}</option>`).join("")}
+            </select>` : ""}
+        </div>
         ${o.desc ? `<div class="onsho-desc muted">${esc(o.desc)}</div>` : ""}
-      </div>`).join("") +
-    `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（この戦場は${budget}功・` +
-    "全員一律）から払う。デッキ本体の点は食わない。</p>";
+      </div>`).join("");
+  el.innerHTML = head +
+    (rows || "<p class='muted'>まだ恩賞が無い。毎日1つ授かる。</p>") +
+    ((D.onsho || []).length
+      ? `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（この戦場は${budget}功・` +
+        "全員一律）から払う。デッキ本体の点は食わない。</p>" : "");
+  const refresh = async () => { D = await api("/api/deckdata"); drawAll(); };
   $$("#onsho select").forEach((sel) => sel.onchange = async () => {
+    if (!sel.value) return;
     const r = await api("/api/onsho", { owned_id: +sel.dataset.id, general: sel.value });
     if (!r.ok) { flashMsg(r.errors.join("／"), true); }
-    D = await api("/api/deckdata");
-    drawAll();
+    refresh();
   });
+  $$("#onsho button[data-id]").forEach((b) => b.onclick = async () => {
+    await api("/api/onsho", { owned_id: +b.dataset.id, general: "" });
+    refresh();
+  });
+  const dv = $("#dev-onsho");
+  if (dv) dv.onclick = async () => { await api("/api/dev_onsho", {}); refresh(); };
 }
 
 function drawRoster() {
@@ -882,8 +900,8 @@ function onshoKou() {
   // このデッキに乗っている軍功（功）。予算は別枠（§7.61）— 本体の点を食わない
   if (!D.onsho) return 0;
   const inDeck = new Set(cur.cards);
-  return D.onsho.filter((o) => inDeck.has(o.general))
-                .reduce((s, o) => s + (o.kou || 0), 0);
+  return D.onsho.reduce((s, o) =>
+    s + o.kou * o.sets.filter((x) => inDeck.has(x.general)).length, 0);
 }
 
 function drawMeter() {

@@ -630,6 +630,26 @@ def tick(cx, cards, now: int) -> None:
         for pl in P.all_players(cx, P.HUMAN):
             P.unlock(cx, pl.id, persons, "migration")
         P.ledger_set(cx, "unlocks_seeded", "1")
+    # (0c) 素の初期状態への揃え直し（1回だけ・公開前の手元専用 2026-08-20）。
+    #      テストプレイの指示: 「初期状態は初期武将＋恩賞未取得。UXを新規と
+    #      揃える」— 全人間を初期セット40人・恩賞ゼロ・戦記未進行へ戻す。
+    #      全部持ちの状態は試験用ボタン（dev_senki / dev_onsho）で1押しで
+    #      再現できるので救済は不要になった。**公開後はこの手の一斉リセットを
+    #      してはならない**（(0b) の注のとおり揉める。手元だから許される）。
+    if not P.ledger_get(cx, "fresh_start_v2"):
+        from . import rosterdata as R
+        start = R.senki_start()
+        with cx:
+            for pl in P.all_players(cx, P.HUMAN):
+                cx.execute("DELETE FROM unlocks WHERE player_id = ?", (pl.id,))
+                cx.execute("DELETE FROM owned_traits WHERE player_id = ?",
+                           (pl.id,))
+                cx.execute("DELETE FROM senki WHERE player_id = ?", (pl.id,))
+                cx.execute("DELETE FROM senki_laps WHERE player_id = ?",
+                           (pl.id,))
+        for pl in P.all_players(cx, P.HUMAN):
+            P.unlock(cx, pl.id, start, "start")
+        P.ledger_set(cx, "fresh_start_v2", "1")
     # (1) シーズン
     cur = season_key(now)
     stored = P.ledger_get(cx, "season")
