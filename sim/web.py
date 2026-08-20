@@ -290,6 +290,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_deckdata()
             if url.path == "/api/senki":
                 return self._api_senki()
+            if url.path == "/api/senki_prep":
+                return self._api_senki_prep(q)
             if url.path == "/api/replays":
                 return self._api_replays()
             if url.path == "/api/replay":
@@ -827,6 +829,76 @@ class App(BaseHTTPRequestHandler):
                     "chapters": chapters, "gate": gate,
                     "boards_ok": boards_ok, "lap": lap, "banzuke": banzuke})
 
+    def _api_senki_prep(self, q):
+        """戦前の間（§7.62）: 敵の顔ぶれ・前口上・持ち込み上限・草案を返す。
+
+        **戦う前に相手が全部見える**のが要点。見えたうえで上限ちょうどの
+        編成を組むのが戦記の遊びで、見えない相手に登録デッキをぶつけるのは
+        作業だった（テストプレイの指摘）。
+        """
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        bs = SK.battles()
+        i = int(q.get("i", -1))
+        if not 0 <= i < len(bs):
+            return self._json({"error": "その戦は無い"}, 404)
+        prog = SK.cleared(cx, me.id)
+        if i > prog:
+            return self._json({"error": "先の戦にはまだ進めない"}, 400)
+        b = bs[i]
+        cards = M._roster_cards()
+        unl = PL.ensure_unlocks(cx, me.id)
+        cap = SK.player_cap(cards, b)
+        brief = {c["name"]: c for c in _roster_json()}
+        foe = SK.enemy_army(cards, b)
+        by_person = {g["人物"]: g for g in R.generals()}
+        lead = by_person.get(b["recruits"][0]) if b["recruits"] else None
+        names, form = SK.suggest_deck(cards, unl, b, int(time.time()))
+        saved = []
+        for r in P.saved_decks(cx, me.id):
+            if r["regulation"] != b["board"]:
+                continue
+            army, es = PL.parse_deck(cards, r["cards"], r["formation"])
+            if army is None or es:
+                continue
+            saved.append({"id": r["id"], "name": r["name"],
+                          "form": F.FORM_ALIAS.get(r["formation"],
+                                                   r["formation"]),
+                          "cards": [c.name for c in army.cards],
+                          "cost": army.total_cost()})
+        reg = None
+        raw = P.decks_of(cx, me.id).get(b["board"])
+        if raw:
+            army, es = PL.parse_deck(cards, raw[0], raw[1])
+            if army is not None and not es:
+                reg = {"form": F.FORM_ALIAS.get(raw[1], raw[1]),
+                       "cards": [c.name for c in army.cards],
+                       "cost": army.total_cost()}
+        self._json({
+            "i": b["i"], "ch": b["ch"], "no": b["no"], "title": b["title"],
+            "chapter": SK.CHAPTERS.get(b["ch"], ("", ""))[0],
+            "board": b["board"], "boss": b["boss"], "intro": b["intro"],
+            "cap": cap, "cleared": b["i"] < prog,
+            "enemy": {
+                "form": F.FORM_NAME[foe.form.n_front],
+                "cost": foe.total_cost(),
+                "front": foe.form.n_front,
+                "cards": [dict(brief[c.name],
+                               rear=(k >= foe.form.n_front))
+                          for k, c in enumerate(foe.cards)],
+                "taunt": (lead or {}).get("台詞", ""),
+                "lead": (lead or {}).get("名前", ""),
+            },
+            "recruits": [{"person": p, "name": by_person[p]["名前"],
+                          "cost": float(by_person[p]["コスト"]),
+                          "typ": by_person[p]["兵種"]}
+                         for p in b["recruits"]],
+            "suggest": {"cards": names, "form": form},
+            "saved": saved, "registered": reg,
+        })
+
     def _api_senki_fight(self, body):
         cx = self._cx()
         me = self._me(cx)
@@ -835,7 +907,11 @@ class App(BaseHTTPRequestHandler):
         cards = M._roster_cards()
         now = int(time.time())
         PL.tick(cx, cards, now)
-        r = SK.fight(cx, cards, me, int(body.get("i", -1)), now)
+        deck = None
+        if body.get("cards"):
+            deck = {"cards": [str(x) for x in body["cards"]],
+                    "form": str(body.get("form", ""))}
+        r = SK.fight(cx, cards, me, int(body.get("i", -1)), now, deck=deck)
         self._json(r, 200 if "error" not in r else 400)
 
     def _api_senki_lap(self, body):

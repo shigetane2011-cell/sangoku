@@ -31,6 +31,10 @@ from . import players as P
 from . import rosterdata as R
 
 BOSS_EXTRA = 2          # 章ボスの「格上」ぶん（コスト点）
+# 戦記の敵は常にこのぶん重い（§7.62）。実測合わせ: 軍師の草案を無調整で
+# ぶつけたときの平均勝率が +0点=61% / **+1点=51%** / +2点=40%。押すだけなら
+# 五分、編成を直せば勝てる — が狙いなので +1。
+SENKI_EDGE = 1.0
 
 # 周回スケーリング（§7.60）: **2周に1点、家来を強い実カードへ差し替える。**
 #   周回Nの敵 ＝ 章ボスのデッキの雑兵を（大将と登用対象は固定のまま）
@@ -171,11 +175,89 @@ def board_gate(cx, player_id: str) -> Dict[str, bool]:
             "赤壁": c >= _ch_first(6)}
 
 
+# ------------------------------------------------------- 持ち込み（§7.62）
+def enemy_cost(cards, b: Dict) -> float:
+    return enemy_army(cards, b).total_cost()
+
+
+def player_cap(cards, b: Dict) -> float:
+    """その戦へ持ち込める上限。**敵と同じ重さ**が原則（章ボスだけ敵が
+    BOSS_EXTRA ぶん重い＝格上）。戦場の上限は超えない。
+
+    こうしないと戦記は作業になる: 敵の手組みデッキは物語の顔ぶれ優先で
+    上限を余らせており（実測で +1〜+23点。第7章は敵17点 対 自軍40点）、
+    こちらは登録デッキのまま踏み潰すだけになっていた。上限を敵に合わせると
+    毎戦が別の詰将棋になり、**準備が意味を持つ**（テストプレイの指摘）。
+    """
+    cap = (enemy_cost(cards, b) - SENKI_EDGE
+           - (BOSS_EXTRA if b["boss"] else 0.0))
+    board_cap = dict(M.REGULATIONS)[b["board"]]
+    return max(float(M.UNIT_SIZE), min(cap, board_cap))
+
+
+def suggest_deck(cards, unlocked, b: Dict, seed: int = 0):
+    """軍師の草案。その戦の上限ちょうどで、**手持ちだけ**から組む。
+
+    毎回ゼロから組ませると準備が苦行になるので、押せば出陣できる案を必ず
+    用意する。強さは保証しない（それを直すのがプレイヤーの仕事）。
+    """
+    from . import play as PL
+    # 敵に出ている人物は草案から外す（同じ顔が両軍に並ぶと締まらない。
+    # 規則としては許すが、初期案としては選ばない）
+    foes = {M.person_of(c) for c in enemy_army(cards, b).cards}
+    pool = [c for c in cards if M.person_of(c) in unlocked]
+    names, _note, form = PL.draft_deck(
+        pool, b["board"], b["form"], "おまかせ", "おまかせ", "おまかせ",
+        seed, foes, cap=player_cap(cards, b), ratio=1.0)
+    return names, form
+
+
+def check_deck(cx, cards, me, b: Dict, names, form):
+    """持ち込むデッキの検証。戻りは (Army or None, 不備一覧)。
+
+    戦記は PvE なので**他のデッキとの人物かぶりは見ない**（登録デッキの
+    配分に縛られず、手持ちを自由に試せる場にする）。見るのは登用済みか・
+    6枚か・配置規則・本陣の規則・持ち込み上限・軍功予算。
+    """
+    from . import play as PL
+    army, errs = PL.parse_deck(cards, F.TRAIT_SEP.join(names), form)
+    if errs or army is None:
+        return None, errs
+    unl = PL.ensure_unlocks(cx, me.id)
+    locked = sorted({M.person_of(c) for c in army.cards} - unl)
+    if locked:
+        errs.append("まだ登用していない: " + "・".join(locked))
+    if len(army.cards) != M.UNIT_SIZE:
+        errs.append("{}人必要（いまは{}人）".format(M.UNIT_SIZE, len(army.cards)))
+    persons = [M.person_of(c) for c in army.cards]
+    dup = sorted({p for p in persons if persons.count(p) > 1})
+    if dup:
+        errs.append("同じ人物は1枚まで: " + "・".join(dup))
+    cap = player_cap(cards, b)
+    if army.total_cost() > cap + 1e-9:
+        errs.append("合計 {:g}点 が持ち込み上限 {:g}点 を超えている".format(
+            army.total_cost(), cap))
+    errs += M.placement_errors(army)
+    army, kou = PL._apply_onsho(cx, me.id, army)
+    if kou > PL.onsho_budget_kou(cap):
+        errs.append("軍功 {}功 が予算 {}功 を超えている".format(
+            kou, PL.onsho_budget_kou(cap)))
+    honjin = [c for c in army.cards if "command" in F.trait_keys(c.trait)]
+    if len(honjin) > 1:
+        errs.append("本陣は1部隊に1人まで")
+    for c in honjin:
+        if c.typ != F.ARC:
+            errs.append("本陣は弓兵にだけ授けられる（{}）".format(c.name))
+    return (None, errs) if errs else (army, [])
+
+
 # ---------------------------------------------------------------- 戦闘
-def fight(cx, cards, me, idx: int, now: int) -> Dict:
+def fight(cx, cards, me, idx: int, now: int, deck=None) -> Dict:
     """戦記の1戦。勝てば（未クリアの戦なら）進行が進み、登用が起きる。
 
-    レートも兵符も動かない。乱数は挑戦ごとに引き直す（now を種に混ぜる）。
+    deck は {"cards": [名前...], "form": 陣形}。戦前の間（§7.62）で選んだ
+    その戦だけの編成で、登録デッキとは無関係（レートも兵符も動かない）。
+    省略時は軍師の草案で出る。乱数は挑戦ごとに引き直す。
     クリア済みの戦は何度でも再戦できる（報酬は無し・稽古扱い）。
     """
     from . import play as PL
@@ -186,14 +268,18 @@ def fight(cx, cards, me, idx: int, now: int) -> Dict:
     if idx > prog:
         return {"error": "先の戦にはまだ進めない（順に進む）"}
     b = bs[idx]
-    entry, ok, errs = PL.entry_of(cx, cards, me.id, me.display_name)
-    if not ok.get(b["board"]):
-        return {"error": "{} のデッキが出せる状態にない（編成で登録してから挑もう）"
-                .format(b["board"])}
+    if deck and deck.get("cards"):
+        names, form = list(deck["cards"]), deck.get("form") or b["form"]
+    else:
+        names, form = suggest_deck(cards, PL.ensure_unlocks(cx, me.id), b, now)
+        if not names:
+            return {"error": "手持ちでこの戦の編成が組めない"}
+    ua, errs = check_deck(cx, cards, me, b, names, form)
+    if errs:
+        return {"error": "／".join(errs)}
     reg_i = PL.REG_NAMES.index(b["board"])
     foe = enemy_army(cards, b)
     seed = L.battle_seed("senki", b["i"], me.id, now)
-    ua = entry.unit(reg_i)
     r = M.play_one(PL.BoardEntry({reg_i: ua}), PL.BoardEntry({reg_i: foe}),
                    reg_i, 0.5, seed=seed)
     won = r["winner"] == "A"

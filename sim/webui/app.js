@@ -347,7 +347,7 @@ async function viewSenki(state) {
     ${lap}${bz}
     <div class="senki-list fade-in">${chap}</div>`;
   $$(".s-go").forEach((b) =>
-    b.onclick = () => doSenkiFight(+b.dataset.i, b.dataset.t));
+    b.onclick = () => viewSenkiPrep(+b.dataset.i));
   const lg = $("#lap-go");
   if (lg) lg.onclick = () => doSenkiLap(d.lap);
 }
@@ -370,32 +370,147 @@ async function doSenkiLap(lap) {
   }
 }
 
-async function doSenkiFight(i, title) {
+async function doSenkiFight(i, title, deck) {
   document.body.insertAdjacentHTML("beforeend", `
     <div id="overlay"><div class="box">
       <div class="march">出　陣</div>
       <p class="muted">${esc(title)} — 布陣を整えております……</p>
     </div></div>`);
   try {
-    const r = await api("/api/senki_fight", { i });
+    const r = await api("/api/senki_fight",
+                        Object.assign({ i }, deck || {}));
     showBattleResult(title, r);
   } catch (e) {
     const ov = $("#overlay"); if (ov) ov.remove();
     let msg = e.message;
-    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /*素通し */ }
+    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /* 素通し */ }
     alert(msg);
   }
+}
+
+/* ── 戦前の間（敵の顔ぶれを見てから編成する・§7.62） ───────── */
+async function viewSenkiPrep(i) {
+  const [p, d] = await Promise.all([api("/api/senki_prep?i=" + i),
+                                    api("/api/deckdata")]);
+  D = d;
+  PREP = p;
+  cur = { reg: p.board, form: p.suggest.form || p.enemy.form,
+          cards: [...p.suggest.cards] };
+  const foe = p.enemy.cards.map((c) => `
+    <div class="foe-card f${c.faction}">
+      <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
+      <div class="fc-body">
+        <div class="fc-head"><b>${esc(c.name)}</b>
+          <span class="cost num">${c.cost}点</span></div>
+        <div class="muted num">${c.rear ? "後衛" : "前衛"}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}・${esc(c.role)}
+          ｜兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}</div>
+        <div class="fc-skill">【${esc(c.skill)}】${(c.traits || []).length
+          ? "　特性: " + c.traits.map((t) => esc(t.name)).join("・") : ""}</div>
+      </div>
+    </div>`).join("");
+  const rewards = p.recruits.map((g) => `
+    <span class="rec-chip"><img src="/portrait/${encodeURIComponent(g.person)}"
+      alt="">${esc(g.name)}</span>`).join("");
+  const sources = [`<option value="suggest">軍師の草案</option>`]
+    .concat(p.registered ? [`<option value="reg">登録デッキ（${p.registered.cost}点）</option>`] : [])
+    .concat(p.saved.map((s, k) => `<option value="s${k}">保存庫: ${esc(s.name)}（${s.cost}点）</option>`))
+    .join("");
+  $("#app").innerHTML = `
+    <div class="prep-head fade-in">
+      <button class="ghost mini" id="prep-back">← 戦記へ</button>
+      <h2>${esc(p.chapter)}　${p.ch}-${p.no}「${esc(p.title)}」
+        ${p.boss ? '<span class="s-boss">章ボス</span>' : ""}
+        ${p.cleared ? '<span class="muted">（再戦・報酬なし）</span>' : ""}</h2>
+    </div>
+    <div class="senki-intro prep-intro fade-in">${esc(p.intro)}</div>
+    <div class="prep-grid fade-in">
+      <div class="panel foe-panel">
+        <h2>敵陣<span class="sub">${esc(p.enemy.form)}・前衛${p.enemy.front}／総勢 ${p.enemy.cost}点</span></h2>
+        ${foe}
+        ${p.enemy.taunt ? `<div class="ci-quote">「${esc(p.enemy.taunt)}」<span class="muted">— ${esc(p.enemy.lead)}</span></div>` : ""}
+        ${rewards ? `<div class="prep-reward">勝てば登用 ${rewards}</div>` : ""}
+      </div>
+      <div class="panel mine-panel">
+        <h2>持ち込み<span class="sub">上限 ${p.cap}点（敵より1点軽い）</span></h2>
+        <div class="prep-src">
+          <select id="prep-src">${sources}</select>
+          <button class="mini ghost" id="prep-again">草案を引き直す</button>
+        </div>
+        <div class="form-tabs" id="formtabs"></div>
+        <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
+        <div class="slots" id="slots"></div>
+        <div class="deck-actions">
+          <button class="primary" id="prep-go">出　陣</button>
+          <span id="deck-msg"></span>
+        </div>
+      </div>
+    </div>
+    <div class="roster-tools fade-in">
+      <div class="filter-tabs" id="typetabs"></div>
+      <div class="filter-tabs" id="bandtabs"></div>
+      <div class="filter-tabs" id="factabs"></div>
+      <select id="sortsel">
+        <option value="cost-">コスト 高い順</option>
+        <option value="cost+">コスト 低い順</option>
+        <option value="men-">兵力 多い順</option>
+        <option value="might-">武勇 高い順</option>
+        <option value="wits-">知略 高い順</option>
+        <option value="atk_pm-">攻勢 高い順</option>
+        <option value="eff_men-">守勢 高い順</option>
+      </select>
+      <input id="search" placeholder="名で探す">
+    </div>
+    <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
+    <div class="cards" id="roster"></div>`;
+  drawFormTabs(); drawTypeTabs();
+  $("#search").oninput = drawRoster;
+  $("#prep-back").onclick = () => { PREP = null; boot(); };
+  $("#prep-again").onclick = async () => {
+    const r = await api("/api/senki_prep?i=" + i + "&n=" + Date.now());
+    PREP.suggest = r.suggest;
+    cur.cards = [...r.suggest.cards];
+    cur.form = r.suggest.form || cur.form;
+    drawFormTabs(); drawPrep();
+  };
+  $("#prep-src").onchange = () => {
+    const v = $("#prep-src").value;
+    const src = v === "suggest" ? PREP.suggest
+              : v === "reg" ? PREP.registered
+              : PREP.saved[+v.slice(1)];
+    if (!src) return;
+    cur.cards = [...src.cards];
+    cur.form = src.form || cur.form;
+    drawFormTabs(); drawPrep();
+  };
+  $("#prep-go").onclick = () =>
+    doSenkiFight(i, PREP.title, { cards: cur.cards, form: cur.form });
+  drawPrep();
+}
+
+function drawPrep() {
+  for (const f of [drawRoster, drawSlots, drawMeter]) {
+    try { f(); } catch (e) { console.error("drawPrep:", f.name, e); }
+  }
+  const over = deckCost() > PREP.cap + 1e-9;
+  const n = cur.cards.length;
+  const go = $("#prep-go");
+  go.disabled = over || n !== 6;
+  $("#deck-msg").textContent = over
+    ? `上限 ${PREP.cap}点を ${(deckCost() - PREP.cap).toFixed(0)}点 超えている`
+    : (n !== 6 ? `あと${6 - n}人（6人で出陣）` : "");
 }
 
 /* ── 編成 ──────────────────────── */
 const FORMS = { "鶴翼": 4, "魚鱗": 3, "雁行": 2 };
 let D = null;          // /api/deckdata
 let cur = null;        // {reg, form, cards:[name,...]}
+let PREP = null;       // 戦前の間（§7.62）。非nullの間は上限も規則もこちら
 
 let STATE = null;
 
 async function viewDeck(state) {
   STATE = state;
+  PREP = null;
   D = await api("/api/deckdata");
   const reg = D.regs[0].name;
   const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
@@ -474,6 +589,8 @@ function drawSortieBar() {
 
 function usedPersons(exceptReg) {
   const used = new Map();   // person -> reg
+  // 戦記は PvE。登録デッキの配分に縛られず手持ちを自由に試せる場にする
+  if (PREP) return used;
   for (const [reg, d] of Object.entries(D.decks)) {
     if (reg === exceptReg) continue;
     for (const n of d.cards) {
@@ -722,8 +839,12 @@ function drawRoster() {
     const dup = inDeck.has(c.name) ||
       cur.cards.some((n) => { const x = D.roster.find((r) => r.name === n);
                               return x && x.person === c.person && x.name !== c.name; });
+    // 戦前の間では、いまの残り予算で買えない札を沈める（詰将棋の可読性）
+    const rest = PREP ? PREP.cap - deckCost() : Infinity;
+    const pricey = PREP && !inDeck.has(c.name) && c.cost > rest + 1e-9;
     const off = u || dup;
-    return `<div class="card f${c.faction} ${off ? "used" : ""}" data-n="${esc(c.name)}">
+    return `<div class="card f${c.faction} ${off ? "used" : ""} ${pricey ? "pricey" : ""}"
+         data-n="${esc(c.name)}">
       <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
         loading="lazy" alt="">
         <span class="cost">${c.cost}</span>
@@ -912,7 +1033,7 @@ function onshoKou() {
 }
 
 function drawMeter() {
-  const cap = D.regs.find((r) => r.name === cur.reg).cap;
+  const cap = PREP ? PREP.cap : D.regs.find((r) => r.name === cur.reg).cap;
   const cost = deckCost();
   const m = $("#meter");
   m.classList.toggle("over", cost > cap + 1e-9);

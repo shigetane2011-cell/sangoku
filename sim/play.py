@@ -951,7 +951,8 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
 
 
 def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
-               faction: str, seed: int, exclude_persons=()
+               faction: str, seed: int, exclude_persons=(),
+               cap: Optional[float] = None, ratio: float = 0.9
                ) -> Tuple[List[str], str, str]:
     """アンケートの回答から**たたき台**のデッキを組む（§7.54）。
 
@@ -989,8 +990,13 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
     greed = {"力押し": 0.6, "守り": 0.3}.get(style, 0.5)
     p = DM.Persona("たたき台", typ_w, role_w, form_name, greed)
     reg_i = next(i for i, (n, _) in enumerate(M.REGULATIONS) if n == reg_name)
-    caps = tuple((n, round(c * 0.9)) for n, c in M.REGULATIONS)
-    note = "上限の9割で組んだたたき台。入れ替えと段位上げで仕上げよう"
+    # cap を渡すとその戦だけの上限で組む（戦記の草案・§7.62）。既定は
+    # レギュレーション上限の ratio 倍（＝わざと少し弱い たたき台）。
+    limit = float(cap) if cap else M.REGULATIONS[reg_i][1] * ratio
+    caps = tuple((n, round(limit if n == reg_name else c * ratio))
+                 for n, c in M.REGULATIONS)
+    note = ("その戦の上限ちょうどで組んだ草案。入れ替えて仕上げよう" if cap
+            else "上限の9割で組んだたたき台。入れ替えと段位上げで仕上げよう")
 
     def build(pool):
         try:
@@ -999,8 +1005,7 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
             # 候補が尽きて編成が立たない（勢力しばり等で池が痩せた）
             return None
         u = e.unit(reg_i)
-        ok = (len(u.cards) == M.UNIT_SIZE
-              and u.total_cost() <= M.REGULATIONS[reg_i][1] + 1e-9)
+        ok = (len(u.cards) == M.UNIT_SIZE and u.total_cost() <= limit + 1e-9)
         return [c.name for c in u.cards] if ok else None
 
     note = note_head + note
