@@ -650,3 +650,7 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 }
 .card.pricey { opacity: .38; }
 .card.pricey .cost { background: #6b2a18; color: #ffd9c4; }
+
+/* 実況を見届けるまで結末を伏せる（§7.62: 履歴→結果の順） */
+body.suspense #notes, body.suspense #report { display: none; }
+body.suspense .chart-panel h3 small { visibility: hidden; }

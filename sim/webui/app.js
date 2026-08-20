@@ -232,7 +232,8 @@ async function doAttack(reg) {
   }
 }
 
-function showBattleResult(label, r, retry) {
+function showBattleResult(label, r, opts) {
+  opts = opts || {};
   if (!$("#overlay")) {
     document.body.insertAdjacentHTML("beforeend",
       '<div id="overlay"><div class="box"></div></div>');
@@ -262,16 +263,21 @@ function showBattleResult(label, r, retry) {
       総残兵 <b class="num">${(r.lap_done.zanhei / 1000).toFixed(1)}千</b> を番付に刻んだ。
       周回を重ねると敵の家来が強い実物へ入れ替わっていく。</div>` : ""}
     <div class="result-actions">
-      ${r.battle_id ? `<a class="btn primary" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
+      ${opts.next ? `<button class="primary" id="nextstage">次の戦へ ▶</button>` : ""}
+      ${(r.battle_id && !opts.hideReplay)
+        ? `<a class="btn ${opts.next ? "" : "primary"}" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
-      ${retry ? `<button id="reprep">${r.win === "勝ち" ? "編成を見直す" : "編成を直して再挑戦"}</button>` : ""}
-      <button class="ghost" onclick="location.reload()">閉じる</button>
+      ${opts.retry ? `<button id="reprep">${r.win === "勝ち" ? "編成を見直す" : "編成を直して再挑戦"}</button>` : ""}
+      <button class="ghost" id="closeres">${opts.closeLabel || "閉じる"}</button>
     </div>
   </div>`;
   const ag = $("#again");
   if (ag) ag.onclick = () => { $("#overlay").remove(); doAttack(label); };
   const rp = $("#reprep");
-  if (rp) rp.onclick = retry;
+  if (rp) rp.onclick = opts.retry;
+  const nx = $("#nextstage");
+  if (nx) nx.onclick = opts.next;
+  $("#closeres").onclick = opts.close || (() => location.reload());
 }
 
 /* ── 戦記（討伐→登用・§7.60） ─────────────── */
@@ -382,7 +388,11 @@ async function doSenkiFight(i, title, deck) {
   try {
     const r = await api("/api/senki_fight",
                         Object.assign({ i }, deck || {}));
-    showBattleResult(title, r, () => { $("#overlay").remove(); viewSenkiPrep(i); });
+    // **結果より先に戦いを見せる**（§7.62）。判はリプレイを見届けた後に出す
+    const nextI = (i + 1 < r.total && i + 1 <= r.cleared) ? i + 1 : null;
+    sessionStorage.setItem("fight:" + r.battle_id, JSON.stringify(
+      { label: title, result: r, i, next: nextI }));
+    location.href = "/replay?id=" + r.battle_id + "&from=fight";
   } catch (e) {
     const ov = $("#overlay"); if (ov) ov.remove();
     let msg = e.message;
@@ -471,7 +481,7 @@ async function viewSenkiPrep(i) {
     <div class="cards" id="roster"></div>`;
   drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
-  $("#prep-back").onclick = () => { PREP = null; boot(); };
+  $("#prep-back").onclick = () => { location.href = "/senki"; };
   $("#prep-again").onclick = async () => {
     const r = await api("/api/senki_prep?i=" + i + "&n=" + Date.now());
     PREP.suggest = r.suggest;
@@ -1119,8 +1129,17 @@ async function viewReplays(state) {
 
 /* ── リプレイ再生 ───────────────────── */
 async function viewReplay(state) {
-  const id = new URLSearchParams(location.search).get("id");
+  const qs = new URLSearchParams(location.search);
+  const id = qs.get("id");
   const d = await api("/api/replay?id=" + id);
+  // 出陣からそのまま来た場合は「実況を見届けてから判」（結果→履歴の順だと
+  // 先に勝敗を知ってしまい、戦いを観る意味が薄れる・テストプレイの指摘）
+  let FIGHT = null;
+  if (qs.get("from") === "fight") {
+    try { FIGHT = JSON.parse(sessionStorage.getItem("fight:" + id) || "null"); }
+    catch (_e) { FIGHT = null; }
+  }
+  if (FIGHT) document.body.classList.add("suspense");
   const tabs = d.games.length > 1
     ? `<div class="game-tabs">${d.games.map((g, i) =>
         `<button data-i="${i}" class="${i === 0 ? "on" : ""}">
@@ -1128,13 +1147,14 @@ async function viewReplay(state) {
     : "";
   $("#app").innerHTML = `
     <div class="replay-head">
-      <h2>${esc(d.title)}</h2>
-      <span class="muted">${esc(d.board)}・${esc(d.when || "")}</span>
+      <h2>${FIGHT ? esc(FIGHT.label) : esc(d.title)}</h2>
+      <span class="muted">${FIGHT ? "戦況を見届けよ"
+        : esc(d.board) + "・" + esc(d.when || "")}</span>
     </div>
     ${tabs}
     <div class="replay-controls">
       <button id="play" class="primary">▶ 再生</button>
-      <button id="skip">全部表示</button>
+      <button id="skip">${FIGHT ? "結末まで飛ばす" : "全部表示"}</button>
       <label class="muted"><input type="checkbox" id="fast"> 速く</label>
     </div>
     <div class="replay-grid">
@@ -1156,6 +1176,22 @@ async function viewReplay(state) {
     boot();
   });
   boot();
+
+  function revealResult() {
+    if (!FIGHT || FIGHT.shown) return;
+    FIGHT.shown = true;
+    sessionStorage.removeItem("fight:" + id);
+    document.body.classList.remove("suspense");   // 見立てと軍功帳を開く
+    const r = FIGHT.result;
+    showBattleResult(FIGHT.label, r, {
+      hideReplay: true,
+      closeLabel: "戦記へ戻る",
+      close: () => { location.href = "/senki"; },
+      next: FIGHT.next === null ? null
+            : () => { location.href = "/senki?i=" + FIGHT.next; },
+      retry: () => { location.href = "/senki?i=" + FIGHT.i; },
+    });
+  }
 
   function loadGame(g) {
     clearInterval(timer);
@@ -1207,7 +1243,7 @@ async function viewReplay(state) {
       box.scrollTop = el.offsetTop - box.clientHeight + el.offsetHeight + 20;
       const t = el.dataset.t;
       if (t !== "") drawChart(g, +t);
-      if (i === lines.length) drawChart(g, Infinity);
+      if (i === lines.length) { drawChart(g, Infinity); revealResult(); }
     };
     const start = () => {
       clearInterval(timer);
@@ -1218,6 +1254,7 @@ async function viewReplay(state) {
       clearInterval(timer);
       lines.forEach((el) => el.classList.add("show"));
       drawChart(g, Infinity);
+      revealResult();
     };
     // 自動で流し始める
     start();
@@ -1290,7 +1327,10 @@ async function viewReplay(state) {
   const view = document.body.dataset.view;
   if (!state.me && view !== "replay") return renderLogin(state);
   if (view === "home") return viewHome(state);
-  if (view === "senki") return viewSenki(state);
+  if (view === "senki") {
+    const qi = new URLSearchParams(location.search).get("i");
+    return qi === null ? viewSenki(state) : viewSenkiPrep(+qi);
+  }
   if (view === "deck") return viewDeck(state);
   if (view === "replays") return viewReplays(state);
   if (view === "replay") return viewReplay(state);
