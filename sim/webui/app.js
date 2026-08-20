@@ -522,7 +522,14 @@ function drawTypeTabs() {
   $("#sortsel").onchange = () => { FILTER.sort = $("#sortsel").value; drawRoster(); };
 }
 
-function drawAll() { drawRoster(); drawSlots(); drawMeter(); drawEntryState(); drawDraft(); drawLibrary(); drawOnsho(); drawSortieBar(); drawScout(); }
+function drawAll() {
+  // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
+  // 後続の枠（軍師に相談・保存庫・軍功枠…）を巻き添えにしないように。
+  for (const f of [drawRoster, drawSlots, drawMeter, drawEntryState, drawDraft,
+                   drawLibrary, drawOnsho, drawSortieBar, drawScout]) {
+    try { f(); } catch (e) { console.error("drawAll:", f.name, e); }
+  }
+}
 
 /* ── たたき台（アンケート → 暫定デッキ・§7.54） ─────────── */
 const DRAFT = { style: "おまかせ", typ: "おまかせ", faction: "おまかせ",
@@ -1137,6 +1144,12 @@ async function viewReplay(state) {
 (async function boot() {
   const state = await api("/api/state");
   shell(state);
+  if (state.stale_server) {
+    $("#app").insertAdjacentHTML("beforebegin", `
+      <div class="stale-banner">⚠ ゲームのファイルが更新されているのに、
+      サーバが古いまま動いている。<b>python -m sim.web を止めて起動し直し、
+      ページを再読み込みして</b>（新旧混在は表示が壊れる）。</div>`);
+  }
   const view = document.body.dataset.view;
   if (!state.me && view !== "replay") return renderLogin(state);
   if (view === "home") return viewHome(state);

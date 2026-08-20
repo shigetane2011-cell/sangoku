@@ -36,6 +36,22 @@ WEBUI = os.path.join(os.path.dirname(__file__), "webui")
 VIEWS = {"/": "home", "/senki": "senki", "/deck": "deck",
          "/replays": "replays", "/replay": "replay"}
 
+# 起動時刻。これより新しい .py がディスクにあれば「サーバが古い」— ファイルを
+# 差し替えたのに再起動していない状態。**新旧混在は静かに壊れる**（版ずれの
+# JSがAPIの形の違いで例外を出し、画面の枠が巻き添えで消える事故が実際に
+# 起きた）ので、画面のバナーで再起動を促す。
+_BOOT_TIME = time.time()
+
+
+def _server_stale() -> bool:
+    import glob
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        return any(os.path.getmtime(f) > _BOOT_TIME
+                   for f in glob.glob(os.path.join(here, "*.py")))
+    except OSError:
+        return False
+
 SHELL = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -480,6 +496,7 @@ class App(BaseHTTPRequestHandler):
                 last = P.battles_of(cx, pid=foe, limit=1)
                 tenka["battle_id"] = last[0]["id"] if last else None
         self._json({
+            "stale_server": _server_stale(),
             "me": {"id": me.id, "name": me.display_name} if me else None,
             "humans": [{"id": p.id, "name": p.display_name}
                        for p in players if p.kind == P.HUMAN],
