@@ -1,0 +1,56 @@
+『三国布陣』武将顔絵 No.1-10 生成記録
+
+生成日: 2026-08-20
+サービス: OpenAI built-in image_gen
+モデル名: ツール側で個別モデル識別子は非公開
+生成方式: 1武将につき1回、添付5画像を画風・構図の参照として使用
+seed: ツール側で非公開
+
+参照画像（すべて画風・構図のみ。人物同一性や固有衣装は継承しない）
+- ChatGPT Image 2026年8月20日 19_58_22 (2)(1).png
+- ChatGPT Image 2026年8月20日 19_59_08(1).png
+- ChatGPT Image 2026年8月20日 19_58_22 (1)(1).png
+- ChatGPT Image 2026年8月20日 19_58_23 (4)(1).png
+- ChatGPT Image 2026年8月20日 19_58_22 (3)(1).png
+
+共通プロンプト
+Use case: stylized-concept
+Asset type: browser strategy game character portrait.
+Images 1-5 are style and composition references only. Match their shared visual language, but do not copy any depicted person's face, costume, pose, weapon ornament, or identifying design.
+Original Three Kingdoms-era Chinese portrait illustration; bold controlled black ink contour lines; hand-drawn East Asian ink-and-muted-color wash; fibrous paper grain; dry matte cloth, leather, and iron; restrained gold accents; dark near-black sumi background with irregular faction-color ink splashes; strong dark/light contrast and subtle upper-side rim light. Original design, not in the style of any named game, franchise, artist, or existing character design.
+Exact vertical 3:4 portrait; head-and-chest bust only; large readable face; eyes toward viewer; front to 45-degree angle; eye line/face center at 30-35% from top; at least 8% clear headroom including headwear; all ornaments inside frame; shoulders and chest fill lower half. Keep complete face inside the top 64% crop and centered square crop. Facial features must remain legible in a 20px circular crop.
+One person only; opaque background; historically plausible late Han / Three Kingdoms clothing and arms; no scenery; no writing, Chinese characters, nameplate, signature, logo, border, frame, watermark, UI, glow effects, or sparkles. No modern anime exaggeration, huge eyes, pastel palette, photorealism, or likeness of a real modern person.
+
+No.1 関平.png — 関平〔麒麟児〕
+Young adult Shu cavalry warrior, clearly younger than Guan Yu and not a duplicate of the reference Guan Yu; athletic, broad-shouldered, youthful face, very short neat chin beard, resolute brows. Martial 87, intelligence 68. Light mounted lamellar armor, horse-tack fittings, wind-caught green mantle, practical polearm or saber edge low in frame. Quiet offensive readiness and determination to honor his father. Green #47825a, dark sumi, muted bronze and gold.
+
+No.2 馬騰.png — 馬騰〔西涼〕
+Mature western-frontier cavalry warlord; weathered sun-browned face, strong cheekbones, thick dark beard touched with gray, steady commanding gaze. Martial 78, intelligence 50. Layered leather and lamellar riding armor, restrained fur edging, horse-tack fittings, wind-swept ochre mantle. Balanced natural posture and the quiet presence of the Xiliang wind. Yellow-earth #8a7640, dark sumi, tarnished bronze and muted gold.
+
+No.3 黄蓋.png — 黄蓋〔苦肉〕
+Elderly but powerfully built Wu heavy infantry veteran; deeply lined face, gray brows and beard, old battle scars, unwavering eyes. Martial 83, intelligence 65. Thick red-brown lamellar cuirass, broad shoulder protection, heavy shield or large-blade edge low in frame. Planted, immovable stance, enduring pain without shouting. Vermilion-red #a04343, dark sumi, aged iron and muted gold.
+
+No.4 文聘.png — 文聘〔江夏〕
+Middle-aged Wei infantry commander and steadfast guardian of Jiangxia; square disciplined face, short trimmed dark beard with a little gray, calm unyielding eyes. Martial 65, intelligence 58. Heavy blue-gray lamellar armor, thick shoulder plates, shield edge low in frame; spear shaft and spearhead fully inside one side. Rooted defensive pride without bravado. Indigo-blue #46689c, dark sumi, cold iron and restrained gold.
+
+No.5 楽進.png — 楽進〔先登〕
+Compact, wiry, highly athletic Wei frontline infantry veteran; younger middle-aged, sharp practical face, close-trimmed moustache and short beard, alert eyes. Martial 86, intelligence 58. Functional heavy blue lamellar cuirass with battle wear; broad saber or long-handled blade edge low at one side. Balanced posture with contained energy of the first soldier over the wall. Indigo-blue #46689c, dark sumi, aged iron and muted gold.
+
+No.6 沮授.png — 沮授〔監軍〕
+Mature coalition-era strategist and supervising officer; physically slight, martial 20, intelligence 84; long thoughtful face, narrow perceptive eyes, thin moustache and neat pointed beard, expression of a warning already given. Light archer robes and modest protection; compact bow/crossbow limb low in frame; bamboo-slip scroll as main intellectual prop. Yellow-earth #8a7640, dark sumi, parchment ivory and restrained bronze.
+
+No.7 王平.png — 王平〔無当〕
+Seasoned Shu mountain infantry commander; rugged, practical, weather-darkened face, compact sturdy build, short dark beard, observant calm eyes. Martial 72, intelligence 74. Thick but mobile green-and-dark lamellar armor for mountain fighting, simple cloth bindings; spear shaft and spearhead fully inside one side, modest shield edge low in frame. Green #47825a, dark sumi, aged iron and muted bronze.
+
+No.8 韓当.png — 韓当〔老弓〕
+Older Wu veteran archer who served three generations of the Sun family; lean sinewy build, weathered face, gray sideburns and short gray beard, far-seeing eyes. Martial 81, intelligence 64. Light red-brown armor, archer bracer, traditional bow along one side and arrow shafts in hand. Strong offensive readiness before rapid fire, no shouting. Vermilion-red #a04343, dark sumi, worn leather and restrained gold.
+
+No.9 周泰.png — 周泰〔身代〕
+Imposing Wu bodyguard and heavy infantry protector; powerful neck and shoulders, tightly bound hair, short rough beard, numerous old scars across face, neck and upper arm, unwavering eyes. Martial 89, intelligence 49. Extremely thick battle-worn red lamellar cuirass, large shield edge in lower corner and heavy saber edge opposite, both below the face. Immovable protective posture. Vermilion-red #a04343, dark sumi, dark iron and aged gold.
+
+No.10 張任.png — 張任〔落鳳〕
+Stern middle-aged coalition-era cavalry commander, loyal and strategically sharp; lean athletic face, high cheekbones, neatly trimmed moustache and pointed beard, penetrating gaze. Martial 79, intelligence 80. Mobile yellow-earth cavalry armor, horse-tack fittings, short wind-swept mantle; compact recurve bow or cavalry spear edge low at one side. Forward tension under precise control and unwavering loyalty. Yellow-earth #8a7640, dark sumi, dark leather and restrained bronze-gold.
+
+納品加工
+- 原寸: 1086×1448 PNG
+- ゲーム用: 480×640 PNG、128色パレット化・最適化（全ファイル300KB未満）
