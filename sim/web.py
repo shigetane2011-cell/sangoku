@@ -803,22 +803,44 @@ class App(BaseHTTPRequestHandler):
         if reg not in dict(M.REGULATIONS):
             return self._json({"ok": False, "errors": ["そのレギュレーションは無い"]})
         form = F.FORM_ALIAS.get(body.get("form", ""), body.get("form", "魚鱗"))
+        # 陣形を名指しされたら軍師に動かさせない（"おまかせ" なら従来どおり）
+        pin_form = bool(body.get("pin_form"))
         # 軍師も未登用は知らない（§7.60）— たたき台は手持ちだけで組む
         unl = PL.ensure_unlocks(cx, me.id)
-        cards = [c for c in M._roster_cards() if M.person_of(c) in unl]
-        # 他のデッキで使っている人物は避ける（登録検証で両方塞がるため）
-        by_name = {c.name: c for c in cards}
+        all_cards = M._roster_cards()
+        cards = [c for c in all_cards if M.person_of(c) in unl]
+        # 戦記の戦を指されたら、その戦の上限ちょうどで組む（§7.62）。
+        # 戦記は PvE なので、他のデッキとの人物の取り合いは見ない。
+        senki = body.get("senki")
+        cap = None
         exclude = set()
-        for r2, (raw, _f) in P.decks_of(cx, me.id).items():
-            if r2 == reg:
-                continue
-            for n in F.trait_keys(raw):
-                if n in by_name:
-                    exclude.add(M.person_of(by_name[n]))
+        if senki is not None:
+            bs = SK.battles()
+            i = int(senki)
+            if not 0 <= i < len(bs):
+                return self._json({"ok": False, "errors": ["その戦は無い"]})
+            b = bs[i]
+            if i > SK.cleared(cx, me.id):
+                return self._json({"ok": False, "errors": ["先の戦にはまだ進めない"]})
+            reg = b["board"]
+            cap = SK.player_cap(all_cards, b)
+            # 敵に出ている顔は草案から外す（規則では許すが、初期案にはしない）
+            exclude = {M.person_of(c)
+                       for c in SK.enemy_army(all_cards, b).cards}
+        else:
+            # 他のデッキで使っている人物は避ける（登録検証で両方塞がるため）
+            by_name = {c.name: c for c in cards}
+            for r2, (raw, _f) in P.decks_of(cx, me.id).items():
+                if r2 == reg:
+                    continue
+                for n in F.trait_keys(raw):
+                    if n in by_name:
+                        exclude.add(M.person_of(by_name[n]))
         names, note, used_form = PL.draft_deck(
             cards, reg, form, str(body.get("style", "")),
             str(body.get("typ", "")), str(body.get("faction", "")),
-            int(body.get("nonce", 0)), exclude)
+            int(body.get("nonce", 0)), exclude,
+            cap=cap, ratio=1.0 if cap else 0.9, pin_form=pin_form)
         self._json({"ok": bool(names), "cards": names, "note": note,
                     "form": used_form})
 

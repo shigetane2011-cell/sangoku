@@ -463,6 +463,7 @@ async function viewSenkiPrep(i) {
           <select id="prep-src">${sources}</select>
           <button class="mini ghost" id="prep-again">草案を引き直す</button>
         </div>
+        <div id="draft" class="draft"></div>
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
         <div class="slots" id="slots"></div>
@@ -516,7 +517,7 @@ async function viewSenkiPrep(i) {
 }
 
 function drawPrep(msg) {
-  for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary]) {
+  for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary, drawDraft]) {
     try { f(); } catch (e) { console.error("drawPrep:", f.name, e); }
   }
   const over = deckCost() > PREP.cap + 1e-9;
@@ -741,7 +742,7 @@ function drawAll() {
 
 /* ── たたき台（アンケート → 暫定デッキ・§7.54） ─────────── */
 const DRAFT = { style: "おまかせ", typ: "おまかせ", faction: "おまかせ",
-                nonce: 0, note: "", open: false };
+                form: "おまかせ", nonce: 0, note: "", open: false };
 
 function drawDraft() {
   const el = $("#draft");
@@ -761,7 +762,10 @@ function drawDraft() {
     ${q("style", "戦い方", ["力押し", "必殺技", "守り", "おまかせ"])}
     ${q("typ", "主役", ["歩兵", "騎兵", "弓兵", "おまかせ"])}
     ${q("faction", "勢力", ["魏", "蜀", "呉", "群雄", "おまかせ"])}
-    <div class="draft-q muted"><span>陣形</span><span>いまの陣形タブ（${esc(cur.form)}）で組む。主役を指定したら軍師が選び直すこともある</span></div>
+    ${q("form", "陣形", ["鶴翼", "魚鱗", "雁行", "おまかせ"])}
+    <div class="draft-q muted"><span></span><span>${DRAFT.form === "おまかせ"
+      ? `いまの陣形タブ（${esc(cur.form)}）で組む。主役を指定したら軍師が選び直す`
+      : `${esc(DRAFT.form)}のまま組む。主役の枠が足りなければ軍師がそう言う`}</span></div>
     <div class="deck-actions">
       <button id="draft-go">${DRAFT.nonce ? "引き直す" : "この方針で組む"}</button>
       <button id="draft-close" class="ghost">閉じる</button>
@@ -773,9 +777,12 @@ function drawDraft() {
   $("#draft-close").onclick = () => { DRAFT.open = false; drawDraft(); };
   $("#draft-go").onclick = async () => {
     DRAFT.nonce += 1;
+    const pin = DRAFT.form !== "おまかせ";
     const r = await api("/api/draft", {
-      reg: cur.reg, form: cur.form, style: DRAFT.style, typ: DRAFT.typ,
-      faction: DRAFT.faction, nonce: DRAFT.nonce });
+      reg: cur.reg, form: pin ? DRAFT.form : cur.form,
+      style: DRAFT.style, typ: DRAFT.typ, faction: DRAFT.faction,
+      pin_form: pin, nonce: DRAFT.nonce,
+      senki: PREP ? PREP.i : undefined });
     if (r.ok) {
       cur.cards = r.cards;
       if (r.form) cur.form = r.form;   // 主役指定なら軍師が陣形も選び直す
@@ -785,7 +792,8 @@ function drawDraft() {
     }
     DRAFT.open = true;
     drawFormTabs();
-    drawAll();
+    if (PREP) drawPrep(); else drawAll();
+    drawDraft();
   };
 }
 

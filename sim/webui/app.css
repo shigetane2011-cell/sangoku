@@ -380,6 +380,10 @@ h2 button.attack { float: right; font-size: 13px; }
   font-weight: 700; color: var(--ink); text-shadow: 0 1px 2px #000000aa; }
 
 .slots { display: grid; gap: 6px; }
+/* grid の子は既定で min-content より縮まない。⚠の一言が入った枠が
+   min-content を押し上げ、**全部の行**が枠からはみ出して ✕ が箱の外
+   （overflow:hidden の向こう）へ逃げていた。縮んでよいと言っておく。 */
+.slots > .slot { min-width: 0; }
 .slot {
   display: flex; align-items: center; gap: 8px;
   border: 1px dashed var(--line); border-radius: 9px; padding: 4px 10px; min-height: 46px;
@@ -390,10 +394,10 @@ h2 button.attack { float: right; font-size: 13px; }
 .slot .pos { width: 3.2em; font-size: 11px; color: var(--sub); letter-spacing: .1em; }
 .slot .mini-face { width: 30px; height: 38px; object-fit: cover; border-radius: 5px;
   border: 1px solid var(--line2); flex: none; }
-.slot .who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px;
-  white-space: nowrap; }
+.slot .who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px 6px;
+  flex-wrap: wrap; }
 .slot .who b { font-family: var(--font-min); letter-spacing: .04em;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .unit-type { display: inline-flex; align-items: center; gap: 2px; flex: none;
   border: 1px solid var(--line2); border-radius: 5px; padding: 1px 5px 1px 3px;
   color: var(--ink); background: #15110dcc; font-size: 10.5px; line-height: 1.4; }
@@ -418,7 +422,8 @@ h2 button.attack { float: right; font-size: 13px; }
 }
 #tip b { font-family: var(--font-min); color: var(--gold-hi); margin-right: 6px; }
 #tip .tip-hint { color: var(--faint); font-size: 11px; }
-.slot .warn { color: #e08a5a; font-size: 11px; }
+/* 幅が足りなければ次の行へ落ちる。横に伸びて ✕ を押し出さない */
+.slot .warn { color: #e08a5a; font-size: 11px; min-width: 0; }
 .deck-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px;
   flex-wrap: wrap; }
 #deck-msg.ok { color: var(--win); }

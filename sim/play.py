@@ -950,10 +950,41 @@ def eval_chart(series, me_first: bool, width: int = 60) -> List[str]:
     return out
 
 
+# 陣形 → 前衛の数。**正本は field.FORM_NAME**（ここに数を書き写さない）。
+_FRONT_OF = {name: n for n, name in F.FORM_NAME.items()}
+
+
+def _main_slots(form_name: str, typ: str) -> int:
+    """その陣形で、主役の兵種が実際に入れる枠の数。
+
+    後衛は弓（と槍持ち）だけなので、近接の主役は前衛の数で頭打ちになり、
+    弓の主役は後衛の数で決まる。陣形を名指しされたときに「何人ぶんしか
+    無い」と言うために使う。
+    """
+    front = _FRONT_OF.get(form_name, 3)
+    return (M.UNIT_SIZE - front) if typ == "弓兵" else front
+
+
+def _form_floor(pool, form_name: str) -> float:
+    """その陣形を**手持ちで組んだときの最安**。上限に収まるかを見るため。
+
+    後衛の枠は弓か槍持ちでしか埋まらないので、陣形によっては手持ちの
+    値段の下限そのものが上限を超えることがある（序盤の雁行など）。
+    """
+    front = _FRONT_OF.get(form_name, 3)
+    rear_n = M.UNIT_SIZE - front
+    rear = sorted(c.cost for c in pool
+                  if c.typ == F.ARC or getattr(c, "spear", False))
+    near = sorted(c.cost for c in pool if c.typ != F.ARC)
+    if len(rear) < rear_n or len(near) < front:
+        return float("inf")
+    return sum(rear[:rear_n]) + sum(near[:front])
+
+
 def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
                faction: str, seed: int, exclude_persons=(),
-               cap: Optional[float] = None, ratio: float = 0.9
-               ) -> Tuple[List[str], str, str]:
+               cap: Optional[float] = None, ratio: float = 0.9,
+               pin_form: bool = False) -> Tuple[List[str], str, str]:
     """アンケートの回答から**たたき台**のデッキを組む（§7.54）。
 
     ダミーの編成器（dummies.make_entry）をそのまま使う — 回答を性格
@@ -983,8 +1014,17 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
                  for t in (F.INF, F.CAV, F.ARC)}
         best = "雁行" if typ == "弓兵" else "鶴翼"
         if form_name != best:
-            form_name = best
-            note_head = "主役の{}が並ぶよう陣形は{}にした。".format(typ, best)
+            if pin_form:
+                # 陣形を名指しされたら動かさない。ただし**黙って裏切らない** —
+                # 後衛は弓の定石で組むので、近接主役に後衛の多い陣形を指すと
+                # 主役の枠が物理的に足りない。そのことを先に言う。
+                note_head = ("陣形は{}のまま組んだ（指定）。{}の枠は{}人ぶんしか"
+                             "無いので、主役を通したいなら{}に替える。"
+                             ).format(form_name, typ,
+                                      _main_slots(form_name, typ), best)
+            else:
+                form_name = best
+                note_head = "主役の{}が並ぶよう陣形は{}にした。".format(typ, best)
     else:
         typ_w = {t: 1.0 for t in (F.INF, F.CAV, F.ARC)}
     greed = {"力押し": 0.6, "守り": 0.3}.get(style, 0.5)
@@ -1017,6 +1057,14 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
         note = "その勢力だけでは埋まらず、他勢力も混ぜた。" + note
     names = build(pool)
     if names is None:
+        # 組めなかった理由を取り違えない。**その陣形の最安が上限を超えて
+        # いる**のが原因なら、人物の重なりの話をしても直せない。
+        floor = _form_floor(pool, form_name)
+        if floor > limit + 1e-9:
+            return ([], "{}は後衛{}人ぶんが要る。手持ちの一番安い組み合わせでも"
+                        "{:.0f}点で、上限{:.0f}点に収まらない".format(
+                            form_name, M.UNIT_SIZE - _FRONT_OF.get(form_name, 3),
+                            floor, limit), form_name)
         return ([], "たたき台を組めなかった（他のデッキと人物が重なりすぎている）",
                 form_name)
     return names, note, form_name
