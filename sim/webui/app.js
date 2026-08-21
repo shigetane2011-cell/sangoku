@@ -275,6 +275,7 @@ function showBattleResult(label, r, opts) {
         ? `<a class="btn ${opts.next ? "" : "primary"}" href="/replay?id=${r.battle_id}">戦いを観る</a>` : ""}
       ${isReg ? `<button id="again">もう一度出陣</button>` : ""}
       ${opts.retry ? `<button id="reprep">${r.win === "勝ち" ? "編成を見直す" : "編成を直して再挑戦"}</button>` : ""}
+      ${opts.review ? `<button id="reviewlog">ログを読み返す</button>` : ""}
       <button class="ghost" id="closeres">${opts.closeLabel || "閉じる"}</button>
     </div>
   </div>`;
@@ -284,6 +285,8 @@ function showBattleResult(label, r, opts) {
   if (rp) rp.onclick = opts.retry;
   const nx = $("#nextstage");
   if (nx) nx.onclick = opts.next;
+  const rv = $("#reviewlog");
+  if (rv) rv.onclick = () => { $("#overlay").remove(); opts.review(); };
   $("#closeres").onclick = opts.close || (() => location.reload());
 }
 
@@ -1246,7 +1249,8 @@ async function viewReplay(state) {
   // 出陣からそのまま来た場合は「実況を見届けてから判」（結果→履歴の順だと
   // 先に勝敗を知ってしまい、戦いを観る意味が薄れる・テストプレイの指摘）
   let FIGHT = null;
-  if (qs.get("from") === "fight") {
+  const fromFight = qs.get("from") === "fight";
+  if (fromFight) {
     try { FIGHT = JSON.parse(sessionStorage.getItem("fight:" + id) || "null"); }
     catch (_e) { FIGHT = null; }
   }
@@ -1263,7 +1267,8 @@ async function viewReplay(state) {
     : "";
   $("#app").innerHTML = `
     <div class="replay-head">
-      <a class="btn ghost mini" href="/replays">← 戦歴へ</a>
+      <a class="btn ghost mini" href="${fromFight ? "/senki" : "/replays"}">${
+        fromFight ? "← 戦記へ" : "← 戦歴へ"}</a>
       <div><h2>${FIGHT ? esc(FIGHT.label) : esc(d.board)}</h2>
       <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
         ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}</span></div>
@@ -1279,6 +1284,7 @@ async function viewReplay(state) {
       <button id="skip">${FIGHT ? "結末まで飛ばす" : "全部表示"}</button>
       <label class="muted"><input type="checkbox" id="fast"> 速く</label>
     </div>
+    <div id="fight-actions" class="fight-actions"></div>
     <div id="battle-summary"></div>
     <div class="replay-grid">
       <div class="log" id="log"></div>
@@ -1307,14 +1313,38 @@ async function viewReplay(state) {
     sessionStorage.removeItem("fight:" + id);
     document.body.classList.remove("suspense");   // 見立てと軍功帳を開く
     const r = FIGHT.result;
+    const to = (href) => () => { location.href = href; };
+    const next = FIGHT.next === null ? null : to("/senki?i=" + FIGHT.next);
+    // 判の窓を閉じても行き先が消えないよう、同じ動線を画面にも残す。
+    // 実況・戦況図・軍師の見立て・軍功帳は、判のあとが**読みどころ**なので、
+    // 「戦記へ戻る」しか無いと読み返せずに流れてしまっていた。
+    drawFightBar(r, next);
     showBattleResult(FIGHT.label, r, {
       hideReplay: true,
       closeLabel: "戦記へ戻る",
-      close: () => { location.href = "/senki"; },
-      next: FIGHT.next === null ? null
-            : () => { location.href = "/senki?i=" + FIGHT.next; },
-      retry: () => { location.href = "/senki?i=" + FIGHT.i; },
+      close: to("/senki"),
+      next: next,
+      retry: to("/senki?i=" + FIGHT.i),
+      review: () => {
+        const bar = $("#fight-actions");
+        if (bar) bar.scrollIntoView({ block: "start", behavior: "smooth" });
+      },
     });
+  }
+
+  function drawFightBar(r, next) {
+    const el = $("#fight-actions");
+    if (!el) return;
+    const cls = r.win === "勝ち" ? "win" : (r.win === "負け" ? "lose" : "draw");
+    el.className = "fight-actions " + cls;
+    el.innerHTML = `
+      <span class="fa-verdict">${esc(r.win)}</span>
+      <span class="muted">実況・戦況図・軍師の見立て・軍功帳をこのまま読み返せる</span>
+      ${next ? `<button class="primary" id="fa-next">次の戦へ ▶</button>` : ""}
+      <button id="fa-retry">${r.win === "勝ち" ? "編成を見直す" : "編成を直して再挑戦"}</button>
+      <a class="btn ghost" href="/senki">戦記へ戻る</a>`;
+    if (next) $("#fa-next").onclick = next;
+    $("#fa-retry").onclick = () => { location.href = "/senki?i=" + FIGHT.i; };
   }
 
   function loadGame(g) {

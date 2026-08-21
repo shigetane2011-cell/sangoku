@@ -568,6 +568,24 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
 .summary-body b { font-family: var(--font-min); font-size: 14px; }
 .summary-body span { color: var(--sub); font-size: 12px; }
 .summary-body .remain { flex-basis: 100%; color: var(--ink); }
+/* 判のあとも消えない動線（§7.62）。実況・戦況図・見立て・軍功帳は
+   判のあとが読みどころなので、行き先を画面にも残しておく。 */
+.fight-actions { display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 10px 0; padding: 9px 13px; border: 1px solid var(--line2);
+  border-radius: 11px; background: linear-gradient(90deg, #292113, var(--panel)); }
+.fight-actions.win, .fight-actions.lose, .fight-actions.draw { display: flex; }
+.fight-actions.lose { border-color: #52677f;
+  background: linear-gradient(90deg, #1c2834, var(--panel)); }
+.fight-actions .fa-verdict { font-family: var(--font-brush); font-size: 22px;
+  line-height: 1; color: var(--win); }
+.fight-actions.lose .fa-verdict { color: #91aac6; }
+.fight-actions.draw .fa-verdict { color: var(--sub); }
+.fight-actions .muted { margin-right: auto; font-size: 12px; }
+@media (max-width: 760px) {
+  .fight-actions .muted { flex-basis: 100%; margin-right: 0; }
+  .fight-actions button, .fight-actions .btn { flex: 1; }
+}
+
 .game-tabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
 .game-tabs button.on { background: linear-gradient(180deg, #8a3826, var(--accent-soft));
   border-color: var(--accent); }
