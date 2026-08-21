@@ -456,7 +456,15 @@ class App(BaseHTTPRequestHandler):
             return self._send(b"not found", 404, "text/plain")
         ctype = "text/css" if name.endswith(".css") else "text/javascript"
         with open(path, "rb") as f:
-            self._send(f.read(), 200, ctype + "; charset=utf-8")
+            body = f.read()
+        # 画面の見た目を直したのに古いままに見える、という事故を断つ。
+        # app.css / app.js は毎回取りに来させる（手元専用なので費用は無い）。
+        self.send_response(200)
+        self.send_header("Content-Type", ctype + "; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------------------------------------------------------------- API
     def _api_state(self):
