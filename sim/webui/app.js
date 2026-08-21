@@ -2,6 +2,8 @@
    （検証の正は match.validate。ここでの表示はあくまで手元の目安）。 */
 "use strict";
 
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+
 const $ = (sel, el) => (el || document).querySelector(sel);
 const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
 const esc = (s) => String(s).replace(/[&<>"']/g,
@@ -38,16 +40,16 @@ async function api(path, body) {
 /* ── 題字（朱印の落款＋金の筆文字） ─────────────────── */
 function logoHTML(big) {
   return `<span class="logo ${big ? "logo-big" : ""}">
-    <span class="logo-seal" aria-hidden="true"><span>三</span><span>国</span></span>
-    <span class="logo-text">布陣</span>
+    <span class="logo-seal" aria-hidden="true"><span>陣</span></span>
+    <span class="logo-text">三国布陣</span>
   </span>`;
 }
 
 /* ── 共通シェル ─────────────────────── */
 function shell(state) {
   const view = document.body.dataset.view;
-  const nav = [["/", "順位表"], ["/senki", "戦記"], ["/deck", "編成"],
-               ["/replays", "リプレイ"]]
+  const nav = [["/", "対戦"], ["/senki", "戦記"], ["/deck", "編成"],
+               ["/replays", "戦歴"]]
     .map(([p, t]) => `<a href="${p}" class="${location.pathname === p ? "on" : ""}">${t}</a>`)
     .join("");
   const chip = state.me
@@ -71,6 +73,7 @@ function renderLogin(state, force) {
   app.innerHTML = `
     <div class="login-hero fade-in">
       ${logoHTML(true)}
+      <div class="logo-sub">六将軍略オートバトル</div>
       <div class="logo-tag">知略を布き、乱世を制せ</div>
     </div>
     <div class="login-panel panel fade-in">
@@ -130,7 +133,7 @@ async function viewHome(state) {
       ${"❙".repeat(h.count)}<span class="empty">${"❙".repeat(h.cap - h.count)}</span>
       <b>${h.count}</b>/${h.cap}
       ${h.next_in ? `<small>次の1枚まで ${Math.ceil(h.next_in / 60)}分</small>` : ""}
-      <button class="mini ghost" id="refill" title="試験用">＋補充</button>
+      <button class="mini ghost dev-only" id="refill" title="試験用">＋補充</button>
     </span>` : "";
   const t = state.tenka || {};
   const tenka = `
@@ -140,7 +143,7 @@ async function viewHome(state) {
                            : '<span class="warn">3デッキ揃えると自動参加</span>') : ""}
       ${t.foe ? `　対戦相手: <b>${esc(t.foe)}</b> <span class="form-tag">${esc(t.forms || "?")}</span>
         ${t.battle_id ? `<a href="/replay?id=${t.battle_id}">前の戦いを観る</a>` : ""}` : ""}
-      ${state.me ? '<button class="mini ghost" id="tenka-now" title="試験用">今すぐ開催</button>' : ""}
+      ${state.me ? '<button class="mini ghost dev-only" id="tenka-now" title="試験用">今すぐ開催</button>' : ""}
     </div>`;
   const dummies = (state.dummies || []).map((d) =>
     `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
@@ -416,13 +419,14 @@ async function viewSenkiPrep(i) {
   const start = p.last || p.suggest;
   cur = { reg: p.board, form: start.form || p.enemy.form,
           cards: [...start.cards] };
+  const foeSummary = armySummary(p.enemy.cards, p.enemy.form, p.enemy.cost, null, "foe");
   const foe = p.enemy.cards.map((c) => `
     <div class="foe-card f${c.faction}">
       <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
       <div class="fc-body">
         <div class="fc-head"><b>${esc(c.name)}</b>
           <span class="cost num">${c.cost}点</span></div>
-        <div class="muted num">${c.rear ? "後衛" : "前衛"}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}・${esc(c.role)}
+        <div class="muted num">${c.rear ? "後衛" : "前衛"}・<span class="unit-type ${TYPE_CLS[c.typ]}">${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "・槍" : ""}</span>・${esc(c.role)}
           ｜兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}</div>
         <div class="fc-skill">【${esc(c.skill)}】${(c.traits || []).length
           ? "　特性: " + c.traits.map((t) => esc(t.name)).join("・") : ""}</div>
@@ -445,14 +449,16 @@ async function viewSenkiPrep(i) {
     </div>
     <div class="senki-intro prep-intro fade-in">${esc(p.intro)}</div>
     <div class="prep-grid fade-in">
-      <div class="panel foe-panel">
-        <h2>敵陣<span class="sub">${esc(p.enemy.form)}・前衛${p.enemy.front}／総勢 ${p.enemy.cost}点</span></h2>
+      <div class="panel foe-panel side-panel">
+        <h2 class="side-heading foe-heading">敵陣<span class="sub">相手の兵種と配置</span></h2>
+        ${foeSummary}
         ${foe}
         ${p.enemy.taunt ? `<div class="ci-quote">「${esc(p.enemy.taunt)}」<span class="muted">— ${esc(p.enemy.lead)}</span></div>` : ""}
         ${rewards ? `<div class="prep-reward">勝てば登用 ${rewards}</div>` : ""}
       </div>
-      <div class="panel mine-panel">
-        <h2>持ち込み<span class="sub">上限 ${p.cap}点（敵より1点軽い）</span></h2>
+      <div class="panel mine-panel side-panel">
+        <h2 class="side-heading mine-heading">自軍編成<span class="sub">上限 ${p.cap}点（敵より1点軽い）</span></h2>
+        <div id="mine-summary"></div>
         <div class="prep-src">
           <select id="prep-src">${sources}</select>
           <button class="mini ghost" id="prep-again">草案を引き直す</button>
@@ -510,7 +516,7 @@ async function viewSenkiPrep(i) {
 }
 
 function drawPrep(msg) {
-  for (const f of [drawRoster, drawSlots, drawMeter]) {
+  for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary]) {
     try { f(); } catch (e) { console.error("drawPrep:", f.name, e); }
   }
   const over = deckCost() > PREP.cap + 1e-9;
@@ -535,6 +541,35 @@ let PREP = null;       // 戦前の間（§7.62）。非nullの間は上限も�
 
 let STATE = null;
 
+function formDiagram(form) {
+  const nf = FORMS[form] || 0;
+  return `<span class="form-diagram" aria-hidden="true">${[0, 1, 2, 3, 4, 5]
+    .map((i) => `<i class="${i < nf ? "front" : "rear"}"></i>`).join("")}</span>`;
+}
+
+function armySummary(cards, form, cost, cap, side) {
+  const counts = { "歩兵": 0, "騎兵": 0, "弓兵": 0, "槍": 0 };
+  for (const c of cards || []) {
+    if (counts[c.typ] !== undefined) counts[c.typ]++;
+    if (c.spear) counts["槍"]++;
+  }
+  const nf = FORMS[form] || (cards || []).filter((c) => !c.rear).length;
+  const costText = cap == null ? `${cost || 0}点` : `${cost || 0}／${cap}点`;
+  return `<div class="army-summary ${side || ""}">
+    <span class="side-pill ${side || ""}">${side === "foe" ? "敵軍" : "自軍"}</span>
+    <span>${icoTyp("歩兵")}歩 ${counts["歩兵"]}</span>
+    <span>${icoTyp("騎兵")}騎 ${counts["騎兵"]}</span>
+    <span>${icoTyp("弓兵")}弓 ${counts["弓兵"]}</span>
+    ${counts["槍"] ? `<span>${icoTyp("槍")}槍 ${counts["槍"]}</span>` : ""}
+    <span class="formation-summary">${formDiagram(form)}${esc(form || "陣形未定")}・前${nf}／後${6 - nf}</span>
+    <b class="summary-cost num">${costText}</b>
+  </div>`;
+}
+
+function currentCards() {
+  return (cur.cards || []).map((name) => D.roster.find((c) => c.name === name)).filter(Boolean);
+}
+
 async function viewDeck(state) {
   STATE = state;
   PREP = null;
@@ -543,9 +578,13 @@ async function viewDeck(state) {
   const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
   cur = { reg, form: saved.form, cards: [...saved.cards] };
   $("#app").innerHTML = `
-    <div class="deck-cta">
-      <button class="primary" id="fight2">出　陣</button>
-      <span class="hint muted" id="fight2hint"></span>
+    <div class="deck-cta action-bar">
+      <div class="action-copy">
+        <b>編成操作</b><span class="hint muted" id="fight2hint"></span>
+        <span id="deck-msg"></span>
+      </div>
+      <button class="primary" id="save">この編成を登録</button>
+      <button class="ghost" id="fight2">この編成で出陣</button>
     </div>
     <div class="reg-tabs" id="regtabs"></div>
     <div class="deck-layout fade-in">
@@ -567,7 +606,7 @@ async function viewDeck(state) {
           ${D.pool ? `<span class="pool-note muted num"
             title="武将は戦記で登用して増える">登用 ${D.pool.unlocked}／${D.pool.total}</span>` : ""}
           ${D.pool && D.pool.unlocked < D.pool.total
-            ? '<button class="mini ghost" id="dev-unlock" title="試験用: 戦記全クリア扱いで全員登用">全登用</button>' : ""}
+            ? '<button class="mini ghost dev-only" id="dev-unlock" title="試験用: 戦記全クリア扱いで全員登用">全登用</button>' : ""}
         </div>
         <div class="type-legend muted num">
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
@@ -575,15 +614,14 @@ async function viewDeck(state) {
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
       </div>
-      <div class="panel">
+      <div class="panel mine-panel side-panel">
+        <h2 class="side-heading mine-heading">自軍編成<span class="sub">6人を前衛・後衛へ配置</span></h2>
         <div id="scout"></div>
+        <div id="mine-summary"></div>
+        <div class="section-label">陣形</div>
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
         <div class="slots" id="slots"></div>
-        <div class="deck-actions">
-          <button class="primary" id="save">この編成を登録</button>
-          <span id="deck-msg"></span>
-        </div>
         <div class="entry-state" id="entrystate"></div>
         <div class="draft-panel" id="draft"></div>
         <div class="library" id="library"></div>
@@ -604,14 +642,28 @@ function drawSortieBar() {
   if (!b || !STATE) return;
   const h = STATE.heifu || { count: 0, cap: 10 };
   const ok = D.boards_ok || {};
-  b.textContent = `${cur.reg} に出陣`;
-  b.disabled = !ok[cur.reg] || h.count < 1;
-  $("#fight2hint").textContent = !ok[cur.reg]
+  const active = D.decks[cur.reg];
+  const registered = !!(active && active.form === cur.form
+    && active.cards.join("、") === cur.cards.join("、"));
+  const save = $("#save");
+  if (save) {
+    save.disabled = registered;
+    save.textContent = registered ? "登録済み" : "この編成を登録";
+    save.classList.toggle("primary", !registered);
+    save.classList.toggle("ghost", registered);
+  }
+  b.textContent = `この編成で ${cur.reg} に出陣`;
+  b.disabled = !registered || !ok[cur.reg] || h.count < 1;
+  b.classList.toggle("primary", registered && ok[cur.reg] && h.count >= 1);
+  b.classList.toggle("ghost", !registered || !ok[cur.reg] || h.count < 1);
+  $("#fight2hint").textContent = !registered
+    ? "変更を登録すると出陣できる"
+    : !ok[cur.reg]
     ? (STATE.senki && STATE.senki.gate && STATE.senki.gate[cur.reg] === false
        ? "戦記を進めるとこの戦場に挑めるようになる"
        : "この戦場のデッキを登録すれば出陣できる")
     : (h.count < 1 ? "兵符が無い（10分に1枚回復）"
-       : `兵符1枚で同格の相手と戦う（残 ${h.count}/${h.cap}）`);
+       : `登録済み・兵符 ${h.count}/${h.cap}`);
 }
 
 function usedPersons(exceptReg) {
@@ -641,7 +693,7 @@ function drawRegTabs() {
 function drawFormTabs() {
   $("#formtabs").innerHTML = Object.entries(FORMS).map(([f, n]) =>
     `<button class="${cur.form === f ? "on" : ""}" data-f="${f}">
-      <b>${f}</b><small>前衛${n}</small></button>`).join("");
+      ${formDiagram(f)}<span><b>${f}</b><small>前${n}・後${6 - n}</small></span></button>`).join("");
   $$("#formtabs button").forEach((b) => b.onclick = () => {
     cur.form = b.dataset.f; drawFormTabs(); drawAll();
   });
@@ -672,7 +724,7 @@ function drawAll() {
   if (PREP) return drawPrep();
   // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
   // 後続の枠（軍師に相談・保存庫・軍功枠…）を巻き添えにしないように。
-  for (const f of [drawRoster, drawSlots, drawMeter, drawEntryState, drawDraft,
+  for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary, drawEntryState, drawDraft,
                    drawLibrary, drawOnsho, drawSortieBar, drawScout]) {
     try { f(); } catch (e) { console.error("drawAll:", f.name, e); }
   }
@@ -812,7 +864,7 @@ function drawOnsho() {
   const el = $("#onsho");
   const budget = (D.onsho_budgets || {})[cur.reg] || 100;
   const head = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功
-    <button class="mini ghost" id="dev-onsho" title="試験用: 全種の恩賞を1つずつ獲得">全恩賞</button> ─</div>`;
+    <button class="mini ghost dev-only" id="dev-onsho" title="試験用: 全種の恩賞を1つずつ獲得">全恩賞</button> ─</div>`;
   const gens = deckGenerals();
   const rows = (D.onsho || []).map((o) => `
       <div class="onsho-row">
@@ -949,7 +1001,7 @@ function drawSlots() {
          data-i="${i}" ${c ? 'draggable="true"' : ""}>
       <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
       ${c ? `<img class="mini-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">` : ""}
-      <span class="who">${c ? `<b>${esc(c.name)}</b>${icoTyp(c.typ, c.spear)}
+      <span class="who">${c ? `<b>${esc(c.name)}</b><span class="unit-type ${TYPE_CLS[c.typ]}">${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "・槍" : ""}</span>
         ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
       ${c ? `<span class="cost num">${c.cost}点</span>
         <button class="mini" data-i="${i}" data-a="up" ${i === 0 ? "disabled" : ""}>↑</button>
@@ -1054,6 +1106,13 @@ function deckCost() {
   }, 0);
 }
 
+function drawArmySummary() {
+  const el = $("#mine-summary");
+  if (!el || !D || !cur) return;
+  const cap = PREP ? PREP.cap : D.regs.find((r) => r.name === cur.reg).cap;
+  el.innerHTML = armySummary(currentCards(), cur.form, deckCost(), cap, "mine");
+}
+
 function onshoKou() {
   // このデッキに乗っている軍功（功）。予算は別枠（§7.61）— 本体の点を食わない
   if (!D.onsho) return 0;
@@ -1132,6 +1191,23 @@ async function viewReplays(state) {
 }
 
 /* ── リプレイ再生 ───────────────────── */
+function replayOutcome(g, d) {
+  const mineRemain = Math.round((g.mine_remain || 0) * 100);
+  const foeRemain = Math.round((g.foe_remain || 0) * 100);
+  const cls = g.verdict === "勝ち" ? "win" : (g.verdict === "負け" ? "lose" : "draw");
+  const verdict = g.verdict === "勝ち" ? "勝利" : (g.verdict === "負け" ? "敗北" : "引き分け");
+  const reason = g.reason === "rout" ? "潰走による決着" : "日没時の判定";
+  const subject = d.is_participant ? "自軍" : esc(d.mine_name);
+  return `<div class="battle-summary ${cls}">
+    <div class="summary-verdict">${verdict}</div>
+    <div class="summary-body">
+      <b>${subject}の${verdict}</b>
+      <span>${esc(g.end_clock || "")}・${reason}</span>
+      <span class="remain num">残存　${subject} ${mineRemain}% ／ ${d.is_participant ? "敵軍" : esc(d.foe_name)} ${foeRemain}%</span>
+    </div>
+  </div>`;
+}
+
 async function viewReplay(state) {
   const qs = new URLSearchParams(location.search);
   const id = qs.get("id");
@@ -1144,6 +1220,11 @@ async function viewReplay(state) {
     catch (_e) { FIGHT = null; }
   }
   if (FIGHT) document.body.classList.add("suspense");
+  const wins = d.games.filter((g) => g.verdict === "勝ち").length;
+  const losses = d.games.filter((g) => g.verdict === "負け").length;
+  const overall = wins > losses ? "勝利" : (losses > wins ? "敗北" : "引き分け");
+  const mineSide = d.is_participant ? "自軍" : "A軍";
+  const foeSide = d.is_participant ? "敵軍" : "B軍";
   const tabs = d.games.length > 1
     ? `<div class="game-tabs">${d.games.map((g, i) =>
         `<button data-i="${i}" class="${i === 0 ? "on" : ""}">
@@ -1151,9 +1232,15 @@ async function viewReplay(state) {
     : "";
   $("#app").innerHTML = `
     <div class="replay-head">
-      <h2>${FIGHT ? esc(FIGHT.label) : esc(d.title)}</h2>
-      <span class="muted">${FIGHT ? "戦況を見届けよ"
-        : esc(d.board) + "・" + esc(d.when || "")}</span>
+      <a class="btn ghost mini" href="/replays">← 戦歴へ</a>
+      <div><h2>${FIGHT ? esc(FIGHT.label) : esc(d.board)}</h2>
+      <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
+        ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}</span></div>
+    </div>
+    <div class="battle-card">
+      <div class="battle-side mine"><span>${mineSide}</span><b>${esc(d.mine_name)}</b></div>
+      <div class="battle-vs">対</div>
+      <div class="battle-side foe"><span>${foeSide}</span><b>${esc(d.foe_name)}</b></div>
     </div>
     ${tabs}
     <div class="replay-controls">
@@ -1161,6 +1248,7 @@ async function viewReplay(state) {
       <button id="skip">${FIGHT ? "結末まで飛ばす" : "全部表示"}</button>
       <label class="muted"><input type="checkbox" id="fast"> 速く</label>
     </div>
+    <div id="battle-summary"></div>
     <div class="replay-grid">
       <div class="log" id="log"></div>
       <div class="chart-panel">
@@ -1173,6 +1261,7 @@ async function viewReplay(state) {
   let gi = 0;
   let timer = null;
   let sideMap = null;
+  let mineNames = [], foeNames = [];
   const boot = () => loadGame(d.games[gi]);
   $$(".game-tabs button").forEach((b) => b.onclick = () => {
     gi = +b.dataset.i;
@@ -1199,10 +1288,13 @@ async function viewReplay(state) {
 
   function loadGame(g) {
     clearInterval(timer);
+    mineNames = g.mine_names || [];
+    foeNames = g.foe_names || [];
     sideMap = [...(g.foe_names || []).map((n) => [n, "foe-name"]),
                ...(g.mine_names || []).map((n) => [n, "mine-name"])];
     const log = $("#log");
     log.innerHTML = g.lines.map((ln) => fmtLine(ln)).join("");
+    $("#battle-summary").innerHTML = replayOutcome(g, d);
     drawChart(g, -1);
     drawNotes(g);
     drawReport(g);
@@ -1228,12 +1320,25 @@ async function viewReplay(state) {
     if (/^━━/.test(ln)) cls += " band";
     else if (/「.+」$/.test(ln.trim()) && !ln.includes("【")) cls += " quote";
     if (ln.includes("◇戦況")) cls += " check";
+    let side = "system-event", sideText = "戦況";
+    if (!ln.includes("◇戦況") && !/^━━/.test(ln)) {
+      const mineAt = Math.min(...(mineNames.map((n) => ln.indexOf(n)).filter((i) => i >= 0)
+        .concat(ln.indexOf(d.me_first ? "曹軍" : "孫軍")).filter((i) => i >= 0)));
+      const foeAt = Math.min(...(foeNames.map((n) => ln.indexOf(n)).filter((i) => i >= 0)
+        .concat(ln.indexOf(d.me_first ? "孫軍" : "曹軍")).filter((i) => i >= 0)));
+      if (Number.isFinite(mineAt) && (!Number.isFinite(foeAt) || mineAt <= foeAt)) {
+        side = "mine-event"; sideText = mineSide;
+      } else if (Number.isFinite(foeAt)) {
+        side = "foe-event"; sideText = foeSide;
+      }
+    }
+    cls += " " + side;
     body = body.replace(/【([^】:]+)】/g, (m0, x) =>
       /^\d+$/.test(x) ? m0 : `【<span class="skillname">${x}</span>】`);
     body = body.replace(/^(◆)/, '<span class="art">◆</span>');
     body = body.replace(/【(\d+:\d+)】/, '<span class="t">$1</span>');
     body = markNames(body);
-    return `<div class="${cls}" data-t="${lineTime(ln) ?? ""}">${body}</div>`;
+    return `<div class="${cls}" data-t="${lineTime(ln) ?? ""}"><span class="side-mark">${sideText}</span>${body}</div>`;
   }
 
   function startPlayback(g) {
@@ -1291,7 +1396,7 @@ async function viewReplay(state) {
   function drawNotes(g) {
     const box = $("#notes");
     if (!g.notes || !g.notes.length) { box.innerHTML = ""; return; }
-    box.innerHTML = '<div class="side-label">─ 軍師の見立て ─</div>' +
+    box.innerHTML = '<div class="side-label">─ この戦いの要点 ─</div>' +
       g.notes.map((n) => `<div class="note-line">${markNames(esc(n))
         .replace(/【(\d+:\d+)】/g, '<span class="t">$1</span>')}</div>`).join("");
   }
@@ -1320,6 +1425,7 @@ async function viewReplay(state) {
 
 /* ── 起動 ──────────────────────── */
 (async function boot() {
+  document.body.classList.toggle("debug", DEBUG);
   const state = await api("/api/state");
   shell(state);
   if (state.stale_server) {
