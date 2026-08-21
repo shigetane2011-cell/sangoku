@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -279,6 +280,8 @@ class App(BaseHTTPRequestHandler):
                 return self._send(svg, 200, "image/svg+xml")
             if url.path.startswith("/static/"):
                 return self._static(url.path[len("/static/"):])
+            if url.path.startswith("/icons/"):
+                return self._icon(url.path[len("/icons/"):])
             if url.path.startswith("/portrait/"):
                 return self._portrait(
                     urllib.parse.unquote(url.path[len("/portrait/"):]))
@@ -373,6 +376,29 @@ class App(BaseHTTPRequestHandler):
             self._send(b"not found", 404, "text/plain")
         except Exception as e:
             self._json({"error": str(e)}, 500)
+
+    # 兵種印・コスト印（§7.59）。顔絵と同じく差し替え式で、
+    # sim/webui/icons/ に置いた PNG をそのまま出す。無ければ404で、
+    # 画面は枠だけになる（規則の表示は文字が正なので読めなくはならない）。
+    _ICON_DIR = os.path.join(WEBUI, "icons")
+
+    def _icon(self, name: str):
+        name = os.path.basename(urllib.parse.unquote(name))
+        if not re.fullmatch(r"[a-z0-9_-]+\.(png|webp|svg)", name):
+            return self._send(b"not found", 404, "text/plain")
+        path = os.path.join(self._ICON_DIR, name)
+        if not os.path.exists(path):
+            return self._send(b"not found", 404, "text/plain")
+        ctype = {"png": "image/png", "webp": "image/webp",
+                 "svg": "image/svg+xml"}[name.rsplit(".", 1)[1]]
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
 
     # 顔絵（§7.59）。**差し替え式**: sim/webui/portraits/ に「人物名.png」
     # （jpg/webp/svgも可）を置けばそれを出す。無ければ勢力色＋姓の一字の

@@ -7,19 +7,23 @@ const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
 const esc = (s) => String(s).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-/* ── 兵種アイコン（§7.59）: 歩＝盾・騎＝馬首・弓＝弓矢・槍＝穂先 ── */
-const TYPE_ICON = {
-  "歩兵": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 19 5.7v5.5c0 4.9-2.8 8.1-7 9.8-4.2-1.7-7-4.9-7-9.8V5.7Z"/><path d="M12 7.3v9.4"/></svg>',
-  "騎兵": '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.2 21c-.2-3.9 1.2-6.6 3.6-8.5l-2.9-1.6c-1-.6-1.2-1.9-.4-2.7l3.2-3.2.7-2.5 1.2-.4c4.9.6 8 3.6 8 7.9 0 2.8-1.3 4.9-3.5 6 .9 1.3 1.5 2.9 1.6 5z"/><path d="M11.4 2.5 13.6 1l.5 2.4z"/></svg>',
-  "弓兵": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5c7.6 2.4 7.6 14.6 0 17"/><path d="M6.5 3.5v17"/><path d="M6.5 12h12.4"/><path d="M15.7 9.3l3.2 2.7-3.2 2.7"/></svg>',
-  "槍": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 12.3 11.7"/><path d="M20 4c-3.5.1-6.3 1.2-8.4 3.4l1.5 3.5 3.5 1.5C18.8 10.3 19.9 7.5 20 4Z" fill="currentColor" stroke-width="1"/></svg>',
-};
+/* ── 兵種印・コスト印（§7.59）: sim/webui/icons/ の絵を出す。
+   絵は差し替え式で、無ければ枠だけが出る（規則の表示は文字が正）。 ── */
+const TYPE_FILE = { "歩兵": "typ-shield", "騎兵": "typ-cav",
+                    "弓兵": "typ-bow", "槍": "typ-spear" };
 const TYPE_CLS = { "歩兵": "t-inf", "騎兵": "t-cav", "弓兵": "t-arc", "槍": "t-spr" };
 function icoTyp(typ, spear) {
-  const one = (t) => TYPE_ICON[t]
-    ? `<span class="tico ${TYPE_CLS[t]}" title="${t === "槍" ? "槍持ち（後衛可）" : t}">${TYPE_ICON[t]}</span>`
+  const one = (t) => TYPE_FILE[t]
+    ? `<img class="tico ${TYPE_CLS[t]}" src="/icons/${TYPE_FILE[t]}.png" alt="${t}"
+         title="${t === "槍" ? "槍持ち（後衛可）" : t}" loading="lazy">`
     : "";
   return one(typ) + (spear ? one("槍") : "");
+}
+
+/* コスト印。1〜10の環に数字を重ねる（環は位が上がるほど豪華になる）。 */
+function icoCost(n) {
+  const k = Math.min(10, Math.max(1, Math.round(n)));
+  return `<span class="cost-ring" data-c="${k}"><i>${n}</i></span>`;
 }
 
 async function api(path, body) {
@@ -873,7 +877,7 @@ function drawRoster() {
          data-n="${esc(c.name)}">
       <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
         loading="lazy" alt="">
-        <span class="cost">${c.cost}</span>
+        ${icoCost(c.cost)}
         <span class="typ">${icoTyp(c.typ, c.spear)}</span>
         ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
             : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
@@ -910,7 +914,7 @@ function showCardInfo(name) {
     <img class="ci-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">
     <div class="ci-body">
     <div class="ci-head">
-      <span class="cost">${c.cost}</span>
+      ${icoCost(c.cost)}
       <span class="ci-name">${esc(c.name)}</span>
       <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍・後衛可）" : ""}・${esc(c.role)}</span>
     </div>
@@ -945,7 +949,7 @@ function drawSlots() {
          data-i="${i}" ${c ? 'draggable="true"' : ""}>
       <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
       ${c ? `<img class="mini-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">` : ""}
-      <span class="who">${c ? `<b>${esc(c.name)}</b> ${icoTyp(c.typ, c.spear)}
+      <span class="who">${c ? `<b>${esc(c.name)}</b>${icoTyp(c.typ, c.spear)}
         ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
       ${c ? `<span class="cost num">${c.cost}点</span>
         <button class="mini" data-i="${i}" data-a="up" ${i === 0 ? "disabled" : ""}>↑</button>
