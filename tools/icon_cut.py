@@ -88,13 +88,16 @@ def near_background(bg, w, h, radius=2):
 
 
 def components(bg, w, h):
-    """背景でない画素の塊を、外接矩形の一覧として返す。"""
+    """背景でない画素の塊を、外接矩形＋塊の番号地図として返す。"""
     seen = bytearray(w * h)
+    label = [0] * (w * h)
     boxes = []
     for start in range(w * h):
         if bg[start] or seen[start]:
             continue
         seen[start] = 1
+        tag = len(boxes) + 1
+        label[start] = tag
         q = deque([start]); area = 0
         y0, x0 = divmod(start, w)
         x1, y1 = x0, y0
@@ -110,9 +113,9 @@ def components(bg, w, h):
                 if 0 <= nx < w and 0 <= ny < h:
                     j = ny * w + nx
                     if not bg[j] and not seen[j]:
-                        seen[j] = 1; q.append(j)
-        boxes.append([x0, y0, x1, y1, area])
-    return boxes
+                        seen[j] = 1; label[j] = tag; q.append(j)
+        boxes.append([x0, y0, x1, y1, area, {tag}])
+    return boxes, label
 
 
 def merge(boxes, w, h):
@@ -128,7 +131,7 @@ def merge(boxes, w, h):
                         a[1] - MERGE_GAP <= b[3] and b[1] - MERGE_GAP <= a[3]):
                     a[0] = min(a[0], b[0]); a[1] = min(a[1], b[1])
                     a[2] = max(a[2], b[2]); a[3] = max(a[3], b[3])
-                    a[4] += b[4]; changed = True
+                    a[4] += b[4]; a[5] |= b[5]; changed = True
                     break
             else:
                 out.append(b)
@@ -158,7 +161,7 @@ def reading_order(boxes):
     return out
 
 
-def cut(img, box, bg, near, w, side):
+def cut(img, box, bg, near, label, w, side):
     """1枚を透過つきで切り出し、正方形の側に合わせて縮める。"""
     x0, y0, x1, y1 = box[:4]
     bw, bh = x1 - x0 + 1, y1 - y0 + 1
@@ -180,8 +183,8 @@ def cut(img, box, bg, near, w, side):
             if not (0 <= sx < W):
                 continue
             k = sy * w + sx
-            if bg[k]:
-                continue                     # 背景は抜く
+            if bg[k] or label[k] not in box[5]:
+                continue                     # 背景と、隣のアイコンは写さない
             r, g, b = src[sx, sy][:3]
             if not near[k]:
                 a = 255                      # 内側の白（盾や馬体）はそのまま
@@ -209,17 +212,30 @@ def main(argv):
     if "--dry" in argv:
         dry = True
 
-    img = Image.open(path).convert("RGB")
-    w, h = img.size
+    src = Image.open(path).convert("RGBA")
+    w, h = src.size
     print("シート: %s  %d×%d" % (os.path.basename(path), w, h))
 
-    px = img.load()
-    flat = [px[i % w, i // w] for i in range(w * h)]
-    bg = background_mask(flat, w, h)
-    print("背景として抜いた画素: %.1f%%" % (100.0 * sum(bg) / (w * h)))
+    alpha = src.split()[3]
+    clear = alpha.histogram()[0]
+    if clear > 0.05 * w * h:
+        # もともと透過つきのシート。α をそのまま背景の印として使う。
+        ap = alpha.load()
+        bg = bytearray(1 if ap[i % w, i // w] < 24 else 0 for i in range(w * h))
+        print("元から透過つき。背景の画素: %.1f%%" % (100.0 * sum(bg) / (w * h)))
+    else:
+        px = src.convert("RGB").load()
+        flat = [px[i % w, i // w] for i in range(w * h)]
+        bg = background_mask(flat, w, h)
+        print("白を抜いた画素: %.1f%%" % (100.0 * sum(bg) / (w * h)))
+    img = src.convert("RGB")
 
     near = near_background(bg, w, h)
-    boxes = reading_order(merge(components(bg, w, h), w, h))
+    comps, label = components(bg, w, h)
+    raw = [b for b in comps if b[4] >= MIN_AREA_RATIO * w * h]
+    # 素の塊で枚数が合うなら束ねない（隣どうしの矩形が触れていると
+    # 束ね処理が別のアイコンまで飲み込むため）
+    boxes = reading_order(raw if len(raw) == len(NAMES) else merge(raw, w, h))
     print("見つけた塊: %d 個" % len(boxes))
     for i, b in enumerate(boxes):
         print("  %2d  x %4d-%4d  y %4d-%4d  (%d×%d)"
@@ -233,10 +249,10 @@ def main(argv):
         return 0
 
     os.makedirs(out, exist_ok=True)
-    rgba = img.convert("RGB")
+    rgba = img
     for name, box in zip(NAMES, boxes):
         side = SIZE["typ" if name.startswith("typ") else "cost"]
-        cut(rgba, box, bg, near, w, side).save(os.path.join(out, name + ".png"))
+        cut(rgba, box, bg, near, label, w, side).save(os.path.join(out, name + ".png"))
         print("書き出し: %s.png  %d×%d" % (name, side, side))
     return 0
 
