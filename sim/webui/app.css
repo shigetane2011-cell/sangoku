@@ -734,6 +734,14 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   .stamp { width: 92px; height: 92px; font-size: 52px; }
   button, .btn { min-height: 42px; }
   button.mini { min-height: 34px; }
+  /* 編成の枠は横に詰める（390px幅で ✕ がはみ出していた） */
+  .slot { gap: 5px; padding: 4px 6px; }
+  .slot .pos { width: auto; font-size: 10px; letter-spacing: .02em;
+    white-space: nowrap; }
+  .slot .mini-face { width: 26px; height: 33px; }
+  .slot button.mini { padding: 0 7px; }
+  .slot .cost { font-size: 12px; }
+  .unit-type { padding: 1px 4px 1px 2px; font-size: 10px; }
 }
 
 /* ── 戦前の間（§7.62） ─────────────────── */

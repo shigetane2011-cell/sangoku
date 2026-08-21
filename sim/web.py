@@ -30,6 +30,12 @@ from . import rosterdata as R
 from . import senki as SK
 
 PORT = int(os.environ.get("SANGOKU_PORT", "8035"))
+# 既定は自分の機械の中だけ。スマホから触るときは SANGOKU_HOST=0.0.0.0。
+HOST = os.environ.get("SANGOKU_HOST", "127.0.0.1")
+# 試験用の口（/api/dev_*）は、外に出した瞬間に閉じる。
+# 手元に閉じているときだけ既定で開き、SANGOKU_DEV で明示的に上書きできる。
+DEV_DOORS = os.environ.get(
+    "SANGOKU_DEV", "1" if HOST in ("127.0.0.1", "localhost") else "0") == "1"
 # 攻勢の表示（§7.56）が仮定する「標準的な鎧」= 3兵種の平均。
 _DEF_MEAN = sum(F.DEF_BY_TYPE.values()) / len(F.DEF_BY_TYPE)
 WEBUI = os.path.join(os.path.dirname(__file__), "webui")
@@ -55,8 +61,14 @@ def _server_stale() -> bool:
 
 SHELL = """<!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>三国布陣</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#14100c">
+<link rel="apple-touch-icon" href="/icons/app-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="三国布陣">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
@@ -280,6 +292,20 @@ class App(BaseHTTPRequestHandler):
                 return self._send(svg, 200, "image/svg+xml")
             if url.path.startswith("/static/"):
                 return self._static(url.path[len("/static/"):])
+            if url.path == "/manifest.webmanifest":
+                # スマホの「ホーム画面に追加」で、額縁の無い一枚画面として開く
+                man = json.dumps({
+                    "name": "三国布陣", "short_name": "布陣",
+                    "start_url": "/deck", "scope": "/",
+                    "display": "standalone", "orientation": "portrait",
+                    "background_color": "#14100c", "theme_color": "#14100c",
+                    "icons": [{"src": "/icons/app-192.png", "sizes": "192x192",
+                               "type": "image/png"},
+                              {"src": "/icons/app-512.png", "sizes": "512x512",
+                               "type": "image/png"}],
+                }, ensure_ascii=False)
+                return self._send(man.encode(), 200,
+                                  "application/manifest+json; charset=utf-8")
             if url.path.startswith("/icons/"):
                 return self._icon(url.path[len("/icons/"):])
             if url.path.startswith("/portrait/"):
@@ -322,6 +348,8 @@ class App(BaseHTTPRequestHandler):
             if url.path == "/api/senki_lap":
                 return self._api_senki_lap(body)
             if url.path == "/api/dev_senki":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
                 # 手元の試験用: 戦記を全クリア扱いにして全員登用。公開版では消す。
                 cx = self._cx()
                 me = self._me(cx)
@@ -331,6 +359,8 @@ class App(BaseHTTPRequestHandler):
                 P.unlock(cx, me.id, [g["人物"] for g in R.generals()], "dev")
                 return self._json({"ok": True})
             if url.path == "/api/dev_onsho":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
                 # 手元の試験用: 全種の恩賞を1つずつ獲得（未所持ぶんだけ）。
                 # 公開版では消す（dev_heifu / dev_tenka / dev_senki と同じ口）。
                 cx = self._cx()
@@ -355,6 +385,8 @@ class App(BaseHTTPRequestHandler):
             if url.path == "/api/draft":
                 return self._api_draft(body)
             if url.path == "/api/dev_heifu":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
                 # 手元の試験用: 兵符を満タンへ。公開版ではこの口ごと消す。
                 me = self._me(self._cx())
                 if me is None:
@@ -362,6 +394,8 @@ class App(BaseHTTPRequestHandler):
                 P.refill_heifu(self._cx(), me.id, int(time.time()))
                 return self._json({"ok": True})
             if url.path == "/api/dev_tenka":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
                 # 手元の試験用: 次の天下を今すぐ開催する。公開版では消す。
                 cx = self._cx()
                 me = self._me(cx)
@@ -377,6 +411,35 @@ class App(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
+    def _send_file(self, path: str, ctype: str, max_age: int = 86400) -> bool:
+        """絵を返す。**変わっていなければ本体を送らない**（304）。
+
+        顔絵120枚で約16MB あり、既定の no-store のままだと画面を開くたびに
+        全部を引き直す。スマホの回線ではこれが一番効く。差し替え式なので
+        中身の版は「更新時刻＋大きさ」を印にして見分ける。
+        """
+        try:
+            st = os.stat(path)
+        except OSError:
+            return False
+        tag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+        if self.headers.get("If-None-Match") == tag:
+            self.send_response(304)
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", "max-age=%d" % max_age)
+            self.end_headers()
+            return True
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", tag)
+        self.send_header("Cache-Control", "max-age=%d" % max_age)
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     # 兵種印・コスト印（§7.59）。顔絵と同じく差し替え式で、
     # sim/webui/icons/ に置いた PNG をそのまま出す。無ければ404で、
     # 画面は枠だけになる（規則の表示は文字が正なので読めなくはならない）。
@@ -391,14 +454,7 @@ class App(BaseHTTPRequestHandler):
             return self._send(b"not found", 404, "text/plain")
         ctype = {"png": "image/png", "webp": "image/webp",
                  "svg": "image/svg+xml"}[name.rsplit(".", 1)[1]]
-        with open(path, "rb") as f:
-            body = f.read()
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "max-age=86400")
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_file(path, ctype)
 
     # 顔絵（§7.59）。**差し替え式**: sim/webui/portraits/ に「人物名.png」
     # （jpg/webp/svgも可）を置けばそれを出す。無ければ勢力色＋姓の一字の
@@ -415,8 +471,8 @@ class App(BaseHTTPRequestHandler):
             if os.path.exists(path):
                 ctype = {"svg": "image/svg+xml", "png": "image/png",
                          "webp": "image/webp"}.get(ext, "image/jpeg")
-                with open(path, "rb") as f:
-                    return self._send(f.read(), 200, ctype)
+                if self._send_file(path, ctype):
+                    return
         g = next((x for x in R.generals() if x["人物"] == person), None)
         fac = (g or {}).get("勢力", "群雄")
         typ = (g or {}).get("兵種", "")[:1]
@@ -456,15 +512,8 @@ class App(BaseHTTPRequestHandler):
             return self._send(b"not found", 404, "text/plain")
         ctype = "text/css" if name.endswith(".css") else "text/javascript"
         with open(path, "rb") as f:
-            body = f.read()
-        # 画面の見た目を直したのに古いままに見える、という事故を断つ。
-        # app.css / app.js は毎回取りに来させる（手元専用なので費用は無い）。
-        self.send_response(200)
-        self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+            # _send が no-store を付ける。画面の札は直したら即入れ替わってほしい。
+            self._send(f.read(), 200, ctype + "; charset=utf-8")
 
     # ---------------------------------------------------------------- API
     def _api_state(self):
@@ -1061,9 +1110,30 @@ class App(BaseHTTPRequestHandler):
         })
 
 
+def _lan_address() -> str:
+    """同じ網の中から見えるこの機械の住所（分からなければ空）。"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))      # 送らない。経路を選ばせるだけ
+        return s.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        s.close()
+
+
 def main() -> None:
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), App)
+    srv = ThreadingHTTPServer((HOST, PORT), App)
     print("http://localhost:{}  （Ctrl+C で終了）".format(PORT))
+    if HOST not in ("127.0.0.1", "localhost"):
+        ip = _lan_address()
+        if ip:
+            print("同じ Wi-Fi のスマホから: http://{}:{}".format(ip, PORT))
+        print("※ この口には鍵が無い。名乗るだけで誰にでもなれるので、")
+        print("　 同じ網に居る人しか触れない状態を保つこと。")
+    if not DEV_DOORS:
+        print("試験用の口（/api/dev_*）は閉じている。")
     srv.serve_forever()
 
 
