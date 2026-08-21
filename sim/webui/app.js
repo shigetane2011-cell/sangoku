@@ -525,12 +525,21 @@ function drawPrep(msg) {
   const bad = $$("#slots .warn").length;
   const go = $("#prep-go");
   go.disabled = over || n !== 6 || bad > 0;
+  // 予算を使い切っていて空き枠が埋まらない、という手詰まりは名指しで言う
+  // （札が一斉に沈むだけだと「武将を制限されている」ように見えてしまう）
+  const rest = PREP.cap - deckCost();
+  const rist = D.roster.filter((c) => !cur.cards.includes(c.name))
+    .reduce((m, c) => Math.min(m, c.cost), Infinity);
+  const stuck = n < 6 && rest < rist;
   const el = $("#deck-msg");
-  el.className = (over || bad) ? "err" : "";
+  el.className = (over || bad || stuck) ? "err" : "";
   el.textContent = msg ? msg
     : over ? `上限 ${PREP.cap}点を ${(deckCost() - PREP.cap).toFixed(0)}点 超えている`
+    : stuck ? `あと${6 - n}人だが、残り${rest}点では誰も足せない`
+              + `（枠の ✕ で誰かを外して組み直す）`
     : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
-       : (bad ? "置けない兵がいる（⚠の枠を直す）" : ""));
+       : (bad ? "置けない兵がいる（⚠の枠を直す）"
+          : "6人そろった。入れ替えるときは枠の ✕ で外す"));
 }
 
 /* ── 編成 ──────────────────────── */
@@ -921,9 +930,12 @@ function drawRoster() {
     const dup = inDeck.has(c.name) ||
       cur.cards.some((n) => { const x = D.roster.find((r) => r.name === n);
                               return x && x.person === c.person && x.name !== c.name; });
-    // 戦前の間では、いまの残り予算で買えない札を沈める（詰将棋の可読性）
+    // 戦前の間では、いまの残り予算で買えない札を沈める（詰将棋の可読性）。
+    // ただし**枠が埋まっているときは沈めない** — 誰かを外せば買えるので、
+    // 値段だけで沈めると「その武将は使えない」という嘘になる。
     const rest = PREP ? PREP.cap - deckCost() : Infinity;
-    const pricey = PREP && !inDeck.has(c.name) && c.cost > rest + 1e-9;
+    const pricey = PREP && cur.cards.length < 6
+      && !inDeck.has(c.name) && c.cost > rest + 1e-9;
     const off = u || dup;
     return `<div class="card f${c.faction} ${off ? "used" : ""} ${pricey ? "pricey" : ""}"
          data-n="${esc(c.name)}">

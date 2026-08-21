@@ -773,8 +773,9 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 @media (max-width: 760px) {
   .prep-grid { grid-template-columns: 1fr; }
 }
-.card.pricey { opacity: .38; }
-.card.pricey .cost-ring { filter: grayscale(.75) brightness(.85); }
+/* 「いまの残りでは買えない」を沈めるが、使えない札ではないので抜きすぎない。
+   値段の環は色を残す — 沈んでいる理由がそこに書いてあるため。 */
+.card.pricey { opacity: .5; }
 
 /* 実況を見届けるまで結末を伏せる（§7.62: 履歴→結果の順） */
 body.suspense #notes, body.suspense #report, body.suspense #battle-summary,
