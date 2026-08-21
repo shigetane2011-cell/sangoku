@@ -1191,19 +1191,28 @@ async function viewReplays(state) {
 }
 
 /* ── リプレイ再生 ───────────────────── */
-function replayOutcome(g, d) {
-  const mineRemain = Math.round((g.mine_remain || 0) * 100);
-  const foeRemain = Math.round((g.foe_remain || 0) * 100);
+function replayOutcome(g, d, isParticipant) {
+  const remain = (units) => {
+    const men0 = (units || []).reduce((s, u) => s + (u.men0 || 0), 0);
+    const men = (units || []).reduce((s, u) => s + (u.men || 0), 0);
+    return men0 ? Math.round(men / men0 * 100) : 0;
+  };
+  const mineRemain = remain(g.mine), foeRemain = remain(g.foe);
+  const clocks = (g.lines || []).map((ln) => ln.match(/【(\d+:\d+)】/))
+    .filter(Boolean).map((m) => m[1]);
+  const endClock = clocks[clocks.length - 1] || "終戦";
+  const ending = (g.lines || []).slice(-3).join(" ");
   const cls = g.verdict === "勝ち" ? "win" : (g.verdict === "負け" ? "lose" : "draw");
   const verdict = g.verdict === "勝ち" ? "勝利" : (g.verdict === "負け" ? "敗北" : "引き分け");
-  const reason = g.reason === "rout" ? "潰走による決着" : "日没時の判定";
-  const subject = d.is_participant ? "自軍" : esc(d.mine_name);
+  const reason = /日没|日が暮れ/.test(ending) ? "日没時の判定"
+    : (/総崩れ|本陣/.test(ending) ? "潰走による決着" : "戦闘終了");
+  const subject = isParticipant ? "自軍" : esc(d.mine_name);
   return `<div class="battle-summary ${cls}">
     <div class="summary-verdict">${verdict}</div>
     <div class="summary-body">
       <b>${subject}の${verdict}</b>
-      <span>${esc(g.end_clock || "")}・${reason}</span>
-      <span class="remain num">残存　${subject} ${mineRemain}% ／ ${d.is_participant ? "敵軍" : esc(d.foe_name)} ${foeRemain}%</span>
+      <span>${endClock}・${reason}</span>
+      <span class="remain num">残存　${subject} ${mineRemain}% ／ ${isParticipant ? "敵軍" : esc(d.foe_name)} ${foeRemain}%</span>
     </div>
   </div>`;
 }
@@ -1212,6 +1221,8 @@ async function viewReplay(state) {
   const qs = new URLSearchParams(location.search);
   const id = qs.get("id");
   const d = await api("/api/replay?id=" + id);
+  const isParticipant = !!(state.me
+    && (state.me.name === d.mine_name || state.me.name === d.foe_name));
   // 出陣からそのまま来た場合は「実況を見届けてから判」（結果→履歴の順だと
   // 先に勝敗を知ってしまい、戦いを観る意味が薄れる・テストプレイの指摘）
   let FIGHT = null;
@@ -1223,8 +1234,8 @@ async function viewReplay(state) {
   const wins = d.games.filter((g) => g.verdict === "勝ち").length;
   const losses = d.games.filter((g) => g.verdict === "負け").length;
   const overall = wins > losses ? "勝利" : (losses > wins ? "敗北" : "引き分け");
-  const mineSide = d.is_participant ? "自軍" : "A軍";
-  const foeSide = d.is_participant ? "敵軍" : "B軍";
+  const mineSide = isParticipant ? "自軍" : "A軍";
+  const foeSide = isParticipant ? "敵軍" : "B軍";
   const tabs = d.games.length > 1
     ? `<div class="game-tabs">${d.games.map((g, i) =>
         `<button data-i="${i}" class="${i === 0 ? "on" : ""}">
@@ -1294,7 +1305,7 @@ async function viewReplay(state) {
                ...(g.mine_names || []).map((n) => [n, "mine-name"])];
     const log = $("#log");
     log.innerHTML = g.lines.map((ln) => fmtLine(ln)).join("");
-    $("#battle-summary").innerHTML = replayOutcome(g, d);
+    $("#battle-summary").innerHTML = replayOutcome(g, d, isParticipant);
     drawChart(g, -1);
     drawNotes(g);
     drawReport(g);
