@@ -132,8 +132,8 @@ button.attack {
 }
 button.attack:disabled { filter: grayscale(.75) brightness(.6); box-shadow: none;
   cursor: not-allowed; }
-.dev-only { display: none !important; }
-body.debug .dev-only { display: inline-block !important; }
+/* 試験中は常時表示。公開時にデバッグ表示へ戻す。 */
+.dev-only { display: inline-block !important; }
 
 /* ── パネル・順位表 ────────────────────── */
 .boards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
