@@ -110,7 +110,9 @@ def check() -> int:
     sk = {s["技名"]: s for s in S}
     tk = {t["キー"]: t for t in T}
     miss_s = [g["名前"] for g in G if g["必殺技"] not in sk]
-    miss_t = sorted({g["固有特性"] for g in G if g["固有特性"] not in tk})
+    # 特性なし（空欄）は正常。空文字を「未定義」に数えると検算が常に NG 1 になる
+    miss_t = sorted({g["固有特性"] for g in G
+                     if g["固有特性"] and g["固有特性"] not in tk})
     unused = [s["技名"] for s in S if s["技名"] not in {g["必殺技"] for g in G}]
     cost_ng = [(g["名前"], g["コスト"], sk[g["必殺技"]]["コスト"])
                for g in G if g["必殺技"] in sk
