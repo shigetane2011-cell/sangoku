@@ -85,9 +85,10 @@ def main():
         print("  %+6.2f  %s" % (v, n), flush=True)
     if check_only:
         return
-    for it in range(2):
+    for it in range(3):
         if not low:
             break
+        rows = {g["名前"]: g for g in load_rows()}   # 前の周の床調整を読み直す
         adj = {}
         for n, v in low.items():
             g = rows[n]
