@@ -5,3 +5,4 @@ __pycache__/
 
 # 登録者の DB。個人情報が入るので追跡しない
 sim/data/*.db
+price_audit.json
