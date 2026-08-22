@@ -728,6 +728,9 @@ ZOC_STR = 1.6           # ZOC の制動の強さ
 # 遮蔽のときと同じ交換を別のつまみでやっているだけである。中間を採る。
 SUPPRESS_MAX = 0.20     # 密着したときに弓が失う出力の割合
 SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大になる
+# 必殺技の直撃にも接敵抑制を掛けるか（§7.74 試作）。現行は通常射撃だけに
+# 掛かるので、密着された弓も技は全力で撃てる。既定 False で従来と同一。
+SUPPRESS_SKILL = False
 # 矢数の制約（史実の目安: 漢代の弩兵の携行は50本前後、持続射は数分ぶん）。
 # AMMO_TIME 秒ぶん撃つと出力が落ち始め、以後は指数的に減衰する。
 # 0 で無効。距離ではなく累積の射撃時間だけで決まる連続な形。
@@ -2137,6 +2140,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
                  else u.rand.uniform(sk.power, sk.power_hi))
     dmg = SKILL_SCALE * p_eff * coef / n
+    if SUPPRESS_SKILL and u.rng > 0.0:
+        # 接敵抑制を技にも（§7.74 試作）。矢数の減衰は掛けない — 技は
+        # ゲージの資源であって矢筒ではない。距離だけの連続な形（§13）。
+        alive_f = [f2 for f2 in foe if f2.men > 0.0]
+        if alive_f:
+            g = min(box_gap(u, f2) for f2 in alive_f)
+            dmg *= 1.0 - SUPPRESS_MAX * smooth_gate(g, 0.0, SUPPRESS_R)
     done = 0.0
     for f in tgts:
         if sk.dur > 0.0:
