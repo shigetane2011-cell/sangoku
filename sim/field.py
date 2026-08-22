@@ -1341,7 +1341,7 @@ class Unit:
         rm = role_men(card.role, card.lean)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
             * lean_men_comp(card.typ, card.def_lean, card.spd_lean) \
-            * (1.0 + max(card.floor_adj, 0.0))
+            * (1.0 + min(max(card.floor_adj, -0.10), 0.10))
         self.men = self.men0
         # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ
         # 武力・知力と実際の攻撃力が食い違いうる（別々に保持されるため）。

@@ -32,6 +32,14 @@ CAP = 0.10                  # 床調整の上限（兵力+10%）
 
 def floor_of(cost: float) -> float:
     return -min(-FLOOR_ABS, FLOOR_REL * cost)
+
+
+def ceil_of(cost: float) -> float:
+    """天井 +min(2.0, 0.25×コスト)。§7.77 で床と対称の帯調整（負の兵力
+    補正）を同じ道具で書く。威力ノブは新割増表の下でほぼ飽和しており
+    （威力を削ると予算がほぼ等価で能力値に返る）、天井は体で締めるしかない。
+    コスト1は合成の基準が縮退していて計器の信頼域外 — 触らない。"""
+    return min(2.0, 0.25 * cost)
 SKIP_TRAITS = {"command", "vs_wei", "vs_shu", "vs_go"}
 CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "sim", "data", "generals.csv")
@@ -68,7 +76,7 @@ def write_adj(adj):
         while row and len(row) < len(hdr):
             row.append("")
         if row and row[0] in adj:
-            row[i] = "%.3f" % adj[row[0]] if adj[row[0]] > 1e-9 else ""
+            row[i] = "%.3f" % adj[row[0]] if abs(adj[row[0]]) > 1e-9 else ""
         wr.writerow(row)
     open(CSV, 'w', encoding='utf-8-sig').write(",".join(hdr) + "\n" + buf.getvalue())
 
@@ -94,8 +102,13 @@ def main():
     print("測る: %d 枚（計器の癖で除外 %d 枚）" % (len(targets), len(rows) - len(targets)),
           flush=True)
     res = audit(targets)
-    low = {n: v for n, v in res.items()
-           if v < floor_of(float(rows[n]["コスト"]))}
+
+    def off_band(n, v):
+        c = float(rows[n]["コスト"])
+        if v < floor_of(c):
+            return True
+        return c > 1.5 and v > ceil_of(c) + 0.10
+    low = {n: v for n, v in res.items() if off_band(n, v)}
     print("床割れ %d 枚:" % len(low), flush=True)
     for n, v in sorted(low.items(), key=lambda kv: kv[1]):
         print("  %+6.2f  %s" % (v, n), flush=True)
@@ -112,21 +125,30 @@ def main():
             cur = float(g.get("床調整") or 0.0)
             # 兵力1%の値打ち ≒ 0.097 × コスト/5 点（実測の傾きをコストで伸ばす）
             slope = 0.097 * cost / 5.0
-            need = (floor_of(cost) - v) / slope / 100.0
-            adj[n] = min(cur + need, CAP)
+            edge = floor_of(cost) if v < floor_of(cost) else ceil_of(cost)
+            need = (edge - v) / slope / 100.0
+            adj[n] = min(max(cur + need, -CAP), CAP)
         write_adj(adj)
         sync()
         print("床調整を書いた（%d 枚）→ 測り直し" % len(adj), flush=True)
         res2 = audit(list(low))
         rows2 = {g["名前"]: g for g in load_rows()}
+
+        def still_off(n, v):
+            c = float(rows2[n]["コスト"])
+            if v < floor_of(c):
+                return adj[n] < CAP - 1e-9
+            if c > 1.5 and v > ceil_of(c) + 0.10:
+                return adj[n] > -CAP + 1e-9
+            return False
         for n, v in sorted(res2.items(), key=lambda kv: kv[1]):
-            fl = floor_of(float(rows2[n]["コスト"]))
-            mark = "" if v >= fl else ("  ★上限でも届かない" if adj[n] >= CAP - 1e-9
-                                       else "  ↻続投")
-            print("  %+6.2f  %-16s 床調整 %.1f%%%s" % (v, n, adj[n] * 100, mark),
+            c = float(rows2[n]["コスト"])
+            inb = floor_of(c) <= v <= ceil_of(c) + 0.10
+            mark = "" if inb else ("  ★上限でも届かない"
+                                   if abs(adj[n]) >= CAP - 1e-9 else "  ↻続投")
+            print("  %+6.2f  %-16s 帯調整 %+.1f%%%s" % (v, n, adj[n] * 100, mark),
                   flush=True)
-        low = {n: v for n, v in res2.items()
-               if v < floor_of(float(rows2[n]["コスト"])) and adj[n] < CAP - 1e-9}
+        low = {n: v for n, v in res2.items() if still_off(n, v)}
     print("done", flush=True)
 
 

@@ -184,7 +184,9 @@ def derive(d: Design) -> Dict[str, float]:
     dfn = F.DEF_BY_TYPE[d.typ] * (
         1.0 + F.DEF_LEAN_SPAN * max(-1.0, min(1.0, d.def_lean)))
     men *= F.lean_men_comp(d.typ, d.def_lean, d.spd_lean)
-    men *= 1.0 + max(d.floor_adj, 0.0)          # 床調整（§7.68）
+    # 帯調整（§7.68 の床調整を §7.77 で両側に拡張）。正=床の救済・負=天井の
+    # 抑え。どちらも計器（tools/floor_patch.py）が測って書く。±10% で頭打ち。
+    men *= 1.0 + min(max(d.floor_adj, -0.10), 0.10)
     # **兵力と攻撃力の交換レートは 1:1 ではない。** 積を保つ（k=1）と、盤面では
     # 耐久が瞬発より 6.81 コスト点強くなる（総コスト30 の23%）。集中砲火の戦闘は
     # ランチェスターの二乗則に近く、戦闘力が 兵力²×攻撃力 に寄るためで、積を
