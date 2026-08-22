@@ -178,8 +178,18 @@ async function viewHome(state) {
       <b>戦記</b> ${state.senki.cleared}／${state.senki.total}戦
       　次は「<b>${esc(state.senki.next)}</b>」
       <a href="/senki">進む →</a></div>` : ""}
-    ${state.onsho ? `<div class="onsho-banner fade-in">本日の恩賞 —
-      【<b>${esc(state.onsho.name)}</b>】を賜った。<a href="/deck">編成画面の軍功枠へ</a></div>` : ""}
+    ${state.onsho && state.onsho.choices ? `<div class="onsho-banner fade-in">
+      <div class="onsho-pick-head">本日の恩賞 — 三つのうち一つを選んで賜る（日替わり）</div>
+      <div class="onsho-pick">${state.onsho.choices.map((c) => `
+        <button class="onsho-choice" data-k="${esc(c.key)}">
+          <span class="oc-tier">${esc(c.tier)}</span>
+          <span class="oc-name">【${esc(c.name)}】</span>
+          <span class="oc-kou">${c.kou ? c.kou + "功" : "功いらず"}</span>
+          <span class="oc-desc">${esc(c.desc || "")}</span>
+        </button>`).join("")}</div>
+      <div class="muted" style="font-size:11.5px">選んだものだけが手に入る。残り二つは流れる。
+        セットは<a href="/deck">編成画面の軍功枠</a>で。</div>
+    </div>` : ""}
     <div class="boards fade-in">${boards}${(state.banzuke || []).length ? `
       <div class="panel">
         <h2>戦記番付<span class="sub">リセットなし</span></h2>
@@ -193,6 +203,10 @@ async function viewHome(state) {
         </table>
       </div>` : ""}</div>
     ${free}`;
+  $$(".onsho-choice").forEach((b) => b.onclick = async () => {
+    const r = await api("/api/onsho_pick", { key: b.dataset.k });
+    if (r.ok) location.reload(); else alert((r.errors || ["受け取れなかった"])[0]);
+  });
   $$("button.attack").forEach((b) => b.onclick = () => doAttack(b.dataset.reg));
   const rf = $("#refill");
   if (rf) rf.onclick = async () => { await api("/api/dev_heifu", {}); location.reload(); };

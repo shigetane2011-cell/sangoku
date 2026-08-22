@@ -368,7 +368,7 @@ class App(BaseHTTPRequestHandler):
                 if me is None:
                     return self._json({"error": "login"}, 401)
                 have = {r["trait_key"] for r in P.owned_traits(cx, me.id)}
-                for key in _trait_names():
+                for key in list(_trait_names()) + list(PL.ONSHO_BOOKS):
                     if key not in have:
                         P.grant_trait(cx, me.id, key)
                 return self._json({"ok": True})
@@ -378,6 +378,18 @@ class App(BaseHTTPRequestHandler):
                 return self._api_room(body)
             if url.path == "/api/onsho":
                 return self._api_onsho(body)
+            if url.path == "/api/onsho_pick":
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                import datetime
+                today = datetime.date.today().isoformat()
+                ok = P.pick_onsho(cx, me.id, str(body.get("key", "")),
+                                  PL.onsho_candidates(me.id, today), today)
+                return self._json({"ok": ok} if ok else
+                                  {"ok": False,
+                                   "errors": ["本日の恩賞はもう受け取っている"]})
             if url.path == "/api/savedeck":
                 return self._api_savedeck(body)
             if url.path == "/api/deldeck":
@@ -562,10 +574,23 @@ class App(BaseHTTPRequestHandler):
                      "regen": P.HEIFU_REGEN_SEC}
             import datetime
             names_jp = _trait_names()
-            key = P.daily_onsho(cx, me.id, list(names_jp),
-                                datetime.date.today().isoformat())
-            if key:
-                onsho = {"key": key, "name": names_jp.get(key, key)}
+            today = datetime.date.today().isoformat()
+            if not cx.execute(
+                    "SELECT 1 FROM owned_traits WHERE player_id=?"
+                    " AND date(gained_at)=?", (me.id, today)).fetchone():
+                cands = PL.onsho_candidates(me.id, today)
+                trs = {t["キー"]: t for t in R.traits()}
+                rows2 = []
+                for tier, k in cands:
+                    if k in PL.ONSHO_BOOKS:
+                        nm, desc = PL.ONSHO_BOOKS[k][0], PL.ONSHO_BOOKS[k][1]
+                    else:
+                        nm = names_jp.get(k, k)
+                        d2, cond = _trait_brief(None, k, trs.get(k, {}))
+                        desc = d2 + ("（{}）".format(cond) if cond else "")
+                    rows2.append({"key": k, "tier": tier, "name": nm,
+                                  "kou": PL.kou_of(k), "desc": desc})
+                onsho = {"choices": rows2}
             tenka["auto"] = bool(boards_ok.get("天下"))
             # 発表済み（開催1時間前〜）なら相手と陣形を見せる — 天下だけに
             # 残した偵察→編成調整の窓（§7.58）
@@ -634,9 +659,14 @@ class App(BaseHTTPRequestHandler):
             key = r["trait_key"]
             g2 = groups.get(key)
             if g2 is None:
-                desc, cond = _trait_brief(None, key, trs.get(key, {}))
+                if key in PL.ONSHO_BOOKS:
+                    nm, desc, cond = (PL.ONSHO_BOOKS[key][0],
+                                      PL.ONSHO_BOOKS[key][1], "")
+                else:
+                    nm = names_jp.get(key, key)
+                    desc, cond = _trait_brief(None, key, trs.get(key, {}))
                 g2 = groups[key] = {
-                    "key": key, "name": names_jp.get(key, key),
+                    "key": key, "name": nm,
                     "kou": PL.kou_of(key),
                     "desc": desc + ("（{}）".format(cond) if cond else ""),
                     "total": 0, "sets": [], "unset": []}

@@ -428,22 +428,18 @@ def grant_trait(cx: sqlite3.Connection, player_id: str, key: str) -> int:
     return cur.lastrowid
 
 
-def daily_onsho(cx: sqlite3.Connection, player_id: str, keys,
-                today: str) -> Optional[str]:
-    """本日の恩賞（1日1特性・§7.43）。まだなら1つ授けて鍵を返す。
-
-    どれを授けるかは (player_id, 日付) から決定的に選ぶ。読み直しで
-    引き直せない（リロードでガチャになるのを防ぐ）。"""
-    import zlib
+def pick_onsho(cx: sqlite3.Connection, player_id: str, key: str,
+               candidates, today: str) -> bool:
+    """本日の恩賞を**選んで**授かる（§7.70）。1日1回・候補の中からだけ。"""
+    if key not in {k for _t, k in candidates}:
+        return False
     r = cx.execute(
         "SELECT 1 FROM owned_traits WHERE player_id=? AND date(gained_at)=?",
         (player_id, today)).fetchone()
     if r is not None:
-        return None
-    keys = sorted(keys)
-    key = keys[zlib.crc32((player_id + today).encode()) % len(keys)]
+        return False
     grant_trait(cx, player_id, key)
-    return key
+    return True
 
 
 def owned_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
