@@ -1229,6 +1229,23 @@ async function viewReplays(state) {
 }
 
 /* ── リプレイ再生 ───────────────────── */
+/* 軍中の心得（§7.79）: 敗北の下に1つずつ出す小話。**規則の正本ではなく
+   読み物** — 中身は全部エンジンの実測に基づく（三すくみ・抑制・槍後衛・
+   避雷針・余剰ゲージ・本陣）。ローディング画面が無い（速すぎる）ので、
+   負けて悔しい時にだけ届く形にした。 */
+const WAR_TIPS = [
+  "三すくみを覚えておけ——歩は騎を受け止め、騎は弓を蹴散らし、弓は歩を射抜く。",
+  "陣形は弓の数を決める。鶴翼は弓二・魚鱗は弓三・雁行は弓四。矢を増やすほど、壁は薄くなる。",
+  "弓は肉薄されると矢も技も鈍る。射手を守る壁を惜しむな。",
+  "槍持ちの歩兵は後衛にも置ける。回り込む騎馬は、槍が突き止める。",
+  "前衛は高く積め。最も安い札が矢面に立ち、高い札が長く戦う。",
+  "一枚の柱に頼る軍は、柱を失えば崩れる。敵の柱は壁で受け、脇の小勢から崩せ。",
+  "使い切れなかった点は、開戦の気勢に変わる。無駄にはならぬが、兵にもならぬ。",
+  "本陣を預かる将が崩れれば、全軍が動揺する。本陣は置き所が肝心よ。",
+  "必殺技は消費が軽いほど数を撃ち、重いほど一撃に懸ける。技の巡りも編成のうち。",
+  "敗れた戦こそ実況を読み返せ。どの隊が先に崩れたかに、次の布陣の答えがある。",
+];
+
 function replayOutcome(g, d, isParticipant) {
   const remain = (units) => {
     const men0 = (units || []).reduce((s, u) => s + (u.men0 || 0), 0);
@@ -1245,6 +1262,9 @@ function replayOutcome(g, d, isParticipant) {
   const reason = /日没|日が暮れ/.test(ending) ? "日没時の判定"
     : (/総崩れ|本陣/.test(ending) ? "潰走による決着" : "戦闘終了");
   const subject = isParticipant ? "自軍" : esc(d.mine_name);
+  const tip = (cls === "lose" && isParticipant)
+    ? `<div class="battle-tip"><b>軍中の心得</b>　${esc(
+        WAR_TIPS[Math.floor(Math.random() * WAR_TIPS.length)])}</div>` : "";
   return `<div class="battle-summary ${cls}">
     <div class="summary-verdict">${verdict}</div>
     <div class="summary-body">
@@ -1252,7 +1272,7 @@ function replayOutcome(g, d, isParticipant) {
       <span>${endClock}・${reason}</span>
       <span class="remain num">残存　${subject} ${mineRemain}% ／ ${isParticipant ? "敵軍" : esc(d.foe_name)} ${foeRemain}%</span>
     </div>
-  </div>`;
+  </div>${tip}`;
 }
 
 async function viewReplay(state) {

@@ -790,6 +790,12 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   border-left: 3px solid var(--gold); border-radius: 0 6px 6px 0; }
 .prep-hint b { font-family: var(--font-min); color: var(--gold-hi);
   margin-right: 4px; }
+/* 軍中の心得（§7.79）: 敗北の帯の下に1つ出す小話 */
+.battle-tip { margin: 8px 0 0; padding: 8px 12px; font-size: 12.5px;
+  line-height: 1.7; color: var(--sub); background: rgba(190, 150, 80, .06);
+  border-left: 3px solid rgba(190, 150, 80, .5); border-radius: 0 6px 6px 0; }
+.battle-tip b { font-family: var(--font-min); color: var(--gold);
+  margin-right: 4px; }
 .prep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
   margin-bottom: 18px; align-items: start; }
 .foe-panel h2 .sub, .mine-panel h2 .sub { font-size: 12px; color: var(--sub);
