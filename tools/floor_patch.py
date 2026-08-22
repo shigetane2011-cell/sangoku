@@ -50,10 +50,14 @@ def load_rows():
 def write_adj(adj):
     raw = open(CSV, encoding='utf-8-sig').read().splitlines()
     hdr = raw[0].lstrip("﻿").split(',')
+    if "床調整" not in hdr:
+        hdr.append("床調整")           # 初回は列ごと足す
     i = hdr.index("床調整")
     rd = csv.reader(io.StringIO("\n".join(raw[1:])))
     buf = io.StringIO(); wr = csv.writer(buf, lineterminator="\n")
     for row in rd:
+        while row and len(row) < len(hdr):
+            row.append("")
         if row and row[0] in adj:
             row[i] = "%.3f" % adj[row[0]] if adj[row[0]] > 1e-9 else ""
         wr.writerow(row)
