@@ -213,30 +213,29 @@ def battle_hint(cards, unlocked, b: Dict) -> str:
     cap = player_cap(cards, b)
     out = []
     if heavy.cost >= 0.4 * total:
-        out.append("敵は{}ひとりに総額の{}割を積んでいる。真っ向から討ちに"
-                   "行けば時を失う——安い壁で受け止め、脇の軽い隊から"
-                   "剥がすのが定石だ。".format(
-                       (heavy.name or "").split("〔")[0],
-                       int(round(heavy.cost / total * 10))))
+        out.append("敵軍は{}ひとりが柱よ。柱とまともに斬り結べば時を失う"
+                   "——安い壁で受け流し、脇の小勢から崩すのが定石。".format(
+                       (heavy.name or "").split("〔")[0]))
         best_arc = max((c for c in cards if c.typ == F.ARC
                         and M.person_of(c) in unlocked and c.cost <= cap - 5),
                        key=lambda c: c.might / c.cost, default=None)
         if best_arc is not None:
-            out.append("火力の弓（{}など）を束ねて射よ。".format(
+            out.append("強弓（{}など）をまとめて射かけよ。".format(
                 (best_arc.name or "").split("〔")[0]))
     elif arc_cost >= 0.45 * total or arc_mpp >= 40.0:
-        out.append("敵は弓が厚い。矢は組み付かれれば鈍る——前衛を広げて"
-                   "早く接敵するか、騎兵で後衛へ回り込むのが筋だ。")
+        out.append("敵は弓陣が厚い。なに、矢は肉薄してしまえば恐るるに"
+                   "足らん——前衛を広げて速やかに組み付くか、騎馬に"
+                   "背後を衝かせよ。")
     elif arcs and arc_mpp < 30.0:
-        out.append("敵の壁は厚いが矢は軽い。急がず、こちらの火力の弓で"
-                   "射ち崩すのが早い。")
+        out.append("敵の守りは堅いが、矢は軽い。慌てず強弓を並べ、"
+                   "射ち崩すのが早道よ。")
     if cav_n >= 2:
-        out.append("敵の騎兵はこちらの後衛へ回り込んでくる。槍持ちを"
-                   "後衛に置けば、駆け寄る馬を迎え撃てる。")
+        out.append("敵の騎馬はこちらの弓の背後へ回り込んでくるぞ。"
+                   "槍を後衛に構えさせれば、駆け寄る馬を突き止められる。")
     if total >= cap:
-        out.append("持ち込みは{:g}点、敵は{:g}点の格上。1点も余らせるな。"
-                   "壁と支援だけでは崩せない——火力の札を2枚は"
-                   "入れること。".format(cap, total))
+        out.append("こちら{:g}点、敵は{:g}点の格上戦。1点たりとも"
+                   "遊ばせるな。守りの札ばかりでは敵陣は落ちぬ——"
+                   "矛となる札を二枚は連れて行け。".format(cap, total))
     return "".join(out)
 
 
