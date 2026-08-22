@@ -833,6 +833,12 @@ WITS_MOD = CHAOS_WITS   # 知力比の状態効果（§7.67）も同じ傾きを
 # **素の公平さを壊さずに個性だけ足せる。** 3兵種の時間プロファイルが揃った。
 CHARGE_BONUS = 0.6      # 突撃時の上乗せ（0 で無効）
 CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
+# 馬上回避（§7.73 試作）: 駆けている騎兵には矢が当たりにくい。射程持ちからの
+# 被害を、乱戦に入るまで減らす。勢い（CHARGE_TAU）と同じ時定数で滑らかに
+# 失われる — 「接敵したか」の判定は置かない（§13）。既定 0 で完全に不使用
+# （零点・dt不変は従来と同一）。CAV_COVER_SKILL は必殺技の直撃にも掛けるか。
+CAV_COVER = 0.0         # 密着前の騎兵が射撃被害を免れる割合（0 で無効）
+CAV_COVER_SKILL = True  # 射程持ちの必殺技直撃にも掛ける（延焼には掛けない）
 
 # 射線遮蔽（史実: 矢は射線の通る相手にしか当たらない）。
 # 射手と的のあいだに敵の部隊が挟まっていると、そのぶん当たらなくなる。
@@ -2141,7 +2147,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             done += dmg
         else:
             take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
-                       * f.scut_mult, f.men)
+                       * f.scut_mult
+                       * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0),
+                       f.men)
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
@@ -2386,6 +2394,13 @@ def _output(u: Unit) -> float:
     return m
 
 
+def _cav_cover(shooter: "Unit", f: "Unit") -> float:
+    """馬上回避（試作）。射程持ち→騎兵の被害倍率。乱戦時間で滑らかに 1 へ戻る。"""
+    if CAV_COVER <= 0.0 or f.typ != CAV or shooter.rng <= 0.0:
+        return 1.0
+    return 1.0 - CAV_COVER * math.exp(-f.melee / CHARGE_TAU)
+
+
 def _suppress(u: Unit, gaps: List[float]) -> float:
     """接敵抑制。射程を持つ札は、敵に近づかれるほど出力が落ちる。
 
@@ -2571,7 +2586,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
-                        * f.ncut_mult
+                        * f.ncut_mult * _cav_cover(u, f)
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
@@ -2603,7 +2618,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
-                        * f.ncut_mult
+                        * f.ncut_mult * _cav_cover(u, f)
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
