@@ -222,7 +222,13 @@ def battle_hint(cards, unlocked, b: Dict) -> str:
         if best_arc is not None:
             out.append("強弓（{}など）をまとめて射かけよ。".format(
                 (best_arc.name or "").split("〔")[0]))
-    elif arc_cost >= 0.45 * total or arc_mpp >= 40.0:
+    elif sum(1 for c in arcs if c.might >= 140.0) >= 2:
+        # 強弓の束ね（武140超が2枚以上）。安い支援弓は数に入れない —
+        # 武/点比で見ると1点札が誤って「厚い弓」に見える（§7.78 の検証で
+        # 実際に誤発火した）。
+        out.append("敵は強弓を連ねておる。まともに浴びれば削り負ける——"
+                   "こちらも強弓で撃ち合い、槍を後衛に添えて射手を守れ。")
+    elif arc_cost >= 0.45 * total:
         out.append("敵は弓陣が厚い。なに、矢は肉薄してしまえば恐るるに"
                    "足らん——前衛を広げて速やかに組み付くか、騎馬に"
                    "背後を衝かせよ。")
@@ -233,9 +239,13 @@ def battle_hint(cards, unlocked, b: Dict) -> str:
         out.append("敵の騎馬はこちらの弓の背後へ回り込んでくるぞ。"
                    "槍を後衛に構えさせれば、駆け寄る馬を突き止められる。")
     if total >= cap:
+        # 矛の枚数は上限で加減する。上限12点未満だと「矛2枚」は物理的に
+        # 組めないことがある（§7.78: 上限7の初戦で実際に不可能だった）。
+        hoko = ("矛となる札を忘れるな" if cap < 12.0
+                else "矛となる札を二枚は連れて行け")
         out.append("こちら{:g}点、敵は{:g}点の格上戦。1点たりとも"
                    "遊ばせるな。守りの札ばかりでは敵陣は落ちぬ——"
-                   "矛となる札を二枚は連れて行け。".format(cap, total))
+                   "{}。".format(cap, total, hoko))
     return "".join(out)
 
 
