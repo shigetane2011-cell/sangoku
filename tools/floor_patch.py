@@ -13,6 +13,8 @@
 計器の癖で測れない札は触らない:
 - 本陣（command）: 総崩れの罰だけが素で出る。値段は勝率通貨で較正済み（§7.52）。
 - 対勢力（vs_魏/蜀/呉）: 相手が合成カードだと空撃ちで安く見える。
+- 必殺技打消し（田豊）: 相手が合成カードだと打ち消す価値のある大技が
+  飛んでこず、式の19%しか実測に出ない（実デッキでこそ光る）。
 """
 import sys, os, csv, io, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,7 +77,13 @@ def main():
     rows = {g["名前"]: g for g in load_rows()}
     targets = [n for n, g in rows.items()
                if not (set(g["固有特性"].split("、")) & SKIP_TRAITS
-                       if g["固有特性"] else False)]
+                       if g["固有特性"] else False)
+               and "打消し" not in (g.get("必殺技") or "")]
+    # 技名でなく効果で見る（打消しは技名に出ないことがある）
+    import io as _io
+    sk = {r["技名"]: r["効果"] for r in csv.DictReader(
+        open(CSV.replace("generals", "skills"), encoding='utf-8-sig'))}
+    targets = [n for n in targets if "打消し" not in sk.get(rows[n]["必殺技"], "")]
     print("測る: %d 枚（計器の癖で除外 %d 枚）" % (len(targets), len(rows) - len(targets)),
           flush=True)
     res = audit(targets)
