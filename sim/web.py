@@ -1031,6 +1031,7 @@ class App(BaseHTTPRequestHandler):
                           "typ": by_person[p]["兵種"]}
                          for p in b["recruits"]],
             "suggest": {"cards": names, "form": form},
+            "hint": SK.battle_hint(cards, unl, b),
             "last": SK.last_deck(cx, me.id, b["i"]),
             "saved": saved, "registered": reg,
         })

@@ -195,6 +195,51 @@ def player_cap(cards, b: Dict) -> float:
     return max(float(M.UNIT_SIZE), min(cap, board_cap))
 
 
+def battle_hint(cards, unlocked, b: Dict) -> str:
+    """軍師の見立て（§7.78）。**答えは出さない** — 敵編成の構造から、陣形と
+    札の種類のヒントだけを文章で出す（テストプレイの決定: 絶対に勝てる案を
+    出されても困る。詰将棋の読みは残す）。
+
+    文は敵の実データから規則で導く。書いてある機構は全部実測がある:
+    密着された弓は撃てない（§7.74）・槍後衛の迎撃（§7.75）・重い札は壁で
+    受けて脇から剥がす（§7.71 の裏返し）。"""
+    foe = enemy_army(cards, b)
+    total = foe.total_cost()
+    arcs = [c for c in foe.cards if c.typ == F.ARC]
+    arc_cost = sum(c.cost for c in arcs)
+    arc_mpp = (sum(c.might for c in arcs) / arc_cost) if arc_cost else 0.0
+    cav_n = sum(1 for c in foe.cards if c.typ == F.CAV)
+    heavy = max(foe.cards, key=lambda c: c.cost)
+    cap = player_cap(cards, b)
+    out = []
+    if heavy.cost >= 0.4 * total:
+        out.append("敵は{}ひとりに総額の{}割を積んでいる。真っ向から討ちに"
+                   "行けば時を失う——安い壁で受け止め、脇の軽い隊から"
+                   "剥がすのが定石だ。".format(
+                       (heavy.name or "").split("〔")[0],
+                       int(round(heavy.cost / total * 10))))
+        best_arc = max((c for c in cards if c.typ == F.ARC
+                        and M.person_of(c) in unlocked and c.cost <= cap - 5),
+                       key=lambda c: c.might / c.cost, default=None)
+        if best_arc is not None:
+            out.append("火力の弓（{}など）を束ねて射よ。".format(
+                (best_arc.name or "").split("〔")[0]))
+    elif arc_cost >= 0.45 * total or arc_mpp >= 40.0:
+        out.append("敵は弓が厚い。矢は組み付かれれば鈍る——前衛を広げて"
+                   "早く接敵するか、騎兵で後衛へ回り込むのが筋だ。")
+    elif arcs and arc_mpp < 30.0:
+        out.append("敵の壁は厚いが矢は軽い。急がず、こちらの火力の弓で"
+                   "射ち崩すのが早い。")
+    if cav_n >= 2:
+        out.append("敵の騎兵はこちらの後衛へ回り込んでくる。槍持ちを"
+                   "後衛に置けば、駆け寄る馬を迎え撃てる。")
+    if total >= cap:
+        out.append("持ち込みは{:g}点、敵は{:g}点の格上。1点も余らせるな。"
+                   "壁と支援だけでは崩せない——火力の札を2枚は"
+                   "入れること。".format(cap, total))
+    return "".join(out)
+
+
 def suggest_deck(cards, unlocked, b: Dict, seed: int = 0):
     """軍師の草案。その戦の上限ちょうどで、**手持ちだけ**から組む。
 

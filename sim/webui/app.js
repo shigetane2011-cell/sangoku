@@ -465,6 +465,7 @@ async function viewSenkiPrep(i) {
         ${p.cleared ? '<span class="muted">（再戦・報酬なし）</span>' : ""}</h2>
     </div>
     <div class="senki-intro prep-intro fade-in">${esc(p.intro)}</div>
+    ${p.hint ? `<div class="prep-hint fade-in"><b>軍師の見立て</b>　${esc(p.hint)}</div>` : ""}
     <div class="prep-grid fade-in">
       <div class="panel foe-panel side-panel">
         <h2 class="side-heading foe-heading">敵陣<span class="sub">相手の兵種と配置</span></h2>
