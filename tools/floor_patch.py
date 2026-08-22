@@ -23,8 +23,15 @@ from sim import match as M
 from multiprocessing import Pool
 
 F.TRAITS_ON = True          # 実ゲームと同じ条件で測る（§7.67）
-FLOOR = -0.5
+# 床は相対（§7.77）: -min(0.5, 0.25×コスト)。絶対値 -0.5 だけだと安い札の
+# 帯が相対で緩くなる（2点の -0.5 は -25%）。天井側も同じ形で
+# +min(2.0, 0.25×コスト) — こちらは道具でなく手で詰める（§7.69 の流儀）。
+FLOOR_ABS, FLOOR_REL = -0.5, 0.25
 CAP = 0.10                  # 床調整の上限（兵力+10%）
+
+
+def floor_of(cost: float) -> float:
+    return -min(-FLOOR_ABS, FLOOR_REL * cost)
 SKIP_TRAITS = {"command", "vs_wei", "vs_shu", "vs_go"}
 CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "sim", "data", "generals.csv")
@@ -87,7 +94,8 @@ def main():
     print("測る: %d 枚（計器の癖で除外 %d 枚）" % (len(targets), len(rows) - len(targets)),
           flush=True)
     res = audit(targets)
-    low = {n: v for n, v in res.items() if v < FLOOR}
+    low = {n: v for n, v in res.items()
+           if v < floor_of(float(rows[n]["コスト"]))}
     print("床割れ %d 枚:" % len(low), flush=True)
     for n, v in sorted(low.items(), key=lambda kv: kv[1]):
         print("  %+6.2f  %s" % (v, n), flush=True)
@@ -104,19 +112,21 @@ def main():
             cur = float(g.get("床調整") or 0.0)
             # 兵力1%の値打ち ≒ 0.097 × コスト/5 点（実測の傾きをコストで伸ばす）
             slope = 0.097 * cost / 5.0
-            need = (FLOOR - v) / slope / 100.0
+            need = (floor_of(cost) - v) / slope / 100.0
             adj[n] = min(cur + need, CAP)
         write_adj(adj)
         sync()
         print("床調整を書いた（%d 枚）→ 測り直し" % len(adj), flush=True)
         res2 = audit(list(low))
+        rows2 = {g["名前"]: g for g in load_rows()}
         for n, v in sorted(res2.items(), key=lambda kv: kv[1]):
-            mark = "" if v >= FLOOR else ("  ★上限でも届かない" if adj[n] >= CAP - 1e-9
-                                          else "  ↻続投")
+            fl = floor_of(float(rows2[n]["コスト"]))
+            mark = "" if v >= fl else ("  ★上限でも届かない" if adj[n] >= CAP - 1e-9
+                                       else "  ↻続投")
             print("  %+6.2f  %-16s 床調整 %.1f%%%s" % (v, n, adj[n] * 100, mark),
                   flush=True)
         low = {n: v for n, v in res2.items()
-               if v < FLOOR and adj[n] < CAP - 1e-9}
+               if v < floor_of(float(rows2[n]["コスト"])) and adj[n] < CAP - 1e-9}
     print("done", flush=True)
 
 

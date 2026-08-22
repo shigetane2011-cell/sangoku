@@ -852,6 +852,13 @@ def trait_value(key: str) -> float:
     return TRAIT_PRICE.get(key, 0.0) / CARD_COST_RATE
 
 
+# 槍の値札（§7.77）。§7.57 の試験導入時はノーチャージだったが、接敵抑制を
+# 弓に限定した（§7.75）ことで後衛からの突きが抑制を受けなくなり、盤面値が
+# 実測 +0.54〜+0.88 点（紀霊2点/傅僉3点/程普6点/徐晃8点・コスト依存は弱い）
+# に育った。定数で効果予算と同じ通貨から払う。
+SPEAR_PRICE = 0.75
+
+
 def to_card(d: Design, name: str = "", trait: str = "",
             skill: str = "", faction: str = "") -> F.Card:
     v = derive(d)

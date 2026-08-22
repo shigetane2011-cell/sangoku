@@ -344,6 +344,8 @@ def to_design(g: Dict[str, str]):
                           cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                           tilt=tilt_of(g)) if sk else 0.0)
     eff += sum(D.trait_value(k) for k in traits_of(g))
+    if (g.get("槍") or "").strip():
+        eff += D.SPEAR_PRICE      # 槍の値札（§7.77）
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
                     gauge_cost=gc, gauge_init=gi, effect=eff,
