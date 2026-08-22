@@ -347,7 +347,9 @@ def to_design(g: Dict[str, str]):
     return D.Design(cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                     role=g["役割"], tilt=tilt_of(g),
                     gauge_cost=gc, gauge_init=gi, effect=eff,
-                    lean=float(g.get("役割寄せ") or 0.0))
+                    lean=float(g.get("役割寄せ") or 0.0),
+                    def_lean=float(g.get("防御寄せ") or 0.0),
+                    spd_lean=float(g.get("速度寄せ") or 0.0))
 
 
 def to_cards(names=None):
@@ -374,6 +376,8 @@ def to_cards(names=None):
         trait=g["固有特性"], faction=g["勢力"], quote=g.get("台詞", ""),
         might=float(g["武力"]), wits=float(g["知力"]), skill=g["必殺技"],
         lean=float(g.get("役割寄せ") or 0.0),
+        def_lean=float(g.get("防御寄せ") or 0.0),
+        spd_lean=float(g.get("速度寄せ") or 0.0),
         spear=bool((g.get("槍") or "").strip()),
         gauge_cost=float(g["消費ゲージ%"]),
         # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
@@ -403,7 +407,8 @@ def on_curve() -> int:
             u = F.Unit(0, x, form, (0.0, 0.0), True)
             # **定義は design.total_value に一本化。** ここに式を書き写して
             # いたせいで、設計式を直したときに 8.7倍ずれた（実際に踏んだ）。
-            ps.append(D.total_value(u.men0, u.atk, x.typ))
+            # 鎧は Unit が実際に着ている値で数える（防御寄せ・§7.66）。
+            ps.append(D.total_value(u.men0, u.atk, x.typ, u.dfn))
             ds.append(D.derive(to_design(idx[x.name]))["総合値"])
         dev = max(abs(p / d - 1.0) for p, d in zip(ps, ds)) * 100
         print("  {:<6}{:>6}{:>10.2f}{:>10.2f}{:>10.4f}{:>10.2f}{}".format(
@@ -432,9 +437,9 @@ COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種",
            # 書き出しで落とさない。⑤の書き戻しで一度落として Web の武将一覧を
            # 壊した（KeyError: 武勇）。extrasaction="ignore" は列を黙って捨てる。
            "台詞", "武勇", "知略",
-           # 役割寄せ（§7.56）・槍（§7.57）。設計の入力（authored）なので
-           # 落とさない。
-           "役割寄せ", "槍"]
+           # 役割寄せ（§7.56）・槍（§7.57）・防御寄せ/速度寄せ（§7.66）。
+           # 設計の入力（authored）なので落とさない。
+           "役割寄せ", "槍", "防御寄せ", "速度寄せ"]
 
 
 def regenerate() -> int:

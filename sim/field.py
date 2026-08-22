@@ -601,6 +601,12 @@ BASE_DEF = 50.0
 # 遠くから撃てる代わりに打たれ弱い、という交換が消えていたため、弓兵の強さを
 # 一律の係数（ACT_COEF 1.64）で抑えるしかなく、決着が速くなると破綻していた。
 DEF_BY_TYPE = {INF: 56.6, CAV: 42.3, ARC: 34.0}
+# 素の強さの個性軸②③（§7.66）: 防御寄せ・速度寄せ。役割寄せ（§7.56）と同じく
+# ±1 の連続量で、盤面の値を ±20% 動かす。対価は設計式（design.derive）が
+# 兵力で払わせる — 交換レートは盤面の実測（防御20%≒兵力3〜4%・速度20%≒
+# 兵力1.3〜1.6%・**弓の速度は0**＝立って撃つ兵に足は要らない）。
+DEF_LEAN_SPAN = 0.20
+SPD_LEAN_SPAN = 0.20
 # 兵種ごとの攻撃力の係数。
 #
 # **ACT_COEF とは効き方が違う。** SPLIT_EXP=1.0 なのでコストは全部「兵力」に乗って
@@ -1148,6 +1154,36 @@ def role_men(role: str, lean: float = 0.0) -> float:
     return ROLE_MEN[role] * (1.0 + ROLE_LEAN_SPAN * max(-1.0, min(1.0, lean)))
 
 
+# 速度寄せの対価は**0**（§7.66）。車台の計器では速度+20%が兵力1.3〜1.6%と
+# 出たが、実カードに載せると符号が裏返った（関羽 +0.27→-0.89・夏侯淵
+# +0.19→-0.48。速い前衛は単騎で先着して集中砲火を浴びる）。§13「パラメータを
+# 振って符号が変わらないものだけを結論に使う」に従い、値段を付けない。
+# 代わりに**演出量を ±0.3（速度±6%）までに制限**する — 値段の無い量を
+# 大きく振ると、無料で強さが動く。
+SPD_LEAN_MEN_RATE = {INF: 0.0, CAV: 0.0, ARC: 0.0}
+SPD_LEAN_LIMIT = 0.3
+
+
+def lean_men_comp(typ: str, def_lean: float, spd_lean: float) -> float:
+    """防御寄せ・速度寄せの対価を兵力で払う倍率（§7.66）。
+
+    **定義はここだけ**（役割寄せと同じ流儀・§7.56）。設計式（design.derive）と
+    盤面（Unit）の両方がこれを掛ける — 片方だけだと、シートの兵力と盤面の
+    兵力が食い違う（実際に踏んだ: 曹仁が盤面でだけ鎧をタダで着ていた）。
+
+    防御は総合値の√項そのもので払う（総合値は動かない＝値付けに影響しない。
+    盤面の実測 3.7/2.9/4.0% と√項の言い分 3.5/2.5/2.9% はほぼ一致）。
+    速度は実測の交換レート（上の表）。
+    """
+    dl = max(-1.0, min(1.0, def_lean))
+    sl = max(-SPD_LEAN_LIMIT, min(SPD_LEAN_LIMIT, spd_lean))
+    base = DEF_BY_TYPE[typ]
+    dfn = base * (1.0 + DEF_LEAN_SPAN * dl)
+    comp = math.sqrt((100.0 + base) / (100.0 + dfn))
+    comp *= 1.0 - SPD_LEAN_MEN_RATE[typ] * (SPD_LEAN_SPAN * 100.0) * sl / 100.0
+    return comp
+
+
 @dataclass(frozen=True)
 class Card:
     cost: float
@@ -1186,6 +1222,9 @@ class Card:
     # ため掛からない — 周回が深いほど技より地力の比重が上がる。既定 1.0 で
     # PvP経路には一切現れない（零点・dt不変は既定値で従来と同一）。
     boost: float = 1.0
+    # 防御寄せ・速度寄せ（§7.66）。正=堅い/速い。対価は兵力（design.derive）。
+    def_lean: float = 0.0
+    spd_lean: float = 0.0
 
     def label(self) -> str:
         if self.name:
@@ -1272,7 +1311,8 @@ class Unit:
         # どちらでも 1枚の総合値は c に比例するが、**軍としての合計**が加法になるのは
         # 1.0 のときだけ。コストの加算性はここで決まる。
         rm = role_men(card.role, card.lean)
-        self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm
+        self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
+            * lean_men_comp(card.typ, card.def_lean, card.spd_lean)
         self.men = self.men0
         # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ
         # 武力・知力と実際の攻撃力が食い違いうる（別々に保持されるため）。
@@ -1315,8 +1355,10 @@ class Unit:
             self.men0 *= card.boost
             self.men = self.men0
         self.dfn = DEF_BY_TYPE[card.typ] if USE_TYPE_DEF else BASE_DEF
+        self.dfn *= 1.0 + DEF_LEAN_SPAN * max(-1.0, min(1.0, card.def_lean))
         self.interval = INTERVAL[card.typ]
-        self.speed = SPEED[card.typ]
+        self.speed = SPEED[card.typ] * (1.0 + SPD_LEAN_SPAN * max(
+            -SPD_LEAN_LIMIT, min(SPD_LEAN_LIMIT, card.spd_lean)))
         self.rng = RANGE[card.typ]
         if card.spear and not is_front:
             # 槍を後衛に置いた（§7.57）。前線越しの突き — 届くが威力半減。

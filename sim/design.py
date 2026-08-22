@@ -110,9 +110,11 @@ class Design:
     # ここが 0 のままだと、技の強い札が能力値も同じだけ持つことになる。
     effect: float = 0.0
     lean: float = 0.0           # 役割寄せ（§7.56。field.role_men と同じ器）
+    def_lean: float = 0.0       # 防御寄せ（§7.66。正=堅い。対価は兵力）
+    spd_lean: float = 0.0       # 速度寄せ（§7.66。正=速い。弓は値段0）
 
 
-def total_value(men: float, atk: float, typ: str) -> float:
+def total_value(men: float, atk: float, typ: str, dfn: float = None) -> float:
     """1枚の総合値。**加法の通貨**（コストに線形・役割に中立）。
 
     集中砲火の保存量は 攻撃力×兵力²（ランチェスターの二乗則）なので、その
@@ -128,8 +130,10 @@ def total_value(men: float, atk: float, typ: str) -> float:
     ので、積を保つ交換は兵力側が一方的に得をする（実測で役割の幅が 6.81〜27.90
     コスト点。§7.30）。
     """
+    if dfn is None:
+        dfn = F.DEF_BY_TYPE[typ]
     return men * math.sqrt(atk / F.INTERVAL[typ]
-                           * (100.0 + F.DEF_BY_TYPE[typ]) / 100.0) / 1e3
+                           * (100.0 + dfn) / 100.0) / 1e3
 
 
 def total_power(cost: float) -> float:
@@ -174,6 +178,11 @@ def derive(d: Design) -> Dict[str, float]:
     # の1箇所**（ROLE_MEN が field の写しなので、ここも field を呼ぶ）。
     rm = F.role_men(ROLE_KEY[d.role], d.lean)
     men = F.CARD_MEN * s * rm
+    # 防御寄せ・速度寄せ（§7.66）: 対価は兵力。**定義は field.lean_men_comp の
+    # 1箇所**（役割寄せと同じ流儀）。盤面と設計式が同じものを払う。
+    dfn = F.DEF_BY_TYPE[d.typ] * (
+        1.0 + F.DEF_LEAN_SPAN * max(-1.0, min(1.0, d.def_lean)))
+    men *= F.lean_men_comp(d.typ, d.def_lean, d.spd_lean)
     # **兵力と攻撃力の交換レートは 1:1 ではない。** 積を保つ（k=1）と、盤面では
     # 耐久が瞬発より 6.81 コスト点強くなる（総コスト30 の23%）。集中砲火の戦闘は
     # ランチェスターの二乗則に近く、戦闘力が 兵力²×攻撃力 に寄るためで、積を
@@ -202,9 +211,9 @@ def derive(d: Design) -> Dict[str, float]:
 
     return {"兵力": men, "攻撃力": atk, "武力": might, "知力": wits,
             "効果予算": e, "効果超過": max(d.effect - EFFECT_CAP * d.cost, 0.0),
-            "防御力": F.DEF_BY_TYPE[d.typ], "気勢": KISEI[d.kisei],
+            "防御力": dfn, "気勢": KISEI[d.kisei],
             "消費ゲージ": d.gauge_cost, "初期ゲージ": d.gauge_init,
-            "総合値": total_value(men, atk, d.typ)}
+            "総合値": total_value(men, atk, d.typ, dfn)}
 
 
 # ============================================================================
