@@ -502,6 +502,9 @@ RANGE = {INF: 0.0, CAV: 0.0, ARC: BOW_RANGE_EDGE}
 # 値付けできない／強すぎてもいけない）。係数は**配置で固定**なので、戦闘中の
 # 分岐は無い（dt 不変・零点安全）。
 SPEAR_RANGE = BOW_RANGE_EDGE
+# 後衛の槍が弓と同じく居残るか（§7.75 試作）。False（現行）だと歩兵として
+# 前進する。True だと配置に留まり、届く敵を突きつつ後衛への回り込みを迎え撃つ。
+SPEAR_GUARD = False
 SPEAR_REAR = 0.5        # 後衛からの突きの威力（前衛に置けば通常の近接）
 # §6.1 の行動面の係数（歩1.00 / 騎0.90 / 弓1.12）は**旧レーンエンジンで実測した
 # 値**であり、この盤面では値付けが合わない。入れたままだと兵種補正を 0〜0.15、
@@ -1526,7 +1529,10 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
     foe_edge = foe_form.frontage / 2.0 + FLANK_MARGIN
 
     for u in mine:
-        if u.typ == ARC:
+        if u.typ == ARC or (SPEAR_GUARD and u.rng > 0.0 and not u.is_front):
+            # 後衛の槍（§7.57）は SPEAR_GUARD で弓と同じく居残る（§7.75 試作）。
+            # 現行は歩兵として前進し、半減の突きのまま敵前線へ歩いて行く——
+            # 「配置で固定」の意図と食い違うが、既定 False で従来のまま。
             u.set_path([(u.x, u.y)])
             u.detour = 0.0
             continue
