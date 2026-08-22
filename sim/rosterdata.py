@@ -340,6 +340,7 @@ def to_design(g: Dict[str, str]):
     sk = F.SKILL_INFO.get(g["必殺技"])
     # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
     eff = (D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi,
+                          kisei=float(g["ゲージ上昇率"]) / 100.0,
                           cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                           tilt=tilt_of(g)) if sk else 0.0)
     eff += sum(D.trait_value(k) for k in traits_of(g))

@@ -1588,6 +1588,10 @@ class Skill:
     heal: float = 0.0       # 回復量（ダメージと同じ係数に掛ける）
     mods: Tuple[Tuple[str, float, float], ...] = ()   # (種別, 量, 秒数)
     sac: float = 0.0        # 代償: 発動ごとに**現在兵力**のこの割合を失う
+    # 反動（§7.64）: 発動ごとに**撃った本人**へ載る一定時間の弱体。mods の
+    # 符号規約（プラス=自分・マイナス=敵）とは別の口 — 「自分へのマイナス」は
+    # あの規約では書けないため。値付けは負（予算の戻し）で、上限つき。
+    self_mods: Tuple[Tuple[str, float, float], ...] = ()
 
 
 def _skill_kind(effect: str, target: str) -> str:
@@ -1641,11 +1645,18 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     +30% は敵の速度を上げる技ではなく、突っ込む自分の速度である。
     """
     out = []
+    # 反動の節は撃った本人の口（_skill_self_mods）が読む。ここで拾うと
+    # 同じ弱体が敵にも飛ぶ二重取りになる（実際に踏んだ）。先に除いておく。
+    effect = re.sub(r"反動\s*攻撃力\s*-\d+%（\d+秒）", "", effect)
     for m in re.finditer(
             r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒）",
             effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
+    # 畏怖（§7.64）: 敵の攻撃力を一定時間下げる弱体の呼び名。機構は攻撃力
+    # マイナスそのもので、**新しい器は作らない**（命中率の注記と同じ理由）。
+    for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒）", effect):
+        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
     if m:
         out.append(("chaos", float(m.group(1)) / 100.0, float(m.group(2))))
@@ -1682,13 +1693,26 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     return tuple(out)
 
 
+def _skill_self_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
+    """「反動 攻撃力 -20%（60秒）」を読む。撃った本人への一定時間の弱体。
+
+    v1 は攻撃力だけ。防御や速度へ広げるときは、**先に値段を測ってから**
+    （RECOIL_CREDIT は攻撃力でしか測っていない・§7.64）。
+    """
+    out = []
+    for m in re.finditer(r"反動\s*攻撃力\s*-(\d+)%（(\d+)秒）", effect):
+        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
+    return tuple(out)
+
+
 def _parse_skill(effect: str, target: str) -> Skill:
     p, dur = _skill_power(effect)
     heal, hdur = _skill_heal(effect)
     m = re.search(r"代償\s*兵力(\d+)%", effect)
     return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
                  heal=heal, mods=_skill_mods(effect),
-                 sac=float(m.group(1)) / 100.0 if m else 0.0)
+                 sac=float(m.group(1)) / 100.0 if m else 0.0,
+                 self_mods=_skill_self_mods(effect))
 
 
 def _skill_targets(target: str, u, foe, own):
@@ -1982,7 +2006,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if best is not None:
         say(best[0], best[1], best[2], best[3],
             jp="計略" if kind_jp == "必殺技" else kind_jp, stat=best[4])
-    if sk.mods:
+    # 反動: 撃った本人への一定時間の弱体（§7.64）
+    for key, amt, secs in sk.self_mods:
+        _fx_add(u, (t + secs, key, amt, src))
+    if sk.mods or sk.self_mods:
         _expire(own + foe, t)
 
     if sk.power <= 0.0 and sk.heal <= 0.0:

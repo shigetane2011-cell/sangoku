@@ -321,6 +321,88 @@ KILL_PREMIUM_EXEC = (     # 残兵力が最少（とどめ）は別の形
     (2600, 2.94), (3300, 4.30), (4200, 5.24), (5200, 5.45))
 
 
+# ゲージ上昇率・初期値の値段（§7.64・C）。**これまで値段の付いていない
+# 調整弁だった。** 実測の倍率表で持つ（一撃ダメージ技のみ・下は据え置き）:
+#
+# - 上昇率: fires()（切り捨ての回数勘定）は 453×1.05+140=615>600 で「率1.05
+#   でも2発」と言うが、**実機の盤面では2発目が来ない**（実測 +0.00）。崖の上に
+#   値段を置かないため、式でなく測った点で持つ。大技: 1.05→1.00倍・
+#   1.15→1.23倍・1.30→2.15倍（2発目がほぼ確定）。標準は 1.30→1.29倍
+#   （3発→4発ぶん）。1.30 より上は未測定 — 線形で伸ばすが、使うなら測る。
+# - 初期値: 基準より上げると初撃が早まり、境目を跨げば1発増える。
+#   大技 +60→1.64倍・標準 +60→1.29倍（各1点の実測・粗い）。下げは戻さない
+#   （下げの実測は -0.0〜-0.1 点でほぼタダ。戻すと無料の予算回収になる）。
+#
+# **支援・継続系には掛けない。** 曹操（上昇率1.30・味方バフ）は盤面監査で
+# -1.23 と出ており、バフの重ね掛けは発動回数に比例して伸びない。課金すると
+# 二重に罰する。値段が要る形（一撃×討ち取り割増の連発）だけに絞る。
+GAUGE_RATE_MULT = {
+    "大技": ((1.00, 1.00), (1.05, 1.00), (1.15, 1.23), (1.30, 2.15)),
+    "標準": ((1.00, 1.00), (1.30, 1.29)),
+    "手数": ((1.00, 1.00), (1.30, 1.29)),   # 未測定。標準の写し（緩い側）
+}
+GAUGE_INIT_MULT = {"大技": 0.64 / 60.0, "標準": 0.29 / 60.0, "手数": 0.29 / 60.0}
+
+
+def gauge_up_mult(gauge_cost: float, gauge_init: float, rate: float) -> float:
+    """段の基準からゲージを盛った一撃技の倍率（1.0 が基準・下は据え置き）。"""
+    name = GAUGE_TIER_NAME.get(gauge_cost)
+    if name is None:
+        return 1.0
+    pts = GAUGE_RATE_MULT[name]
+    r = max(rate, 1.0)
+    m = pts[-1][1] + (r - pts[-1][0]) * (
+        (pts[-1][1] - pts[-2][1]) / (pts[-1][0] - pts[-2][0]))  # 上へは線形
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if r <= x1:
+            m = y0 + (y1 - y0) * (r - x0) / (x1 - x0)
+            break
+    extra = max(gauge_init - GAUGE_TIER[name][1], 0.0)
+    return m * (1.0 + GAUGE_INIT_MULT[name] * extra)
+
+
+# 反動（自分への一定時間の攻撃力弱体・§7.64）の戻し。実測の表（車台5点・
+# 大技300/140・威力2000%の一撃技に併載・量×秒の格子）。ほぼ線形で、秒の側に
+# 軽い飽和。**大技でだけ戻す** — 標準の段で測ると戻しは +0.02（実害ほぼ0）
+# で、段の重み比の予測（-0.50）を完全に裏切った。実害のない反動に予算を
+# 返すと無料の予算回収装置になるため、測って値の付いた段だけに限る。
+RECOIL_CREDIT = {          # {量%: {秒: 戻し（1枚のコスト点・正の数）}}
+    10: {30: 0.060, 60: 0.107, 90: 0.130},
+    20: {30: 0.122, 60: 0.238, 90: 0.302},
+    30: {30: 0.191, 60: 0.373, 90: 0.496},
+}
+# 戻しの上限（正の価値に対する割合）。テストプレイと合意した初期値で、
+# **感触で調整する前提の定数**（2026-08-22）。深い理論はまだ無い。
+RECOIL_CREDIT_SHARE = 0.30
+
+
+def _interp2(table, x, y):
+    """2軸の線形補間。範囲の外は端で水平（外挿しない）。"""
+    xs = sorted(table)
+    ys = sorted(next(iter(table.values())))
+    x = min(max(x, xs[0]), xs[-1])
+    y = min(max(y, ys[0]), ys[-1])
+    x0 = max(v for v in xs if v <= x); x1 = min(v for v in xs if v >= x)
+    y0 = max(v for v in ys if v <= y); y1 = min(v for v in ys if v >= y)
+    fx = 0.0 if x1 == x0 else (x - x0) / (x1 - x0)
+    fy = 0.0 if y1 == y0 else (y - y0) / (y1 - y0)
+    v00, v01 = table[x0][y0], table[x0][y1]
+    v10, v11 = table[x1][y0], table[x1][y1]
+    return (v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy)
+            + v01 * (1 - fx) * fy + v11 * fx * fy)
+
+
+def recoil_credit(self_mods, gauge_cost: float) -> float:
+    """反動の戻し（正の数で返す）。大技の段でだけ値が付く（上の注記）。"""
+    if GAUGE_TIER_NAME.get(gauge_cost) != "大技":
+        return 0.0
+    tot = 0.0
+    for key, amt, secs in self_mods:
+        if key == "atk" and amt < 0.0:
+            tot += _interp2(RECOIL_CREDIT, abs(amt) * 100.0, secs)
+    return tot
+
+
 def kill_premium(power_pct: float, target: str,
                  gauge_cost: float, gauge_init: float) -> float:
     """打ち切りダメージの討ち取り割増（1枚のコスト点）。線形補間・端は水平。"""
@@ -544,6 +626,7 @@ GAUGE_TIER = {
     "標準": (150.0, 60.0),
     "大技": (300.0, 140.0),
 }
+GAUGE_TIER_NAME = {gc: name for name, (gc, _gi) in GAUGE_TIER.items()}
 
 # 旧 CSV の消費ゲージ（50〜175）から段への写し。
 TIER_OF_COST = {50: "手数", 75: "手数", 100: "標準", 125: "標準",
@@ -656,9 +739,19 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     v *= tier_weight(gauge_cost, gauge_init)
     v /= CARD_COST_RATE
     # 討ち取りの割増（§7.63）。表は1枚のコスト点なので、通貨変換の後に足す。
-    if skill.power > 0.0 and skill.dur <= 0.0:
+    burst = skill.power > 0.0 and skill.dur <= 0.0
+    if burst:
         v += kill_premium(skill.power * tc * 100.0, target,
                           gauge_cost, gauge_init)
+        # ゲージを基準より盛った一撃技は、発動が増えたぶん丸ごと払う（§7.64）
+        v *= gauge_up_mult(gauge_cost, gauge_init, kisei)
+    # 反動の戻し（§7.64）。正の価値の RECOIL_CREDIT_SHARE を超えては返さない
+    # — 弱い技に重い反動を積んで予算だけ回収する組み方を塞ぐ。
+    if getattr(skill, "self_mods", ()):
+        credit = recoil_credit(skill.self_mods, gauge_cost)
+        if burst:
+            credit *= gauge_up_mult(gauge_cost, gauge_init, kisei)
+        v -= min(credit, RECOIL_CREDIT_SHARE * max(v, 0.0))
     return v
 
 
