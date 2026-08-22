@@ -505,6 +505,10 @@ SPEAR_RANGE = BOW_RANGE_EDGE
 # 後衛の槍が弓と同じく居残るか（§7.75 試作）。False（現行）だと歩兵として
 # 前進する。True だと配置に留まり、届く敵を突きつつ後衛への回り込みを迎え撃つ。
 SPEAR_GUARD = False
+# 貫通（§7.76 試作・トランプル）: 必殺技の一撃が隊を消してなお余った分を、
+# 最も近い別の敵へこの割合で通す（1段のみ）。捨て札（§7.73 ③）が超過分を
+# 蒸発させて避雷針になる旨味を消すのが狙い。既定 0 で不使用。
+TRAMPLE = 0.0
 SPEAR_REAR = 0.5        # 後衛からの突きの威力（前衛に置けば通常の近接）
 # §6.1 の行動面の係数（歩1.00 / 騎0.90 / 弓1.12）は**旧レーンエンジンで実測した
 # 値**であり、この盤面では値付けが合わない。入れたままだと兵種補正を 0〜0.15、
@@ -2162,13 +2166,28 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             f.overtime.append((t + sk.dur, "dot", dmg))
             done += dmg
         else:
-            take = min(dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
-                       * f.scut_mult
-                       * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0),
-                       f.men)
+            eff = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
+                   * f.scut_mult
+                   * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0))
+            take = min(eff, f.men)
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
+            if TRAMPLE > 0.0 and eff > f.men:
+                # 貫通（§7.76 試作）: 隊を消してなお余る一撃は、最も近い
+                # 別の敵へ TRAMPLE 掛けで通す（1段のみ・連鎖しない）。
+                # 対象はスナップショットから選び、遅延窓で入れるので
+                # 同時解決と処理順の独立は保たれる。既定 0 で不使用。
+                rest = [g2 for g2 in foe
+                        if g2 is not f and g2.men > 0.0]
+                if rest:
+                    g2 = min(rest, key=lambda x: _d2(f, x))
+                    spill = (eff - f.men) * TRAMPLE
+                    spill = min(spill, g2.men)
+                    _men_add(g2, -spill)
+                    u.dealt += spill
+                    u.dealt_skill += spill
+                    done += spill
             if f.refl > 0.0:
                 # 反射は撃ち手の防御・反射・カットを通さない素の返り
                 # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
