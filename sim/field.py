@@ -825,6 +825,7 @@ DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
 # 攻める側の軸でしかなかった（§7.22 の非対称）。
 CHAOS_FF = 0.50         # 混乱が最大のとき、与ダメージのこの割合が味方へ向く
 CHAOS_WITS = 0.50       # 知力比の効き（0 で知力は無関係、1 で比がそのまま乗る）
+WITS_MOD = CHAOS_WITS   # 知力比の状態効果（§7.67）も同じ傾きを使う
 
 # 騎兵の突撃（史実の衝撃力）。取り付いた直後は強いが、乱戦になると落ちる。
 # 矢数と同じ「消耗する資源」で書く。歩兵は増減なしで乱戦に強い、という差になる。
@@ -1634,6 +1635,13 @@ class Skill:
     # 符号規約（プラス=自分・マイナス=敵）とは別の口 — 「自分へのマイナス」は
     # あの規約では書けないため。値付けは負（予算の戻し）で、上限つき。
     self_mods: Tuple[Tuple[str, float, float], ...] = ()
+    # 知力比の状態効果（§7.67）: 効き目が (撃ち手の知力/受け手の知力)^WITS_MOD
+    # で連続に伸縮する敵向けの弱体。混乱（CHAOS_WITS）と同じ機構の一般化で、
+    # **判定は置かない**（成功/失敗の崖ではなく量が動く）。
+    wits_mods: Tuple[Tuple[str, float, float], ...] = ()
+    # 威力の幅（§7.67）: 0 より大きければ、発動ごとに power〜power_hi の一様
+    # 乱数（battle_seed 由来・リプレイ再現可）。種が無い測定では中央値。
+    power_hi: float = 0.0
 
 
 def _skill_kind(effect: str, target: str) -> str:
@@ -1649,7 +1657,7 @@ def _skill_power(effect: str) -> Tuple[float, float]:
     **毎秒の量**である。総量は 威力 × 秒数 なので、以前の「秒数を掛けて1発にする」
     実装と総量は同じだが、入り方が違う。
     """
-    m = re.search(r"威力(\d+)%", effect)
+    m = re.search(r"威力(\d+)(?:〜\d+)?%", effect)
     if not m:
         return 0.0, 0.0
     p = float(m.group(1)) / 100.0
@@ -1691,13 +1699,17 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     # 同じ弱体が敵にも飛ぶ二重取りになる（実際に踏んだ）。先に除いておく。
     effect = re.sub(r"反動\s*攻撃力\s*-\d+%（\d+秒）", "", effect)
     for m in re.finditer(
-            r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒）",
+            r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒(・知力比)?）",
             effect):
+        if m.group(4):
+            continue                    # 知力比の口（_skill_wits_mods）が読む
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
                     float(m.group(3))))
     # 畏怖（§7.64）: 敵の攻撃力を一定時間下げる弱体の呼び名。機構は攻撃力
     # マイナスそのもので、**新しい器は作らない**（命中率の注記と同じ理由）。
-    for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒）", effect):
+    for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒(・知力比)?）", effect):
+        if m.group(3):
+            continue                    # 知力比の口が読む
         out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
     if m:
@@ -1747,14 +1759,33 @@ def _skill_self_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     return tuple(out)
 
 
+def _skill_wits_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
+    """「畏怖 -20%（30秒・知力比）」「攻撃力 -14%（20秒・知力比）」を読む。
+
+    敵向けの弱体だけ（味方バフに知力比を持ち込む意味が無い）。表記の量が
+    知力同格のときの効き目で、実際は (撃ち手/受け手)^WITS_MOD 倍。
+    """
+    out = []
+    for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒・知力比）", effect):
+        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
+    for m in re.finditer(
+            r"(攻撃力|命中率|防御力|移動速度)\s*(-\d+)%（(\d+)秒・知力比）", effect):
+        out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
+                    float(m.group(3))))
+    return tuple(out)
+
+
 def _parse_skill(effect: str, target: str) -> Skill:
     p, dur = _skill_power(effect)
     heal, hdur = _skill_heal(effect)
     m = re.search(r"代償\s*兵力(\d+)%", effect)
+    hi = re.search(r"威力\d+〜(\d+)%", effect)
     return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
                  heal=heal, mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
-                 self_mods=_skill_self_mods(effect))
+                 self_mods=_skill_self_mods(effect),
+                 wits_mods=_skill_wits_mods(effect),
+                 power_hi=float(hi.group(1)) / 100.0 if hi else 0.0)
 
 
 def _skill_targets(target: str, u, foe, own):
@@ -2045,13 +2076,24 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             m = abs(amt) * secs * len(hit)
             if best is None or m > best[3]:
                 best = ("buff" if amt > 0.0 else "debuff", amt, secs, m, key)
+    # 知力比の弱体（§7.67）: 表記は知力同格のときの効き目。実際は
+    # (撃ち手の知力/受け手の知力)^WITS_MOD 倍 — 混乱と同じで判定は置かない。
+    for key, amt, secs in sk.wits_mods:
+        hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
+        for f in hit:
+            r = (u.wits / max(f.wits, 1e-6)) ** WITS_MOD
+            _fx_add(f, (t + secs, key, amt * r, src))
+        if hit:
+            m2 = abs(amt) * secs * len(hit)
+            if best is None or m2 > best[3]:
+                best = ("debuff", amt, secs, m2, key)
     if best is not None:
         say(best[0], best[1], best[2], best[3],
             jp="計略" if kind_jp == "必殺技" else kind_jp, stat=best[4])
     # 反動: 撃った本人への一定時間の弱体（§7.64）
     for key, amt, secs in sk.self_mods:
         _fx_add(u, (t + secs, key, amt, src))
-    if sk.mods or sk.self_mods:
+    if sk.mods or sk.self_mods or sk.wits_mods:
         _expire(own + foe, t)
 
     if sk.power <= 0.0 and sk.heal <= 0.0:
@@ -2076,7 +2118,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             say("heal", done, sk.dur, mag=done)
         return
     # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
-    dmg = SKILL_SCALE * sk.power * coef / n
+    p_eff = sk.power
+    if sk.power_hi > sk.power:
+        # 威力の幅（§7.67）。種は battle_seed 由来なのでリプレイは再現する。
+        # 種の無い測定では中央値 — 零点・dt不変は従来と同一に保たれる。
+        p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
+                 else u.rand.uniform(sk.power, sk.power_hi))
+    dmg = SKILL_SCALE * p_eff * coef / n
     done = 0.0
     for f in tgts:
         if sk.dur > 0.0:
