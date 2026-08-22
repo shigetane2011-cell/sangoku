@@ -3281,6 +3281,11 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
 SYNTH_SKILL = "＿標準技"
 SYNTH_SKILL_POWER = 3.0
 SYNTH_SKILL_VALUE = 1.20   # 標準技の値段（盤面の実測・2026-08-22・§7.69）
+# 弓の合成だけ安く払う（§7.77）。接敵抑制 0.60・技含（§7.74）で弓の標準技の
+# 出来高は旧規則比 0.59 倍に落ちた（3/5/8点で 0.58/0.59/0.59 と一定・差分法）。
+# 基準が旧値段のまま払うと弓の実カード全部が +0.5 ぶん強く見える（§7.69 と
+# 同じ錯覚が逆向きに出る）。1.20 × 0.59 ≈ 0.71。
+SYNTH_SKILL_VALUE_ARC = 0.71
 SYNTH_SKILL_KIND = "melee"
 SYNTH_SKILL_TARGET = "敵1体（最前）"
 
@@ -3302,8 +3307,9 @@ def _synth(cost: float, typ: str, role: str = BAL) -> Card:
         # -0.5 に沈み、床割れ46枚の大半がこの錯覚だった・§7.69）。
         # 同コストどうしの対戦では技の価値がコストに依らないことは実測済み
         # （effect_value の「測って却下」の注記）なので、定数でよい。
+        pay = SYNTH_SKILL_VALUE_ARC if typ == ARC else SYNTH_SKILL_VALUE
         return Card(cost, typ, role, skill=SYNTH_SKILL,
-                    stat_cost=max(cost - SYNTH_SKILL_VALUE, 0.1))
+                    stat_cost=max(cost - pay, 0.1))
     return Card(cost, typ, role)
 
 
