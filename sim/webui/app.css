@@ -796,6 +796,19 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   border-left: 3px solid rgba(190, 150, 80, .5); border-radius: 0 6px 6px 0; }
 .battle-tip b { font-family: var(--font-min); color: var(--gold);
   margin-right: 4px; }
+/* 軍略の手引き（§7.79）: 編成画面のボタンから開く。常時は見せない */
+.guide-overlay { position: fixed; inset: 0; z-index: 60;
+  background: rgba(10, 7, 4, .6); display: flex; align-items: center;
+  justify-content: center; padding: 20px; }
+.guide-overlay[hidden] { display: none; }   /* display:flex が hidden に勝つのを防ぐ */
+.guide-panel { max-width: 560px; width: 100%; max-height: 80vh;
+  overflow-y: auto; }
+.guide-head { display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 6px; }
+.guide-body dt { font-family: var(--font-min); color: var(--gold-hi);
+  margin: 10px 0 2px; }
+.guide-body dd { margin: 0; font-size: 13px; line-height: 1.8;
+  color: var(--ink); }
 .prep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
   margin-bottom: 18px; align-items: start; }
 .foe-panel h2 .sub, .mine-panel h2 .sub { font-size: 12px; color: var(--sub);

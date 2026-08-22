@@ -638,6 +638,7 @@ async function viewDeck(state) {
         </div>
         <div class="type-legend muted num">
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
+          <button class="mini ghost" id="guide-open" title="相性と布陣の勘どころ">軍略の手引き</button>
         </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
         <div class="cards" id="roster"></div>
@@ -655,7 +656,34 @@ async function viewDeck(state) {
         <div class="library" id="library"></div>
         <div class="onsho-panel" id="onsho"></div>
       </div>
+    </div>
+    <div class="guide-overlay" id="guide" hidden>
+      <div class="guide-panel panel">
+        <div class="guide-head"><h2>軍略の手引き</h2>
+          <button class="mini ghost" id="guide-close">閉じる ✕</button></div>
+        <dl class="guide-body">
+          <dt>兵種の三すくみ</dt>
+          <dd>歩は騎を受け止め、騎は弓を蹴散らし、弓は歩を射抜く。</dd>
+          <dt>陣形は弓の数を決める</dt>
+          <dd>鶴翼＝前4・弓2（近接が主役）／魚鱗＝前3・弓3（半々）／
+            雁行＝前2・弓4（射撃が主役）。矢を増やすほど、壁は薄くなる。</dd>
+          <dt>弓の弱点</dt>
+          <dd>肉薄されると矢も必殺技も鈍る。射手を守る壁を惜しむな。</dd>
+          <dt>槍の使い道</dt>
+          <dd>槍持ちの歩兵は後衛にも置ける。回り込む騎馬は、槍が突き止める。</dd>
+          <dt>前衛の積み方</dt>
+          <dd>高く積め——最も安い札が矢面に立ち、高い札が長く戦う。
+            ただし一枚の柱に頼る軍は、柱を失えば崩れる。</dd>
+          <dt>細かい得</dt>
+          <dd>余った点は開戦の気勢に変わる。本陣を預かる将が崩れれば全軍が
+            動揺する。必殺技は消費が軽いほど数を撃ち、重いほど一撃に懸ける。</dd>
+        </dl>
+      </div>
     </div>`;
+  const gd = $("#guide");
+  $("#guide-open").onclick = () => { gd.hidden = false; };
+  $("#guide-close").onclick = () => { gd.hidden = true; };
+  gd.onclick = (e) => { if (e.target === gd) gd.hidden = true; };
   drawRegTabs(); drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
   $("#save").onclick = saveDeck;
