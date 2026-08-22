@@ -3220,6 +3220,7 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
 # 統制した条件で必殺技の効果を測るために、全札に同じ技を持たせる。
 SYNTH_SKILL = "＿標準技"
 SYNTH_SKILL_POWER = 3.0
+SYNTH_SKILL_VALUE = 1.20   # 標準技の値段（盤面の実測・2026-08-22・§7.69）
 SYNTH_SKILL_KIND = "melee"
 SYNTH_SKILL_TARGET = "敵1体（最前）"
 
@@ -3234,10 +3235,15 @@ def _synth(cost: float, typ: str, role: str = BAL) -> Card:
     if SKILLS_ON:
         SKILL_INFO[SYNTH_SKILL] = Skill(SYNTH_SKILL_POWER, SYNTH_SKILL_KIND)
         SKILL_TARGET[SYNTH_SKILL] = SYNTH_SKILL_TARGET
-        from . import design as D      # 遅延 import（design は field を読むため）
-        e = D.effect_value(SKILL_INFO[SYNTH_SKILL], SYNTH_SKILL_TARGET)
+        # **値段は実測で払う。** 式で払うと 0.51 になるが、盤面の価値は 1.20
+        # （消費100は段の外で、453/100=4発撃てる — 段の重みの後備えが甘い）。
+        # 合成カードは全計器の基準（零点・物差し・監査の相手）なので、ここが
+        # 安く払うと**全部の札が +0.69 ぶん弱く見える**（実際に監査の中央値が
+        # -0.5 に沈み、床割れ46枚の大半がこの錯覚だった・§7.69）。
+        # 同コストどうしの対戦では技の価値がコストに依らないことは実測済み
+        # （effect_value の「測って却下」の注記）なので、定数でよい。
         return Card(cost, typ, role, skill=SYNTH_SKILL,
-                    stat_cost=max(cost - e, 0.1))
+                    stat_cost=max(cost - SYNTH_SKILL_VALUE, 0.1))
     return Card(cost, typ, role)
 
 
