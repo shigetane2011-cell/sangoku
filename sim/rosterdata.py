@@ -349,7 +349,8 @@ def to_design(g: Dict[str, str]):
                     gauge_cost=gc, gauge_init=gi, effect=eff,
                     lean=float(g.get("役割寄せ") or 0.0),
                     def_lean=float(g.get("防御寄せ") or 0.0),
-                    spd_lean=float(g.get("速度寄せ") or 0.0))
+                    spd_lean=float(g.get("速度寄せ") or 0.0),
+                    floor_adj=float(g.get("床調整") or 0.0))
 
 
 def to_cards(names=None):
@@ -378,6 +379,7 @@ def to_cards(names=None):
         lean=float(g.get("役割寄せ") or 0.0),
         def_lean=float(g.get("防御寄せ") or 0.0),
         spd_lean=float(g.get("速度寄せ") or 0.0),
+        floor_adj=float(g.get("床調整") or 0.0),
         spear=bool((g.get("槍") or "").strip()),
         gauge_cost=float(g["消費ゲージ%"]),
         # 気勢は知力とは独立の項目なので設計式で潰さない（§7.7）。
@@ -439,7 +441,7 @@ COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種",
            "台詞", "武勇", "知略",
            # 役割寄せ（§7.56）・槍（§7.57）・防御寄せ/速度寄せ（§7.66）。
            # 設計の入力（authored）なので落とさない。
-           "役割寄せ", "槍", "防御寄せ", "速度寄せ"]
+           "役割寄せ", "槍", "防御寄せ", "速度寄せ", "床調整"]
 
 
 def regenerate() -> int:

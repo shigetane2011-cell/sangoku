@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sim import field as F, match as M, design as D, rosterdata as R
 from multiprocessing import Pool
 
-# **実ゲームと同じ条件で測る。** TRAITS_ON の既定は False で、うっかり
-# そのまま回すと特性持ちが「払った値段ぶんタダ働き」に見える（全120枚の
-# 監査を3周、その状態でやってしまった — 陣頭族が一律 -0.7 沈んで見えた
-# 正体）。対勢力（vs_魏/蜀/呉）だけは相手が合成カードなので依然空撃ち。
+# **実ゲームと同じ条件で測る（明示）。** M._roster_cards() も立てるが、
+# 順序や別経路に依存しないようここでも書く。素の field を import しただけの
+# 計器は特性が既定オフになり、特性の対プローブが +0.00 を返す罠がある
+# （実際に踏んで一度誤診した・§7.67）。
 F.TRAITS_ON = True
 
 CARDS = {c.name: c for c in M._roster_cards()}

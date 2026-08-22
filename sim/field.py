@@ -1226,6 +1226,11 @@ class Card:
     # 防御寄せ・速度寄せ（§7.66）。正=堅い/速い。対価は兵力（design.derive）。
     def_lean: float = 0.0
     spd_lean: float = 0.0
+    # 床調整（§7.68）: 盤面監査で総赤字が -0.5 点を下回った札にだけ与える
+    # 兵力の補正（0 以上）。**帳簿の外**の量なので、シートの列で目に見える
+    # 形に置き、単価の再較正（task #20）が進んだら剥がす。tools/floor_patch.py
+    # が測って書く — 手では書かない。
+    floor_adj: float = 0.0
 
     def label(self) -> str:
         if self.name:
@@ -1313,7 +1318,8 @@ class Unit:
         # 1.0 のときだけ。コストの加算性はここで決まる。
         rm = role_men(card.role, card.lean)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
-            * lean_men_comp(card.typ, card.def_lean, card.spd_lean)
+            * lean_men_comp(card.typ, card.def_lean, card.spd_lean) \
+            * (1.0 + max(card.floor_adj, 0.0))
         self.men = self.men0
         # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ
         # 武力・知力と実際の攻撃力が食い違いうる（別々に保持されるため）。
