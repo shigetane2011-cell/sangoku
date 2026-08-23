@@ -321,9 +321,14 @@ h2 button.attack { float: right; font-size: 13px; }
 .deck-cta { display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
   flex-wrap: wrap; }
 .deck-cta button { font-size: 15px; padding: 10px 28px; }
-.action-bar { position: sticky; top: 69px; z-index: 18; padding: 10px 12px;
+/* PCでは追従させない（画面が広く一覧が長いので、下までついてくると
+   邪魔——テストプレイの指摘）。狭い画面だけ sticky（下の media 内）。 */
+.action-bar { padding: 10px 12px;
   background: #1d1710f4; border: 1px solid var(--line2); border-radius: 12px;
   box-shadow: 0 8px 24px #0008; backdrop-filter: blur(5px); }
+@media (max-width: 760px) {
+  .action-bar { position: sticky; top: 69px; z-index: 18; }
+}
 .action-copy { display: flex; flex-direction: column; margin-right: auto; min-width: 220px; }
 .action-copy b { font-family: var(--font-min); color: var(--gold-hi); letter-spacing: .12em; }
 .action-copy .hint { font-size: 12px; }

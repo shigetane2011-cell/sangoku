@@ -1052,6 +1052,10 @@ function showCardInfo(name) {
 }
 
 function drawSlots() {
+  // 再描画でホバー中の枠ごと差し替わると mouseleave が永遠に来ず、
+  // 概要チップが取り残される（↑↓✕・ドラッグ経由で実際に起きた）。
+  // 描き直す前に必ず消す。
+  hideTip();
   const nf = FORMS[cur.form];
   const rows = [];
   for (let i = 0; i < 6; i++) {
@@ -1165,6 +1169,9 @@ function hideTip() {
   const tip = $("#tip");
   if (tip) tip.style.display = "none";
 }
+// チップは fixed なのでスクロールすると場所が嘘になる上、要素が
+// カーソルの下から滑り出ても mouseleave が来ないことがある。保険で消す。
+document.addEventListener("scroll", hideTip, { passive: true, capture: true });
 
 function deckCost() {
   return cur.cards.reduce((s, n) => {
