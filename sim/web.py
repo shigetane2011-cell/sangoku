@@ -83,6 +83,20 @@ SHELL = """<!doctype html>
 # （ヒラギノ明朝/游明朝/システムゴシック）へ自然に落ちる。
 
 
+def _my_rating(cx, me):
+    """帯ごとの「現在の武名」と戦績（§7.86・§7.89）。順位表は毎時の断面
+    なので、**自分の値だけは即時**を出す。戦績は刻み（result 列）から数える
+    ので、刻みの無い旧記録は入らない。"""
+    rec = P.record_of(cx, me.id)
+    out = {}
+    for bn in L.BOARDS:
+        b = PL.load_board(cx, bn)
+        w, l, _d = rec.get(bn, (0, 0, 0))
+        out[bn] = {"rating": round(b.get(me.id), 1),
+                   "games": b.games.get(me.id, 0), "w": w, "l": l}
+    return out
+
+
 def _trait_names():
     """特性キー → 表示名。**traits.csv の 名前 列が一次**（旧実装はここに
     別の対応表を持っていて、同じ量の定義が2箇所になっていた）。"""
@@ -630,9 +644,7 @@ class App(BaseHTTPRequestHandler):
             "boards": boards, "entry_ok": entry_ok, "boards_ok": boards_ok,
             # 現在の武名（§7.86）。順位表は毎時の断面なので、**自分の値だけは
             # 即時**を出す（対戦直後に動いたことが画面で分からなかった）。
-            "my_rating": ({bn: {"rating": round(PL.load_board(cx, bn).get(me.id), 1),
-                                "games": PL.load_board(cx, bn).games.get(me.id, 0)}
-                           for bn in L.BOARDS} if me else None),
+            "my_rating": (_my_rating(cx, me) if me else None),
             "heifu": heifu, "onsho": onsho, "tenka": tenka,
             "senki": senki_info,
             "banzuke": [{"name": names.get(r["player_id"], "?"),

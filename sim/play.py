@@ -1252,8 +1252,9 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                  "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
                  "men0": round(m0), "skill_dealt": round(sd),
                  "fell": F.clock(fa) if fa is not None else None,
-                 "ff": round(ff), "refl": round(rf), "cut": round(cs)}
-                for n, t, d, m, m0, sd, fa, ff, rf, cs in xs]
+                 "ff": round(ff), "refl": round(rf), "cut": round(cs),
+                 "heal": round(hl), "lost": round(al)}
+                for n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al in xs]
     sc = r["score"] if me_first else 1.0 - r["score"]
     return {"lines": lines,
             "notes": battle_notes(ua, ub, r, series, me_first),
@@ -1281,7 +1282,7 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
         for (name, typ, dealt, men, men0, sd, fa,
-             ff, rf, cs) in rows:
+             ff, rf, cs, hl, al) in rows:
             pct = 100.0 * men / men0 if men0 > 0 else 0.0
             state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
             when = "・{}崩".format(F.clock(fa)) if fa is not None else ""
@@ -1293,6 +1294,10 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
                 extra += " 反{:.1f}".format(rf / 1000.0)
             if ff >= 300.0:
                 extra += " 同士{:.1f}".format(ff / 1000.0)
+            if hl >= 300.0:
+                extra += " 癒{:.1f}".format(hl / 1000.0)
+            if al >= 300.0:
+                extra += " 封{:.1f}".format(al / 1000.0)
             cells.append("{}({}) 与{:.1f}(技{:.1f}) 残{}{}{}".format(
                 M.person_of(F.Card(0, typ, name=name)) or F.TYPE_JP[typ],
                 F.TYPE_JP[typ][0], dealt / 1000.0, sd / 1000.0, state, when,

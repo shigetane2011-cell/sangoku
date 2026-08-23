@@ -696,6 +696,24 @@ def record_battle(cx: sqlite3.Connection, mode: str, board: str,
     return int(cur.lastrowid)
 
 
+def record_of(cx: sqlite3.Connection, pid: str) -> Dict[str, Tuple[int, int, int]]:
+    """帯ごとの戦績 (勝, 敗, 分)。§7.89。**刻み（result 列）から数える** —
+    リプレイは種から再生する設計なので、刻みが無い旧記録は数えられない
+    （その分は単に計上されない）。天下は3戦の多数決で1勝1敗に丸める。"""
+    out: Dict[str, List[int]] = {}
+    for r in cx.execute(
+            "SELECT board, pid_a, pid_b, result FROM battles"
+            " WHERE (pid_a = ? OR pid_b = ?) AND result <> ''", (pid, pid)):
+        marks = r["result"]
+        if r["pid_b"] == pid:
+            marks = marks.translate(str.maketrans("○●", "●○"))
+        w = marks.count("○")
+        l = marks.count("●")
+        cell = out.setdefault(r["board"], [0, 0, 0])
+        cell[0 if w > l else (1 if l > w else 2)] += 1
+    return {k: (v[0], v[1], v[2]) for k, v in out.items()}
+
+
 def battles_of(cx: sqlite3.Connection, board: Optional[str] = None,
                pid: Optional[str] = None, limit: int = 40) -> List[Dict]:
     q = "SELECT * FROM battles WHERE 1=1"

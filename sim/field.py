@@ -1316,7 +1316,7 @@ class Unit:
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
-        "ff_dealt", "refl_back", "cut_saved",
+        "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1419,7 +1419,10 @@ class Unit:
         # **総量ではなく毎秒で持つ。** 総量を1発で入れると、14秒かけて削る技と
         # 同じ量を初手で入れる技の区別が消える。前者は相手が先に潰走すれば
         # 取りこぼすし、回復は相手の火力と競争になる。そこが技の性格である。
-        self.overtime: List[Tuple[float, str, float]] = []
+        # (期限, 種別, 毎秒の量, 出どころの隊)。**出どころを持つ**のは
+        # 延焼・持続回復を戦果として数えるため（§7.89。持たなかったので
+        # 延焼は誰の与ダメにも入らず、諸葛亮が「何もしていない」札に見えた）
+        self.overtime: List[Tuple[float, str, float, "Unit | None"]] = []
         self.shot = 0.0     # 累積の射撃時間（矢数の代理）
         self.melee = 0.0    # 敵と噛み合っている累積時間（突撃の勢いの逆）
         self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
@@ -1431,6 +1434,8 @@ class Unit:
         self.ff_dealt = 0.0     # 混乱で味方へ回してしまった被害
         self.refl_back = 0.0    # 必殺技反射で撃ち手へ返した被害
         self.cut_saved = 0.0    # 必殺技防御・通常攻撃防御で減らした被害
+        self.healed = 0.0       # 味方（自分含む）へ入れた回復の総量
+        self.atk_lost = 0.0     # 弱体を受けて出せなかった火力（受け手側で数える）
         self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
         self.refl = 0.0         # 必殺技反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
@@ -2142,13 +2147,14 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if f.men <= 0.0:
                 continue
             if sk.dur > 0.0:
-                f.overtime.append((t + sk.dur, "heal", amt))
+                f.overtime.append((t + sk.dur, "heal", amt, u))
                 done += amt * sk.dur
             else:
                 # 満タンぶんは実況でも数えない。**スナップショットに対して測る**
                 # ので、同じティックで他が撃っていても量が変わらない。
                 gain = min(amt, f.men0 - f.men)
                 _men_add(f, gain)
+                u.healed += gain          # 表示専用（§7.89）
                 done += gain
         if done > 0.0:
             say("heal", done, sk.dur, mag=done)
@@ -2175,7 +2181,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
             # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
             # 総量が 1/14 になる。実際に踏んだ。
-            f.overtime.append((t + sk.dur, "dot", dmg))
+            f.overtime.append((t + sk.dur, "dot", dmg, u))
             done += dmg
         else:
             pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
@@ -2261,13 +2267,25 @@ def _overtime(units, t: float, dt: float) -> None:
         u.overtime = [e for e in u.overtime if e[0] > t]
         if u.men <= 0.0:
             continue
-        for _, kind, per_sec in u.overtime:
+        for _, kind, per_sec, src in u.overtime:
             if kind == "heal":
+                before = u.men
                 u.men = min(u.men0, u.men + per_sec * dt)
+                if src is not None:
+                    src.healed += u.men - before          # 表示専用（§7.89）
             else:
                 # 延焼も必殺技被害なので scut が効く（§7.51）
-                u.men = max(u.men - per_sec * dt * u.scut_mult
-                            * (100.0 / (100.0 + u.dfn * u.def_mult)), 0.0)
+                before = u.men
+                cut = per_sec * dt * u.scut_mult \
+                    * (100.0 / (100.0 + u.dfn * u.def_mult))
+                u.men = max(u.men - cut, 0.0)
+                took = before - u.men
+                if u.scut_mult < 1.0:
+                    u.cut_saved += took / max(u.scut_mult, 1e-9) - took
+                if src is not None:
+                    # **延焼も撃ち手の戦果**（§7.89）。これを数えていなかった
+                    src.dealt += took
+                    src.dealt_skill += took
 
 
 def _expire(units, t: float) -> None:
@@ -2633,6 +2651,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * _suppress(u, gap[i]) * _output(u) * fa * ramp * ta)
+                if u.atk_mult < 1.0:      # 表示専用（§7.89）
+                    u.atk_lost += base / max(u.atk_mult, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
                     _friendly_fire(u, ua, da, base * ff)
@@ -2667,6 +2687,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * _suppress(u, col) * _output(u) * fb * ramp * tb)
+                if u.atk_mult < 1.0:      # 表示専用（§7.89）
+                    u.atk_lost += base / max(u.atk_mult, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
                     _friendly_fire(u, ub, db, base * ff)
@@ -2793,10 +2815,12 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # **足すのは末尾**（既存の添字を動かすと戦果表と画面が同時に壊れる）
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
-                         u.ff_dealt, u.refl_back, u.cut_saved) for u in ua],
+                         u.ff_dealt, u.refl_back, u.cut_saved,
+                         u.healed, u.atk_lost) for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
-                         u.ff_dealt, u.refl_back, u.cut_saved) for u in ub],
+                         u.ff_dealt, u.refl_back, u.cut_saved,
+                         u.healed, u.atk_lost) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。

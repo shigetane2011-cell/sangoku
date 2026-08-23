@@ -862,3 +862,5 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
 .fx.cut { color: #8fb3d8; border-color: #40566e; }
 .fx.refl { color: var(--gold-hi); border-color: #6b552a; }
 .fx.ff { color: #d98b6a; border-color: #6e4230; }
+.fx.heal { color: #86c08d; border-color: #3c5f43; }
+.fx.lost { color: #9d8fbf; border-color: #4d4468; }

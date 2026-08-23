@@ -61,7 +61,8 @@ function shell(state) {
   const myRating = state.me && Object.keys(mr).length
     ? `<div class="my-rating num">現在の武名　${Object.entries(mr)
         .map(([bn, r]) => `<span>${esc(bn)} <b>${Math.round(r.rating)}</b>` +
-          `<small>${r.games}戦</small></span>`).join("")}
+          `<small>${(r.w || r.l) ? `${r.w}勝${r.l}敗` : `${r.games}戦`}</small></span>`)
+        .join("")}
        <small class="muted">（順位表は毎時更新）</small></div>`
     : "";
   $("#app").insertAdjacentHTML("beforebegin", `
@@ -1620,6 +1621,8 @@ async function viewReplay(state) {
           (u.cut || 0) >= 300 ? `<span class="fx cut" title="必殺技防御・通常攻撃防御で減らした被害">軽減 ${k(u.cut)}</span>` : "",
           (u.refl || 0) >= 300 ? `<span class="fx refl" title="必殺技反射で撃ち手へ返した被害">反射 ${k(u.refl)}</span>` : "",
           (u.ff || 0) >= 300 ? `<span class="fx ff" title="混乱で味方へ回してしまった被害">同士討ち ${k(u.ff)}</span>` : "",
+          (u.heal || 0) >= 300 ? `<span class="fx heal" title="味方へ入れた回復の総量">癒し ${k(u.heal)}</span>` : "",
+          (u.lost || 0) >= 300 ? `<span class="fx lost" title="弱体を受けて出せなかった火力">封じられ ${k(u.lost)}</span>` : "",
         ].join("");
         return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""}">
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
