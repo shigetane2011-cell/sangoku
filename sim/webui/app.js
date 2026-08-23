@@ -211,7 +211,19 @@ async function viewHome(state) {
   const rf = $("#refill");
   if (rf) rf.onclick = async () => { await api("/api/dev_heifu", {}); location.reload(); };
   const tn = $("#tenka-now");
-  if (tn) tn.onclick = async () => { await api("/api/dev_tenka", {}); location.reload(); };
+  if (tn) tn.onclick = async () => {
+    // 試験用の口は手元起動でだけ開く（DEV_DOORS）。閉まっている時に
+    // 黙って死んでいたので、失敗は言葉で返す。
+    try { await api("/api/dev_tenka", {}); location.reload(); }
+    catch (e) {
+      let msg = e.message;
+      try { msg = JSON.parse(msg).error || msg; } catch (_x) { /* 素通し */ }
+      alert("今すぐ開催できなかった: " + msg
+            + "\n試験用の口は localhost 起動でだけ開く。スマホ向けに"
+            + " SANGOKU_HOST を立てて起動している時は、あわせて"
+            + " SANGOKU_DEV=1 を付けると開く。");
+    }
+  };
   const fg = $("#free-go");
   if (fg) fg.onclick = async () => {
     try {
@@ -246,6 +258,14 @@ async function doAttack(reg) {
     </div></div>`);
   try {
     const r = await api("/api/attack", { reg });
+    if (r.battle_id) {
+      // **結果より先に戦いを見せる**（§7.62 の判の流儀をラダーにも）。
+      // 判はリプレイを見届けた後に出す。
+      sessionStorage.setItem("fight:" + r.battle_id, JSON.stringify(
+        { label: reg, result: r, kind: "ladder" }));
+      location.href = "/replay?id=" + r.battle_id + "&from=fight";
+      return;
+    }
     showBattleResult(reg, r);
   } catch (e) {
     const ov = $("#overlay"); if (ov) ov.remove();
@@ -1337,8 +1357,8 @@ async function viewReplay(state) {
     : "";
   $("#app").innerHTML = `
     <div class="replay-head">
-      <a class="btn ghost mini" href="${fromFight ? "/senki" : "/replays"}">${
-        fromFight ? "← 戦記へ" : "← 戦歴へ"}</a>
+      <a class="btn ghost mini" href="${FIGHT ? (FIGHT.kind === "ladder" ? "/" : "/senki") : "/replays"}">${
+        FIGHT ? (FIGHT.kind === "ladder" ? "← 対戦へ" : "← 戦記へ") : "← 戦歴へ"}</a>
       <div><h2>${FIGHT ? esc(FIGHT.label) : esc(d.board)}</h2>
       <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
         ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}</span></div>
@@ -1384,6 +1404,18 @@ async function viewReplay(state) {
     document.body.classList.remove("suspense");   // 見立てと軍功帳を開く
     const r = FIGHT.result;
     const to = (href) => () => { location.href = href; };
+    if (FIGHT.kind === "ladder") {
+      // ラダーの判。次の戦・編成直しは戦記の動線なので出さない
+      drawFightBar(r, null);
+      showBattleResult(FIGHT.label, r, {
+        hideReplay: true, closeLabel: "対戦へ戻る", close: to("/"),
+        review: () => {
+          const bar = $("#fight-actions");
+          if (bar) bar.scrollIntoView({ block: "start", behavior: "smooth" });
+        },
+      });
+      return;
+    }
     const next = FIGHT.next === null ? null : to("/senki?i=" + FIGHT.next);
     // 判の窓を閉じても行き先が消えないよう、同じ動線を画面にも残す。
     // 実況・戦況図・軍師の見立て・軍功帳は、判のあとが**読みどころ**なので、
@@ -1407,6 +1439,15 @@ async function viewReplay(state) {
     if (!el) return;
     const cls = r.win === "勝ち" ? "win" : (r.win === "負け" ? "lose" : "draw");
     el.className = "fight-actions " + cls;
+    if (FIGHT.kind === "ladder") {
+      el.innerHTML = `
+        <span class="fa-verdict">${esc(r.win)}</span>
+        <span class="muted">実況・戦況図・軍功帳をこのまま読み返せる</span>
+        <button class="primary" id="fa-again">もう一度出陣</button>
+        <a class="btn ghost" href="/">対戦へ戻る</a>`;
+      $("#fa-again").onclick = () => doAttack(FIGHT.label);
+      return;
+    }
     el.innerHTML = `
       <span class="fa-verdict">${esc(r.win)}</span>
       <span class="muted">実況・戦況図・軍師の見立て・軍功帳をこのまま読み返せる</span>
