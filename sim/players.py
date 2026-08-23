@@ -442,7 +442,11 @@ def pick_onsho(cx: sqlite3.Connection, player_id: str, key: str,
     if key not in {k for _t, k in candidates}:
         return False
     r = cx.execute(
-        "SELECT 1 FROM owned_traits WHERE player_id=? AND date(gained_at)=?",
+        # **地元の日付で数える**（§7.84）。gained_at は datetime('now')＝UTC
+        # なので、そのまま比べると UTC と地元の日付がずれる時間帯（日本なら
+        # 0時〜9時）に「本日はまだ」と誤判定し、恩賞を何度でも選べてしまう。
+        "SELECT 1 FROM owned_traits WHERE player_id=?"
+        " AND date(gained_at,'localtime')=?",
         (player_id, today)).fetchone()
     if r is not None:
         return False

@@ -586,9 +586,12 @@ class App(BaseHTTPRequestHandler):
             import datetime
             names_jp = _trait_names()
             today = datetime.date.today().isoformat()
+            # 授与済みの判定は**地元の日付**で（§7.84。UTC のまま比べると
+            # 日本の 0〜9時に帯が消えず、何度でも選べてしまっていた）
             if not cx.execute(
                     "SELECT 1 FROM owned_traits WHERE player_id=?"
-                    " AND date(gained_at)=?", (me.id, today)).fetchone():
+                    " AND date(gained_at,'localtime')=?",
+                    (me.id, today)).fetchone():
                 cands = PL.onsho_candidates(me.id, today)
                 trs = {t["キー"]: t for t in R.traits()}
                 rows2 = []
