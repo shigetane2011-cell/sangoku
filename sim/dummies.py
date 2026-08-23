@@ -73,6 +73,15 @@ PERSONAS: Tuple[Persona, ...] = (
     Persona("猛攻", {F.CAV: 1.4, F.INF: 1.4, F.ARC: 0.7},
             {F.DPS: 2.5, F.BURST: 2.0, F.BAL: 0.9, F.TANK: 0.5, F.SUP: 0.3},
             "鶴翼", 0.8),
+    # §7.83 で追加。**新しいメタを稽古台に乗せる**（§7.74-77 で盤面が変わり、
+    # 「強弓の束ね」と「厚い壁で受ける」が上位の型になったのに、在野は
+    # 改設計前の6性格しか居なかった）。
+    Persona("強弓", {F.ARC: 2.2, F.INF: 1.0, F.CAV: 0.5},
+            {F.DPS: 2.4, F.BURST: 2.2, F.BAL: 1.0, F.SUP: 0.6, F.TANK: 0.4},
+            "雁行", 0.6),
+    Persona("重装", {F.INF: 2.0, F.CAV: 1.2, F.ARC: 0.6},
+            {F.TANK: 2.6, F.BAL: 1.4, F.SUP: 1.0, F.DPS: 0.7, F.BURST: 0.4},
+            "鶴翼", 0.4),
 )
 
 
@@ -251,22 +260,39 @@ def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
     return pick
 
 
-def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24
+def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24, start: int = 0
                 ) -> List[Tuple[str, Persona, M.Entry]]:
     """ダミーを n 体登録し、それぞれの編成を作る。
 
     **メールは予約ドメイン**（`players.DUMMY_DOMAIN`）。足場を撤去し忘れても
     実在アドレスへは届かない。
+
+    start は**既に居るダミーの数**（§7.83）。0 から振り直すと名前も
+    メールも既存と衝突し、在野を増やそうとした瞬間に IntegrityError で
+    落ちていた（増員の道が塞がっていた）。
     """
     from . import players as P
     out = []
-    for i in range(n):
-        p = PERSONAS[i % len(PERSONAS)]
-        name = "{}{:02d}".format(p.name, i // len(PERSONAS) + 1)
+    for k in range(n):
+        i = start + k
+        pi = i % len(PERSONAS)
+        p = PERSONAS[pi]
+        num = i // len(PERSONAS) + 1
+        name = "{}{:02d}".format(p.name, num)
         pl = P.register(cx, name, kind=P.DUMMY,
                         email="dummy{:03d}@{}".format(i, P.DUMMY_DOMAIN))
-        out.append((pl.id, p, make_entry(cards, p, i)))
+        out.append((pl.id, p, make_entry(cards, p, deck_seed(pi, num))))
     return out
+
+
+# 編成の種は (性格の番号, 通し番号) から**性格の総数に依らずに**決める
+# （§7.83）。i = 通し番号 × 性格数 + 番号 にすると、性格を1つ足すたびに
+# 既存の在野の編成が全部振り直される。SLOT は将来の追加ぶんの余白。
+DECK_SLOT = 16
+
+
+def deck_seed(persona_i: int, num: int) -> int:
+    return (num - 1) * DECK_SLOT + persona_i
 
 
 def form_table(dt: float = 0.5, seeds: int = 40) -> None:

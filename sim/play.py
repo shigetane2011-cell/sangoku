@@ -40,7 +40,7 @@ from . import rosterdata as R
 
 FORM_BY_NAME = D.FORM_BY_NAME
 REG_NAMES = tuple(label for label, _ in M.REGULATIONS)
-MIN_DUMMIES = 15    # 最初の足場。自分を足して16人 = 検算した規模
+MIN_DUMMIES = 24    # 在野の数（§7.83 で 15→24。8性格×3）
 
 
 # ----------------------------------------------------------------------------
@@ -278,8 +278,8 @@ def dummy_entries(cx, cards) -> Dict[str, M.Entry]:
         if not m or m.group(1) not in pidx:
             continue
         k = pidx[m.group(1)]
-        i = (int(m.group(2)) - 1) * len(D.PERSONAS) + k
-        out[pl.id] = D.make_entry(cards, D.PERSONAS[k], i)
+        out[pl.id] = D.make_entry(cards, D.PERSONAS[k],
+                                  D.deck_seed(k, int(m.group(2))))
     return out
 
 
@@ -299,7 +299,9 @@ def save_board(cx, b: L.Board) -> None:
 def ensure_dummies(cx, cards) -> Dict[str, M.Entry]:
     ents = dummy_entries(cx, cards)
     if len(ents) < MIN_DUMMIES:
-        D.seed_ladder(cx, cards, MIN_DUMMIES - len(ents))
+        # **番号は続きから**（§7.83）。0 から振り直すと既存の在野と名前も
+        # メールも衝突して増員そのものが落ちる。
+        D.seed_ladder(cx, cards, MIN_DUMMIES - len(ents), start=len(ents))
         ents = dummy_entries(cx, cards)
     return ents
 
