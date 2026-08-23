@@ -415,7 +415,18 @@ class App(BaseHTTPRequestHandler):
                     return self._json({"error": "login"}, 401)
                 cards = M._roster_cards()
                 now = int(time.time())
-                serial, _t = PL.next_tenka(now)
+                # **まだ開催していない回**を選ぶ。next_tenka は「次の予定」を
+                # 返すだけなので、押すたび同じ回を解決して二重記録になり
+                # （同じ種＝同じ結果の行が並ぶ）、レートも二重に動いていた
+                # （§7.82）。済んだ回を飛ばして先の回へ進む。
+                done = int(P.ledger_get(cx, "tenka_done", "0"))
+                serial = None
+                for sr, _t in PL.tenka_events(now, now + 30 * 24 * 3600):
+                    if sr > done:
+                        serial = sr
+                        break
+                if serial is None:
+                    return self._json({"error": "開催できる回が無い"}, 400)
                 n = PL._tenka_resolve(cx, cards, serial, now)
                 P.ledger_set(cx, "tenka_done", str(serial))
                 return self._json({"ok": True, "fought": n})
@@ -1071,8 +1082,19 @@ class App(BaseHTTPRequestHandler):
         import datetime
         mode_jp = {"ranked": "挑戦", "tenka": "天下", "free": "フリー",
                    "room": "ルーム", "senki": "戦記"}
+        # **自分の記録は別に引く**（§7.82）。全体の直近60件から絞ると、
+        # 天下1回で8件ほど書かれるダミー同士の対戦に自分の戦歴が押し出されて
+        # 消えていた（「見えていない」の正体）。
+        seen_ids = set()
+        pool = []
+        if me:
+            pool += P.battles_of(cx, pid=me.id, limit=40)
+        pool += P.battles_of(cx, limit=60)
         rows = []
-        for m in P.battles_of(cx, limit=60):
+        for m in pool:
+            if m["id"] in seen_ids:
+                continue
+            seen_ids.add(m["id"])
             # 戦記は自分の記録にだけ出す（他家の一覧には載せない・§7.60）
             if m["mode"] == "senki" and not (me and m["pid_a"] == me.id):
                 continue
@@ -1094,6 +1116,7 @@ class App(BaseHTTPRequestHandler):
                 "at": datetime.datetime.fromtimestamp(
                     m["played_at"]).strftime("%m/%d %H:%M"),
                 "mine": bool(me and me.id in (m["pid_a"], m["pid_b"]))})
+        rows.sort(key=lambda r: -r["id"])        # 2つの束を混ぜたので並べ直す
         self._json({"battles": rows})
 
     def _api_replay(self, q):
