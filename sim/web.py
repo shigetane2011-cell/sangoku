@@ -419,6 +419,23 @@ class App(BaseHTTPRequestHandler):
                     return self._json({"error": "login"}, 401)
                 P.refill_heifu(self._cx(), me.id, int(time.time()))
                 return self._json({"ok": True})
+            if url.path == "/api/dev_reset_record":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
+                # 手元の試験用（§7.90・**今だけ**）: 自分の戦績を白紙に戻す。
+                # レート・戦数・対戦記録を消す。デッキ・登用・恩賞は残す。
+                # **公開版では消すこと**（他人の記録に触れる口を残さない）。
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                with cx:
+                    cx.execute("DELETE FROM ratings WHERE player_id = ?",
+                               (me.id,))
+                    cx.execute("DELETE FROM battles"
+                               " WHERE pid_a = ? OR pid_b = ?", (me.id, me.id))
+                    cx.execute("DELETE FROM standings_cache")
+                return self._json({"ok": True})
             if url.path == "/api/dev_tenka":
                 if not DEV_DOORS:
                     return self._send(b"not found", 404, "text/plain")

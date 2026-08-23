@@ -56,15 +56,6 @@ function shell(state) {
     ? `<span class="player-chip">遊んでいるのは <b>${esc(state.me.name)}</b>
        <a href="#" id="switch">替える</a></span>`
     : "";
-  // 現在の武名（§7.86）。順位表は毎時の断面なので、自分の値は即時のものを出す
-  const mr = state.my_rating || {};
-  const myRating = state.me && Object.keys(mr).length
-    ? `<div class="my-rating num">現在の武名　${Object.entries(mr)
-        .map(([bn, r]) => `<span>${esc(bn)} <b>${Math.round(r.rating)}</b>` +
-          `<small>${(r.w || r.l) ? `${r.w}勝${r.l}敗` : `${r.games}戦`}</small></span>`)
-        .join("")}
-       <small class="muted">（順位表は毎時更新）</small></div>`
-    : "";
   $("#app").insertAdjacentHTML("beforebegin", `
     <header>
       <h1>${logoHTML(false)}</h1>
@@ -116,6 +107,17 @@ function fmtClock(epoch) {
 }
 
 async function viewHome(state) {
+  // 現在の武名（§7.86）。順位表は毎時の断面なので、自分の値は即時を出す。
+  // **この画面（viewHome）の中で作る** — shell() に置いていたせいで別関数の
+  // 変数を参照し、対戦画面が丸ごと落ちて「読み込み中」のまま止まっていた。
+  const mr = state.my_rating || {};
+  const myRating = state.me && Object.keys(mr).length
+    ? `<div class="my-rating num">現在の武名　${Object.entries(mr)
+        .map(([bn, r]) => `<span>${esc(bn)} <b>${Math.round(r.rating)}</b>` +
+          `<small> ${(r.w || r.l) ? `${r.w}勝${r.l}敗` : `${r.games}戦`}</small></span>`)
+        .join("")}
+       <small class="muted">（順位表は毎時更新）</small></div>`
+    : "";
   const app = $("#app");
   const ok = state.boards_ok || {};
   const boards = state.boards.map((b) => {
@@ -181,6 +183,9 @@ async function viewHome(state) {
         : "出陣すると同格の相手が選ばれる（相手は事前に分からない・同じ相手は1時間に1回まで）")}</span>
       ${heifuGauge}
       <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
+      ${state.me ? `<button class="mini ghost dev-only" id="reset-record"
+        title="試験用: 自分の武名と戦績を白紙に戻す（デッキ・登用・恩賞は残る）"
+        >戦績リセット</button>` : ""}
     </div>
     ${myRating}
     ${tenka}
@@ -213,6 +218,12 @@ async function viewHome(state) {
         </table>
       </div>` : ""}</div>
     ${free}`;
+  const rr = $("#reset-record");
+  if (rr) rr.onclick = async () => {
+    if (!confirm("武名と戦績を白紙に戻す。デッキ・登用・恩賞は残る。よい？")) return;
+    try { await api("/api/dev_reset_record", {}); location.reload(); }
+    catch (e) { alert("戻せなかった: " + e.message); }
+  };
   $$(".onsho-choice").forEach((b) => b.onclick = async () => {
     const r = await api("/api/onsho_pick", { key: b.dataset.k });
     if (r.ok) location.reload(); else alert((r.errors || ["受け取れなかった"])[0]);

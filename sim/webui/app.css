@@ -853,7 +853,7 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
   background: rgba(190, 150, 80, .05); border: 1px solid var(--line2);
   border-radius: 10px; }
 .my-rating b { color: var(--gold-hi); font-size: 15px; margin-left: 4px; }
-.my-rating small { color: var(--faint); margin-left: 3px; }
+.my-rating small { color: var(--faint); margin-left: 5px; }
 
 /* 見えにくい効き（§7.88）: 軍功帳の帯の下に小さく添える */
 .fx-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
