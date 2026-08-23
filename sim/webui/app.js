@@ -1614,18 +1614,26 @@ async function viewReplay(state) {
       us.map((u) => {
         const hp = u.men0 ? u.men / u.men0 : 0;
         const sk = u.skill_dealt || 0;
+        // 見えにくい効き（§7.88）: 軽減・反射・同士討ち。**出た時だけ**添える
+        const k = (v) => (v / 1000).toFixed(1) + "千";
+        const marks = [
+          (u.cut || 0) >= 300 ? `<span class="fx cut" title="必殺技防御・通常攻撃防御で減らした被害">軽減 ${k(u.cut)}</span>` : "",
+          (u.refl || 0) >= 300 ? `<span class="fx refl" title="必殺技反射で撃ち手へ返した被害">反射 ${k(u.refl)}</span>` : "",
+          (u.ff || 0) >= 300 ? `<span class="fx ff" title="混乱で味方へ回してしまった被害">同士討ち ${k(u.ff)}</span>` : "",
+        ].join("");
         return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""}">
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
           <span class="bars">
             <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
             <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
+            ${marks ? `<span class="fx-row">${marks}</span>` : ""}
           </span>
           <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（技${(sk / 1000).toFixed(1)}）</small></span>
           <span class="val">${u.fell ? `<span class="fell">${u.fell}崩</span>`
             : (hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%")}</span>
         </div>`;
       }).join("");
-    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常） ─</div>' +
+    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
       side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
   }
 }

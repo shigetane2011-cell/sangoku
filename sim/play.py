@@ -1247,11 +1247,13 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     step = max(1, len(series) // 240)
     mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
     def rows(xs):
+        # 末尾3つは §7.88 の「見えにくい効き」（同士討ち・反射・軽減）
         return [{"name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
                  "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
                  "men0": round(m0), "skill_dealt": round(sd),
-                 "fell": F.clock(fa) if fa is not None else None}
-                for n, t, d, m, m0, sd, fa in xs]
+                 "fell": F.clock(fa) if fa is not None else None,
+                 "ff": round(ff), "refl": round(rf), "cut": round(cs)}
+                for n, t, d, m, m0, sd, fa, ff, rf, cs in xs]
     sc = r["score"] if me_first else 1.0 - r["score"]
     return {"lines": lines,
             "notes": battle_notes(ua, ub, r, series, me_first),
@@ -1278,13 +1280,23 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     print("    ── 軍功帳（与ダメ=千人・残兵%） ──")
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
-        for name, typ, dealt, men, men0, sd, fa in rows:
+        for (name, typ, dealt, men, men0, sd, fa,
+             ff, rf, cs) in rows:
             pct = 100.0 * men / men0 if men0 > 0 else 0.0
             state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
             when = "・{}崩".format(F.clock(fa)) if fa is not None else ""
-            cells.append("{}({}) 与{:.1f}(技{:.1f}) 残{}{}".format(
+            # 見えにくい効き（§7.88）は**出た時だけ**添える
+            extra = ""
+            if cs >= 300.0:
+                extra += " 軽{:.1f}".format(cs / 1000.0)
+            if rf >= 300.0:
+                extra += " 反{:.1f}".format(rf / 1000.0)
+            if ff >= 300.0:
+                extra += " 同士{:.1f}".format(ff / 1000.0)
+            cells.append("{}({}) 与{:.1f}(技{:.1f}) 残{}{}{}".format(
                 M.person_of(F.Card(0, typ, name=name)) or F.TYPE_JP[typ],
-                F.TYPE_JP[typ][0], dealt / 1000.0, sd / 1000.0, state, when))
+                F.TYPE_JP[typ][0], dealt / 1000.0, sd / 1000.0, state, when,
+                extra))
         print("    {}: {}".format(tag, " / ".join(cells[:3])))
         if len(cells) > 3:
             print("          {}".format(" / ".join(cells[3:])))

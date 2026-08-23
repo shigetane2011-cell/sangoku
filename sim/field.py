@@ -1316,6 +1316,7 @@ class Unit:
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
+        "ff_dealt", "refl_back", "cut_saved",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1426,6 +1427,10 @@ class Unit:
         self.chaos_until = 0.0  # その失効時刻
         self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
         self.dealt_skill = 0.0  # うち必殺技・特性によるぶん（§7.49）
+        # 見えにくい効き（§7.88）。**表示専用**で勝敗にも測定にも使わない。
+        self.ff_dealt = 0.0     # 混乱で味方へ回してしまった被害
+        self.refl_back = 0.0    # 必殺技反射で撃ち手へ返した被害
+        self.cut_saved = 0.0    # 必殺技防御・通常攻撃防御で減らした被害
         self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
         self.refl = 0.0         # 必殺技反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
@@ -2173,10 +2178,12 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             f.overtime.append((t + sk.dur, "dot", dmg))
             done += dmg
         else:
-            eff = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
-                   * f.scut_mult
+            pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
                    * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0))
+            eff = pre * f.scut_mult
             take = min(eff, f.men)
+            if f.scut_mult < 1.0:          # 表示専用（§7.88）
+                f.cut_saved += min(pre, f.men) - take
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
@@ -2202,6 +2209,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 _men_add(u, -back)
                 f.dealt += back
                 f.dealt_skill += back
+                f.refl_back += back        # 表示専用（§7.88）
             done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
@@ -2356,8 +2364,10 @@ def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
     for k, x in enumerate(own):
         if x is u or x.men <= 0.0:
             continue
-        acc[k] += (amount * (x.men / tot)
-                   * (100.0 / (100.0 + x.dfn * x.def_mult)))
+        hit = (amount * (x.men / tot)
+               * (100.0 / (100.0 + x.dfn * x.def_mult)))
+        acc[k] += hit
+        u.ff_dealt += hit          # 表示専用（§7.88）
 
 
 def chaos_ff(u: Unit) -> float:
@@ -2632,6 +2642,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
                         * f.ncut_mult * _cav_cover(u, f)
+                    if f.ncut_mult < 1.0:      # 表示専用（§7.88）
+                        f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
@@ -2664,6 +2676,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
                         * f.ncut_mult * _cav_cover(u, f)
+                    if f.ncut_mult < 1.0:      # 表示専用（§7.88）
+                        f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
                     if u.typ == ARC and ARC_LETHAL < 1.0:
@@ -2775,10 +2789,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "fires_b": [(u.name or u.typ, u.fires) for u in ub],
             # 診断用（勝敗に不使用）: 枚ごとの与ダメージと残兵。§7.32 の計器。
             # 戦果表（sim/play.py）もここを読む。
+            # 末尾3つは §7.88 の「見えにくい効き」（同士討ち・反射・軽減）。
+            # **足すのは末尾**（既存の添字を動かすと戦果表と画面が同時に壊れる）
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
-                         u.dealt_skill, u.fell_at) for u in ua],
+                         u.dealt_skill, u.fell_at,
+                         u.ff_dealt, u.refl_back, u.cut_saved) for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
-                         u.dealt_skill, u.fell_at) for u in ub],
+                         u.dealt_skill, u.fell_at,
+                         u.ff_dealt, u.refl_back, u.cut_saved) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。
