@@ -846,3 +846,11 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 body.suspense #notes, body.suspense #report, body.suspense #battle-summary,
 body.suspense .game-tabs b { display: none; }
 body.suspense .chart-panel h3 small { visibility: hidden; }
+
+/* 現在の武名（§7.86）。順位表は毎時断面なので自分の値だけ即時で出す */
+.my-rating { display: flex; flex-wrap: wrap; align-items: baseline; gap: 14px;
+  margin: 0 0 12px; padding: 8px 14px; font-size: 13px; color: var(--sub);
+  background: rgba(190, 150, 80, .05); border: 1px solid var(--line2);
+  border-radius: 10px; }
+.my-rating b { color: var(--gold-hi); font-size: 15px; margin-left: 4px; }
+.my-rating small { color: var(--faint); margin-left: 3px; }

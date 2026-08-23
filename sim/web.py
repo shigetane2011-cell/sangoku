@@ -628,6 +628,11 @@ class App(BaseHTTPRequestHandler):
                         for p in players if p.kind == P.DUMMY],
             "season": P.ledger_get(cx, "season"),
             "boards": boards, "entry_ok": entry_ok, "boards_ok": boards_ok,
+            # 現在の武名（§7.86）。順位表は毎時の断面なので、**自分の値だけは
+            # 即時**を出す（対戦直後に動いたことが画面で分からなかった）。
+            "my_rating": ({bn: {"rating": round(PL.load_board(cx, bn).get(me.id), 1),
+                                "games": PL.load_board(cx, bn).games.get(me.id, 0)}
+                           for bn in L.BOARDS} if me else None),
             "heifu": heifu, "onsho": onsho, "tenka": tenka,
             "senki": senki_info,
             "banzuke": [{"name": names.get(r["player_id"], "?"),

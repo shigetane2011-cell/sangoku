@@ -56,6 +56,14 @@ function shell(state) {
     ? `<span class="player-chip">遊んでいるのは <b>${esc(state.me.name)}</b>
        <a href="#" id="switch">替える</a></span>`
     : "";
+  // 現在の武名（§7.86）。順位表は毎時の断面なので、自分の値は即時のものを出す
+  const mr = state.my_rating || {};
+  const myRating = state.me && Object.keys(mr).length
+    ? `<div class="my-rating num">現在の武名　${Object.entries(mr)
+        .map(([bn, r]) => `<span>${esc(bn)} <b>${Math.round(r.rating)}</b>` +
+          `<small>${r.games}戦</small></span>`).join("")}
+       <small class="muted">（順位表は毎時更新）</small></div>`
+    : "";
   $("#app").insertAdjacentHTML("beforebegin", `
     <header>
       <h1>${logoHTML(false)}</h1>
@@ -173,6 +181,7 @@ async function viewHome(state) {
       ${heifuGauge}
       <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
     </div>
+    ${myRating}
     ${tenka}
     ${state.senki && state.senki.next ? `<div class="senki-chip fade-in">
       <b>戦記</b> ${state.senki.cleared}／${state.senki.total}戦
