@@ -78,7 +78,7 @@ PERSONAS: Tuple[Persona, ...] = (
     # 改設計前の6性格しか居なかった）。
     Persona("強弓", {F.ARC: 2.2, F.INF: 1.0, F.CAV: 0.5},
             {F.DPS: 2.4, F.BURST: 2.2, F.BAL: 1.0, F.SUP: 0.6, F.TANK: 0.4},
-            "雁行", 0.6),
+            "魚鱗", 0.6),      # 壁3＋強弓3。§7.72 の実測で最も強い形
     Persona("重装", {F.INF: 2.0, F.CAV: 1.2, F.ARC: 0.6},
             {F.TANK: 2.6, F.BAL: 1.4, F.SUP: 1.0, F.DPS: 0.7, F.BURST: 0.4},
             "鶴翼", 0.4),
@@ -91,6 +91,69 @@ def _score(card: F.Card, p: Persona, want: float) -> float:
     # greed が高いほど「目安より高コスト」を好む
     d = abs(card.cost - want) / max(want, 1e-6)
     return w * (1.0 + p.greed * (card.cost / max(want, 1e-6) - 1.0)) / (1.0 + d)
+
+
+# 手練れの在野（§7.85）。**性格の好みではなく、測って分かった型で組む** —
+# 「安い壁で受け、武/点の高い強弓を束ねる」（§7.71-72 の実測）。性格だけで
+# 組むと役割の重みしか見ないので同じ役割の中の効率が野放しになり、上の帯
+# （赤壁40点）ほど手練れのデッキに一方的に負けていた（実測: 24人中24人に敗北）。
+META_PERSONAS = {"強弓", "重装"}
+
+
+def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
+                caps=None) -> M.Entry:
+    """壁＋強弓で組む。強弓は後衛に厚く、重装は前衛に厚く配分する。"""
+    rng = random.Random("meta/{}/{}".format(p.name, seed))
+    form = FORM_BY_NAME[p.form]
+    nf = form.n_front
+    n_rear = M.UNIT_SIZE - nf
+    rear_share = 0.50 if p.name == "強弓" else 0.38
+    used: set = set()
+    units: List[F.Army] = []
+    arcs = [c for c in cards if c.typ == F.ARC and c.might > 0]
+    mel = [c for c in cards if c.typ in (F.INF, F.CAV)]
+    for _label, cap in (caps if caps is not None else M.REGULATIONS):
+        pick_r, pick_f = [], []
+        budget_r = cap * rear_share
+        # 後衛: **予算内で武力の総和が大きくなるように**選ぶ。武/点で選ぶと
+        # 1点の伝令（武77/1点＝77）が満寵（183/3点＝61）より上に来てしまい、
+        # 兵力の薄い札ばかりの後衛になる（コスト曲線が下に凸なため）。
+        for c in sorted(arcs, key=lambda c: -(c.might + rng.random() * 40)):
+            if len(pick_r) == n_rear:
+                break
+            if M.person_of(c) in used:
+                continue
+            if c.cost + (n_rear - len(pick_r) - 1) <= budget_r:
+                pick_r.append(c); used.add(M.person_of(c)); budget_r -= c.cost
+        while len(pick_r) < n_rear:      # 予算が足りなければ安い弓で埋める
+            c = next(x for x in sorted(arcs, key=lambda x: x.cost)
+                     if M.person_of(x) not in used)
+            pick_r.append(c); used.add(M.person_of(c))
+        # 前衛: 残りを壁へ**均等に**配る。高い順に取ると最後の枠に1点札の穴が
+        # 空き、そこが46秒で崩れて戦列が破れる（実測で赤壁の負け筋がこれ）。
+        # 枠ごとに「残り予算÷残り枠」を狙って、それを超えない最も硬い札を選ぶ。
+        left = cap - sum(c.cost for c in pick_r)
+        for k in range(nf):
+            slots_left = nf - k
+            target = left / slots_left
+            best = None
+            for c in mel:
+                if M.person_of(c) in used or c.cost > target + 1e-9:
+                    continue
+                key = (c.role == F.TANK, c.cost)
+                if best is None or key > (best.role == F.TANK, best.cost):
+                    best = c
+            if best is None:
+                continue
+            pick_f.append(best); used.add(M.person_of(best)); left -= best.cost
+        while len(pick_f) < nf:
+            c = next(x for x in sorted(mel, key=lambda x: x.cost)
+                     if M.person_of(x) not in used)
+            pick_f.append(c); used.add(M.person_of(c))
+        pick = _spend_rest(pick_f + pick_r, list(cards), used, p, cap)
+        pick = _spend_last(pick, list(cards), used, cap)
+        units.append(F.Army(tuple(_order(pick, nf)), form))
+    return M.Entry(tuple(units), name=p.name)
 
 
 def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
@@ -107,6 +170,8 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     caps を渡すと上限を差し替えられる（既定は M.REGULATIONS）。たたき台
     生成（§7.54）が「上限の9割で組んで伸びしろを残す」ために使う。
     """
+    if p.name in META_PERSONAS:
+        return _meta_entry(cards, p, seed, caps)
     rng = random.Random("{}/{}".format(p.name, seed))
     pool = sorted(cards, key=lambda c: (c.cost, c.name))
     used: set = set()
