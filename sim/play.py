@@ -564,6 +564,11 @@ def entry_from_snap(cards, js: str):
                        for i in range(len(M.REGULATIONS))})
 
 
+def result_mark(score: float) -> str:
+    """勝敗の刻み1文字（§7.81）。record_battle の result に積む。"""
+    return "○" if score > 0.5 else ("●" if score < 0.5 else "△")
+
+
 def season_key(now: int) -> str:
     import datetime
     return datetime.datetime.fromtimestamp(now).strftime("%Y-%m")
@@ -649,7 +654,9 @@ def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
         b.games[y] = b.games.get(y, 0) + 1
         P.record_battle(cx, "tenka", "天下", a, y, seed,
                         snap_entry(ents[a]), snap_entry(ents[y]),
-                        season_key(now), now)
+                        season_key(now), now,
+                        result="".join(result_mark(g["結果"]["score"])
+                                       for g in r["games"]))
         fought += 1
     save_board(cx, b)
     P.clear_pairs(cx, "天下", serial)
@@ -825,7 +832,7 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
         cx, "ranked", reg_name, me.id, foe, seed,
         _json.dumps(snap_army(ua), ensure_ascii=False),
         _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now)
+        season_key(now), now, result=result_mark(sa))
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(foe, "?"),
             "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け")),
@@ -850,7 +857,7 @@ def free_battle(cx, cards, me, reg_name: str, foe_pid: str, now: int) -> dict:
         cx, "free", reg_name, me.id, foe_pid, seed,
         _json.dumps(snap_army(ua), ensure_ascii=False),
         _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now)
+        season_key(now), now, result=result_mark(sa))
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(foe_pid, "?"),
             "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け"))}
@@ -879,7 +886,7 @@ def room_join(cx, cards, me, code: str, now: int) -> dict:
     bid = P.record_battle(
         cx, "room", reg_name, room["creator"], me.id, seed,
         room["snap"], _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now)
+        season_key(now), now, result=result_mark(1.0 - sb))
     P.room_close(cx, code, bid)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(room["creator"], "?"),

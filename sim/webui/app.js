@@ -1261,12 +1261,27 @@ async function saveDeck() {
 /* ── リプレイ一覧 ───────────────────── */
 async function viewReplays(state) {
   const d = await api("/api/replays");
+  // 勝敗の刻み（§7.81）。marks は「その行の視点」（自分の戦歴なら自分、
+  // 他家の戦いなら a 側）から見た ○●△。天下は3戦ぶん並ぶ。
+  const verdictCell = (m) => {
+    if (!m.marks) return '<td class="muted">—</td>';
+    const w = (m.marks.match(/○/g) || []).length;
+    const l = (m.marks.match(/●/g) || []).length;
+    const v = w > l ? "勝" : (l > w ? "敗" : "分");
+    const cls = w > l ? "win" : (l > w ? "lose" : "draw");
+    const boards = ["汜", "官", "赤"];
+    const detail = m.marks.length > 1
+      ? `<small class="num">${[...m.marks].map((c, k) =>
+          `${boards[k] || ""}${c}`).join(" ")}</small>` : "";
+    return `<td class="verdict-cell"><b class="verdict ${cls}">${v}</b> ${detail}</td>`;
+  };
   const row = (m) => `
     <tr class="${m.mine ? "me" : ""}">
       <td class="num">${esc(m.at)}</td>
       <td><span class="mode-tag">${esc(m.mode)}${m.role === "防" ? "・防衛" : ""}</span></td>
       <td>${esc(m.board)}</td>
       <td>${esc(m.a)} <small>対</small> ${esc(m.b)}</td>
+      ${verdictCell(m)}
       <td><a href="/replay?id=${m.id}">観る</a></td></tr>`;
   const mine = d.battles.filter((m) => m.mine);
   const rest = d.battles.filter((m) => !m.mine);
@@ -1530,15 +1545,26 @@ async function viewReplay(state) {
       clearInterval(timer);
       timer = setInterval(step, $("#fast").checked ? 260 : 650);
     };
-    $("#play").onclick = start;
-    $("#skip").onclick = () => {
+    const showAll = () => {
       clearInterval(timer);
       lines.forEach((el) => el.classList.add("show"));
+      i = lines.length;
       drawChart(g, Infinity);
       revealResult();
     };
-    // 自動で流し始める
-    start();
+    // ▶再生は頭から流し直す（全文表示の後でも実況として観られるように）
+    $("#play").onclick = () => {
+      clearInterval(timer);
+      lines.forEach((el) => el.classList.remove("show"));
+      i = 0;
+      drawChart(g, -1);
+      start();
+    };
+    $("#skip").onclick = showAll;
+    // 出陣直後（見届け）だけ自動で流す。**戦歴からの読み返しは全文を即出す**
+    // — 1行ずつの滴りは臨場感のための演出で、天下3戦ぶんを読み返す時には
+    // ただ待たされるだけだった（テストプレイの指摘・§7.81）。
+    if (FIGHT) start(); else showAll();
   }
 
   function drawChart(g, upto) {

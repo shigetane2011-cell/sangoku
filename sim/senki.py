@@ -365,7 +365,8 @@ def fight(cx, cards, me, idx: int, now: int, deck=None) -> Dict:
         cx, "senki", b["board"], me.id, "senki:{}".format(b["i"]), seed,
         _json.dumps(PL.snap_army(ua), ensure_ascii=False),
         _json.dumps(PL.snap_army(foe), ensure_ascii=False),
-        PL.season_key(now), now)
+        PL.season_key(now), now,
+        result=PL.result_mark(1.0 if won else (0.5 if r["winner"] == "引き分け" else 0.0)))
     recruits: List[Dict] = []
     if won and idx == prog:
         set_cleared(cx, me.id, prog + 1)
@@ -527,7 +528,8 @@ def lap_fight(cx, cards, me, now: int) -> Dict:
         cx, "senki", b["board"], me.id, "senki:{}".format(b["i"]), seed,
         _json.dumps(PL.snap_army(ua), ensure_ascii=False),
         _json.dumps(PL.snap_army(foe, mult=mult), ensure_ascii=False),
-        PL.season_key(now), now)
+        PL.season_key(now), now,
+        result=PL.result_mark(1.0 if won else (0.5 if r["winner"] == "引き分け" else 0.0)))
     out = {"battle_id": bid, "title": "{}（周回{}）".format(b["title"], st["lap"]),
            "win": "勝ち" if won else ("負け" if r["winner"] == "B" else "引き分け"),
            "lap": st["lap"], "stage": st["stage"], "zanhei": st["zanhei"],

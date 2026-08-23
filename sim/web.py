@@ -1080,8 +1080,13 @@ class App(BaseHTTPRequestHandler):
             if me and m["mode"] == "ranked":
                 role = ("挑" if m["pid_a"] == me.id
                         else ("防" if m["pid_b"] == me.id else ""))
+            # 勝敗の刻み（§7.81）。自分が B 側なら裏返して「自分から見た」
+            # 刻みにする。旧記録（result=''）は空のまま＝一覧では「—」。
+            marks = m["result"] if "result" in m.keys() else ""
+            if marks and me and m["pid_b"] == me.id:
+                marks = marks.translate(str.maketrans("○●", "●○"))
             rows.append({
-                "id": m["id"], "board": m["board"],
+                "id": m["id"], "board": m["board"], "marks": marks,
                 "mode": mode_jp.get(m["mode"], m["mode"]), "role": role,
                 "a": names.get(m["pid_a"], "?"),
                 "b": (SK.title_of(m["pid_b"]) if m["mode"] == "senki"

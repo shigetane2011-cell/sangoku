@@ -303,6 +303,14 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     cx.execute("PRAGMA foreign_keys = ON")
     cx.executescript(SCHEMA)
     _migrate_names(cx)
+    # 勝敗の刻み（§7.81）。リプレイは種から再計算する設計なので、一覧で
+    # 勝敗を出すには記録時に書いておくしかない。既存DBへは列を後付けする
+    # （旧記録は '' のまま＝一覧では「—」）。
+    try:
+        cx.execute("ALTER TABLE battles ADD COLUMN result TEXT NOT NULL"
+                   " DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass                        # 追加済み
     return cx
 
 
@@ -670,13 +678,17 @@ def unlock(cx: sqlite3.Connection, player_id: str, persons,
 
 def record_battle(cx: sqlite3.Connection, mode: str, board: str,
                   pid_a: str, pid_b: str, seed: int,
-                  snap_a: str, snap_b: str, season: str, now: int) -> int:
+                  snap_a: str, snap_b: str, season: str, now: int,
+                  result: str = "") -> int:
+    """result は A から見た各戦の刻み（○勝ち・●負け・△分け）。BO1 なら
+    1文字、天下（BO3）なら「○●○」の3文字（汜水関・官渡・赤壁の順）。"""
     with cx:
         cur = cx.execute(
             "INSERT INTO battles (mode, board, pid_a, pid_b, seed,"
-            " snap_a, snap_b, season, played_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (mode, board, pid_a, pid_b, seed, snap_a, snap_b, season, now))
+            " snap_a, snap_b, season, played_at, result)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mode, board, pid_a, pid_b, seed, snap_a, snap_b, season, now,
+             result))
     return int(cur.lastrowid)
 
 
