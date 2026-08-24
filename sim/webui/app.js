@@ -2,7 +2,8 @@
    （検証の正は match.validate。ここでの表示はあくまで手元の目安）。 */
 "use strict";
 
-const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const DEBUG = typeof location !== "undefined"
+  && new URLSearchParams(location.search).get("debug") === "1";
 
 const $ = (sel, el) => (el || document).querySelector(sel);
 const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
@@ -26,6 +27,373 @@ function icoTyp(typ, spear) {
 function icoCost(n) {
   const k = Math.min(10, Math.max(1, Math.round(n)));
   return `<span class="cost-ring" data-c="${k}"><i>${n}</i></span>`;
+}
+
+/* ── 実盤面（編成・戦記・リプレイ共用） ──────────────────
+   盤面状態の正本は props.slots の6要素だけ。DOMの並びや表示位置から
+   武将順を逆算しない。formation は公開契約どおり英字キーを受け取る。 */
+const FORMATIONS = {
+  kakuyoku: { label: "鶴翼", front: 4, rear: 2 },
+  gyorin: { label: "魚鱗", front: 3, rear: 3 },
+  gankou: { label: "雁行", front: 2, rear: 4 },
+};
+const FORM_KEY = { "鶴翼": "kakuyoku", "魚鱗": "gyorin", "雁行": "gankou" };
+const FORM_JP = Object.fromEntries(Object.entries(FORM_KEY).map(([jp, key]) => [key, jp]));
+const FACTION_CLASS = { gi: "gi", shoku: "shoku", go: "go", gunyu: "gunyu" };
+
+function normalizeSlots(value) {
+  return Array.from({ length: 6 }, (_, i) => {
+    const v = Array.isArray(value) ? value[i] : null;
+    return v === undefined || v === "" ? null : v;
+  });
+}
+
+function swapOrMove(slots, from, to) {
+  const next = normalizeSlots(slots);
+  if (from === to || from < 0 || from > 5 || to < 0 || to > 5 || !next[from]) return next;
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
+function rankPosition(index, count) {
+  const labels = {
+    1: ["中央"],
+    2: ["左", "右"],
+    3: ["左", "中央", "右"],
+    4: ["左端", "中央左", "中央右", "右端"],
+  };
+  return (labels[count] || [])[index] || `${index + 1}番`;
+}
+
+class FormationBoard {
+  constructor(root, props) {
+    this.root = root;
+    this.props = props;
+    this.selectedIndex = null;
+    this.keyboardTargetIndex = null;
+    this.pointer = null;
+    this.announcement = "";
+    this.documentPointerMove = (e) => this.onPointerMove(e);
+    this.documentPointerUp = (e) => this.onPointerUp(e);
+    this.documentPointerCancel = (e) => this.onPointerCancel(e);
+    this.outsidePointerDown = (e) => {
+      if (this.props.interactive && this.selectedIndex !== null && !this.root.contains(e.target)) {
+        this.clearSelection();
+      }
+    };
+    document.addEventListener("pointerdown", this.outsidePointerDown, true);
+    document.addEventListener("pointermove", this.documentPointerMove, { passive: false });
+    document.addEventListener("pointerup", this.documentPointerUp);
+    document.addEventListener("pointercancel", this.documentPointerCancel);
+    this.render();
+  }
+
+  setProps(props) {
+    this.props = props;
+    if (!props.interactive) {
+      this.selectedIndex = null;
+      this.keyboardTargetIndex = null;
+      this.cancelPointer(false);
+    }
+    this.render();
+  }
+
+  destroy() {
+    this.cancelPointer(false);
+    document.removeEventListener("pointerdown", this.outsidePointerDown, true);
+    document.removeEventListener("pointermove", this.documentPointerMove);
+    document.removeEventListener("pointerup", this.documentPointerUp);
+    document.removeEventListener("pointercancel", this.documentPointerCancel);
+    this.root.innerHTML = "";
+  }
+
+  layout() {
+    return FORMATIONS[this.props.formation] || FORMATIONS.gyorin;
+  }
+
+  slotMeta(index) {
+    const form = this.layout();
+    const front = index < form.front;
+    const rowIndex = front ? index : index - form.front;
+    const count = front ? form.front : form.rear;
+    return { front, rowIndex, count, row: front ? "前衛" : "後衛",
+             position: rankPosition(rowIndex, count) };
+  }
+
+  ariaLabel(index, unit) {
+    const pos = this.slotMeta(index);
+    if (!unit) return `空きスロット ${pos.row}${pos.position}`;
+    return `${unit.name} ${pos.row}${pos.position} ${unit.troopType} コスト${unit.cost}`;
+  }
+
+  unitHTML(index, id) {
+    const unit = id ? this.props.units[id] : null;
+    const selected = index === this.selectedIndex;
+    const candidate = index === this.keyboardTargetIndex && selected === false;
+    const faction = unit ? (FACTION_CLASS[unit.faction] || unit.faction || "gunyu") : "";
+    const disabled = this.props.interactive ? "" : " disabled";
+    const state = [unit ? "occupied" : "empty", selected ? "selected" : "",
+                   candidate ? "key-target" : ""].filter(Boolean).join(" ");
+    return `<button type="button" class="fb-piece ${state} ${faction}"
+      data-slot-index="${index}" aria-label="${esc(this.ariaLabel(index, unit))}"
+      aria-pressed="${selected ? "true" : "false"}"${disabled}>
+      ${unit ? `<img class="fb-portrait" src="${esc(unit.portraitUrl)}" alt="">
+        <span class="fb-troop" aria-hidden="true">${icoTyp(unit.troopType)}</span>
+        <span class="fb-cost num" aria-hidden="true">${esc(unit.cost)}</span>
+        <span class="fb-name" aria-hidden="true">${esc(unit.name)}</span>`
+        : '<span class="fb-empty-mark" aria-hidden="true">＋</span>'}
+    </button>`;
+  }
+
+  render() {
+    const form = this.layout();
+    const slots = normalizeSlots(this.props.slots);
+    const row = (front) => {
+      const start = front ? 0 : form.front;
+      const count = front ? form.front : form.rear;
+      const rank = front ? "前衛" : "後衛";
+      return `<div class="fb-rank ${front ? "front" : "rear"}">
+        <span class="fb-rank-label">${rank}<small>${count}枠</small></span>
+        <div class="fb-rank-slots" style="--slot-count:${count}">
+          ${Array.from({ length: count }, (_, k) => {
+            const i = start + k;
+            return `<span class="fb-slot" data-slot-index="${i}">${this.unitHTML(i, slots[i])}</span>`;
+          }).join("")}
+        </div>
+      </div>`;
+    };
+    this.root.className = `formation-board ${this.props.interactive ? "interactive" : "readonly"}`;
+    this.root.innerHTML = `${row(true)}${row(false)}
+      <span class="sr-only" aria-live="polite" aria-atomic="true">${esc(this.announcement)}</span>`;
+    this.root.querySelectorAll(".fb-piece").forEach((button) => {
+      if (!this.props.interactive) return;
+      button.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+      button.addEventListener("keydown", (e) => this.onKeyDown(e));
+    });
+  }
+
+  onPointerDown(e) {
+    if (this.pointer || !this.props.interactive || (e.button !== undefined && e.button !== 0)) return;
+    const button = e.currentTarget;
+    const index = +button.dataset.slotIndex;
+    this.pointer = { id: e.pointerId, from: index, startX: e.clientX, startY: e.clientY,
+                     x: e.clientX, y: e.clientY, button, dragging: false, target: null,
+                     moved: false, canDrag: !!normalizeSlots(this.props.slots)[index] };
+  }
+
+  onPointerMove(e) {
+    const p = this.pointer;
+    if (!p || e.pointerId !== p.id) return;
+    p.x = e.clientX; p.y = e.clientY;
+    const distance = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+    p.moved = distance >= 8;
+    if (!p.dragging && p.canDrag && distance >= 8) this.startDrag(e);
+    if (!p.dragging) return;
+    e.preventDefault();
+    this.moveProxy(e.clientX, e.clientY);
+    const below = document.elementFromPoint(e.clientX, e.clientY);
+    const slot = below && below.closest ? below.closest(".fb-slot") : null;
+    const target = slot && this.root.contains(slot) ? +slot.dataset.slotIndex : null;
+    p.target = Number.isInteger(target) ? target : null;
+    this.root.querySelectorAll(".fb-slot").forEach((el) => {
+      const active = +el.dataset.slotIndex === p.target;
+      el.classList.toggle("drop-target", active);
+      el.classList.toggle("swap-target", active && !!normalizeSlots(this.props.slots)[p.target]);
+    });
+  }
+
+  startDrag(e) {
+    const p = this.pointer;
+    p.dragging = true;
+    try { p.button.setPointerCapture(p.id); } catch (_err) { /* 古いWebViewは継続 */ }
+    p.button.classList.add("drag-source");
+    const rect = p.button.getBoundingClientRect();
+    const proxy = p.button.cloneNode(true);
+    proxy.classList.add("fb-drag-proxy");
+    proxy.removeAttribute("aria-pressed");
+    proxy.style.width = `${rect.width}px`;
+    proxy.style.height = `${rect.height}px`;
+    document.body.appendChild(proxy);
+    p.proxy = proxy;
+    this.moveProxy(e.clientX, e.clientY);
+  }
+
+  moveProxy(x, y) {
+    const p = this.pointer;
+    if (!p || !p.proxy) return;
+    p.proxy.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%) scale(1.08)`;
+  }
+
+  onPointerUp(e) {
+    const p = this.pointer;
+    if (!p || e.pointerId !== p.id) return;
+    if (!p.dragging) {
+      const index = p.from;
+      const moved = p.moved;
+      this.pointer = null;
+      if (moved) return;
+      this.tapSlot(index);
+      return;
+    }
+    e.preventDefault();
+    const to = p.target;
+    if (Number.isInteger(to) && to !== p.from) {
+      this.removeDragVisuals();
+      const from = p.from;
+      this.pointer = null;
+      this.commit(from, to);
+    } else {
+      this.snapBack();
+    }
+  }
+
+  onPointerCancel(e) {
+    if (!this.pointer || e.pointerId !== this.pointer.id) return;
+    this.snapBack();
+  }
+
+  removeDragVisuals() {
+    const p = this.pointer;
+    if (!p) return;
+    if (p.proxy) p.proxy.remove();
+    if (p.button) p.button.classList.remove("drag-source");
+    this.root.querySelectorAll(".fb-slot").forEach((el) =>
+      el.classList.remove("drop-target", "swap-target"));
+  }
+
+  snapBack() {
+    const p = this.pointer;
+    if (!p) return;
+    const finish = () => {
+      this.removeDragVisuals();
+      this.pointer = null;
+    };
+    if (!p.proxy || !p.button) return finish();
+    const rect = p.button.getBoundingClientRect();
+    const anim = p.proxy.animate([
+      { transform: p.proxy.style.transform },
+      { transform: `translate3d(${rect.left + rect.width / 2}px,${rect.top + rect.height / 2}px,0) translate(-50%,-50%) scale(1)` },
+    ], { duration: 180, easing: "ease-out" });
+    anim.onfinish = finish;
+    anim.oncancel = finish;
+  }
+
+  cancelPointer(remove) {
+    if (!this.pointer) return;
+    if (remove !== false) this.removeDragVisuals();
+    else if (this.pointer.proxy) this.pointer.proxy.remove();
+    this.pointer = null;
+  }
+
+  tapSlot(index) {
+    const slots = normalizeSlots(this.props.slots);
+    if (this.selectedIndex === null) {
+      if (!slots[index]) return;
+      this.selectedIndex = index;
+      this.keyboardTargetIndex = index;
+      this.render();
+      return;
+    }
+    if (this.selectedIndex === index) return this.clearSelection();
+    this.commit(this.selectedIndex, index);
+  }
+
+  clearSelection() {
+    this.selectedIndex = null;
+    this.keyboardTargetIndex = null;
+    this.render();
+  }
+
+  keyboardNext(index, key) {
+    const form = this.layout();
+    const meta = this.slotMeta(index);
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      const delta = key === "ArrowLeft" ? -1 : 1;
+      const k = Math.max(0, Math.min(meta.count - 1, meta.rowIndex + delta));
+      return (meta.front ? 0 : form.front) + k;
+    }
+    const otherCount = meta.front ? form.rear : form.front;
+    const sourceX = (meta.rowIndex + 0.5) / meta.count;
+    let nearest = 0, gap = Infinity;
+    for (let k = 0; k < otherCount; k++) {
+      const d = Math.abs((k + 0.5) / otherCount - sourceX);
+      if (d < gap) { gap = d; nearest = k; }
+    }
+    return meta.front ? form.front + nearest : nearest;
+  }
+
+  onKeyDown(e) {
+    const index = +e.currentTarget.dataset.slotIndex;
+    if (e.key === "Escape") { e.preventDefault(); this.clearSelection(); return; }
+    if (["Enter", " "].includes(e.key)) {
+      e.preventDefault();
+      if (this.selectedIndex === null) {
+        if (!normalizeSlots(this.props.slots)[index]) return;
+        this.selectedIndex = index;
+        this.keyboardTargetIndex = index;
+        this.render();
+        this.focusSlot(index);
+      } else {
+        const target = this.keyboardTargetIndex ?? index;
+        if (target === this.selectedIndex) this.clearSelection();
+        else this.commit(this.selectedIndex, target);
+      }
+      return;
+    }
+    if (!e.key.startsWith("Arrow") || this.selectedIndex === null) return;
+    e.preventDefault();
+    const current = this.keyboardTargetIndex ?? this.selectedIndex;
+    this.keyboardTargetIndex = this.keyboardNext(current, e.key);
+    this.render();
+    this.focusSlot(this.keyboardTargetIndex);
+  }
+
+  focusSlot(index) {
+    const el = this.root.querySelector(`.fb-piece[data-slot-index="${index}"]`);
+    if (el) el.focus({ preventScroll: true });
+  }
+
+  commit(from, to) {
+    const before = normalizeSlots(this.props.slots);
+    const a = before[from], b = before[to];
+    if (!a || from === to) return this.clearSelection();
+    const oldRects = new Map();
+    this.root.querySelectorAll(".fb-piece.occupied").forEach((el) => {
+      const id = before[+el.dataset.slotIndex];
+      if (id) oldRects.set(id, el.getBoundingClientRect());
+    });
+    const next = swapOrMove(before, from, to);
+    const an = this.props.units[a] ? this.props.units[a].name : a;
+    const bn = b && this.props.units[b] ? this.props.units[b].name : b;
+    this.announcement = b ? `${an}と${bn}を入れ替えました` : `${an}を空き枠へ移動しました`;
+    this.selectedIndex = null;
+    this.keyboardTargetIndex = null;
+    this.props.onSlotsChange(next);
+    requestAnimationFrame(() => {
+      this.root.querySelectorAll(".fb-piece.occupied").forEach((el) => {
+        const id = normalizeSlots(this.props.slots)[+el.dataset.slotIndex];
+        const old = oldRects.get(id);
+        if (!old) return;
+        const now = el.getBoundingClientRect();
+        const dx = old.left - now.left, dy = old.top - now.top;
+        if (Math.abs(dx) + Math.abs(dy) < 1) return;
+        el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "translate(0,0)" }],
+                   { duration: 180, easing: "ease-out" });
+      });
+    });
+  }
+}
+
+const FORMATION_BOARDS = new WeakMap();
+function mountFormationBoard(root, props) {
+  let board = FORMATION_BOARDS.get(root);
+  if (!board) {
+    board = new FormationBoard(root, props);
+    FORMATION_BOARDS.set(root, board);
+  } else {
+    board.setProps(props);
+  }
+  return board;
 }
 
 async function api(path, body) {
@@ -476,20 +844,8 @@ async function viewSenkiPrep(i) {
   // 直した編成が草案で上書きされるのを防ぐ・§7.62）
   const start = p.last || p.suggest;
   cur = { reg: p.board, form: start.form || p.enemy.form,
-          cards: [...start.cards] };
+          slots: slotsFromCards(start.cards) };
   const foeSummary = armySummary(p.enemy.cards, p.enemy.form, p.enemy.cost, null, "foe");
-  const foe = p.enemy.cards.map((c) => `
-    <div class="foe-card f${c.faction}">
-      <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
-      <div class="fc-body">
-        <div class="fc-head"><b>${esc(c.name)}</b>
-          <span class="cost num">${c.cost}点</span></div>
-        <div class="muted num">${c.rear ? "後衛" : "前衛"}・<span class="unit-type ${TYPE_CLS[c.typ]}">${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "・槍" : ""}</span>・${esc(c.role)}
-          ｜兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}</div>
-        <div class="fc-skill">【${esc(c.skill)}】${(c.traits || []).length
-          ? "　特性: " + c.traits.map((t) => esc(t.name)).join("・") : ""}</div>
-      </div>
-    </div>`).join("");
   const rewards = p.recruits.map((g) => `
     <span class="rec-chip"><img src="/portrait/${encodeURIComponent(g.person)}"
       alt="">${esc(g.name)}</span>`).join("");
@@ -511,7 +867,10 @@ async function viewSenkiPrep(i) {
       <div class="panel foe-panel side-panel">
         <h2 class="side-heading foe-heading">敵陣<span class="sub">相手の兵種と配置</span></h2>
         ${foeSummary}
-        ${foe}
+        <section class="army-zone foe" aria-label="敵軍の盤面">
+          <div class="army-zone-label"><b>敵軍</b><span>読み取り専用</span></div>
+          <div id="foe-board"></div>
+        </section>
         ${p.enemy.taunt ? `<div class="ci-quote">「${esc(p.enemy.taunt)}」<span class="muted">— ${esc(p.enemy.lead)}</span></div>` : ""}
         ${rewards ? `<div class="prep-reward">勝てば登用 ${rewards}</div>` : ""}
       </div>
@@ -525,7 +884,11 @@ async function viewSenkiPrep(i) {
         <div id="draft" class="draft"></div>
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
-        <div class="slots" id="slots"></div>
+        <section class="army-zone mine" aria-label="自軍の盤面">
+          <div class="army-zone-label"><b>自軍</b><span>タップまたはドラッグで交換</span></div>
+          <div id="slots"></div>
+        </section>
+        <div id="placement-errors" class="placement-errors" aria-live="polite"></div>
         <div class="deck-actions">
           <button class="primary" id="prep-go">出　陣</button>
           <span id="deck-msg"></span>
@@ -555,7 +918,7 @@ async function viewSenkiPrep(i) {
   $("#prep-again").onclick = async () => {
     const r = await api("/api/senki_prep?i=" + i + "&n=" + Date.now());
     PREP.suggest = r.suggest;
-    cur.cards = [...r.suggest.cards];
+    cur.slots = slotsFromCards(r.suggest.cards);
     cur.form = r.suggest.form || cur.form;
     drawFormTabs(); drawPrep();
   };
@@ -566,12 +929,19 @@ async function viewSenkiPrep(i) {
               : v === "reg" ? PREP.registered
               : PREP.saved[+v.slice(1)];
     if (!src) return;
-    cur.cards = [...src.cards];
+    cur.slots = slotsFromCards(src.cards);
     cur.form = src.form || cur.form;
     drawFormTabs(); drawPrep();
   };
   $("#prep-go").onclick = () =>
-    doSenkiFight(i, PREP.title, { cards: cur.cards, form: cur.form });
+    doSenkiFight(i, PREP.title, { cards: occupiedSlotIds(), form: cur.form });
+  mountFormationBoard($("#foe-board"), {
+    formation: FORM_KEY[p.enemy.form] || "gyorin",
+    slots: slotsFromCards(p.enemy.cards.map((c) => c.name)),
+    units: unitsForBoard(p.enemy.cards),
+    interactive: false,
+    onSlotsChange: () => {},
+  });
   drawPrep();
 }
 
@@ -580,15 +950,14 @@ function drawPrep(msg) {
     try { f(); } catch (e) { console.error("drawPrep:", f.name, e); }
   }
   const over = deckCost() > PREP.cap + 1e-9;
-  const n = cur.cards.length;
-  // 配置の不備（弓でない後衛など）は枠に⚠が出る。出陣はそれごと止める
-  const bad = $$("#slots .warn").length;
+  const n = occupiedSlotIds().length;
+  const bad = placementErrors().length;
   const go = $("#prep-go");
   go.disabled = over || n !== 6 || bad > 0;
   // 予算を使い切っていて空き枠が埋まらない、という手詰まりは名指しで言う
   // （札が一斉に沈むだけだと「武将を制限されている」ように見えてしまう）
   const rest = PREP.cap - deckCost();
-  const rist = D.roster.filter((c) => !cur.cards.includes(c.name))
+  const rist = D.roster.filter((c) => !occupiedSlotIds().includes(c.name))
     .reduce((m, c) => Math.min(m, c.cost), Infinity);
   const stuck = n < 6 && rest < rist;
   const el = $("#deck-msg");
@@ -596,25 +965,19 @@ function drawPrep(msg) {
   el.textContent = msg ? msg
     : over ? `上限 ${PREP.cap}点を ${(deckCost() - PREP.cap).toFixed(0)}点 超えている`
     : stuck ? `あと${6 - n}人だが、残り${rest}点では誰も足せない`
-              + `（枠の ✕ で誰かを外して組み直す）`
+              + `（盤面の武将を選び、一覧から軽い武将へ交代する）`
     : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
-       : (bad ? "置けない兵がいる（⚠の枠を直す）"
-          : "6人そろった。入れ替えるときは枠の ✕ で外す"));
+       : (bad ? "置けない兵がいる（⚠の武将を交換または交代する）"
+          : "6人そろった。盤面内はタップ2回かドラッグで交換できる"));
 }
 
 /* ── 編成 ──────────────────────── */
 const FORMS = { "鶴翼": 4, "魚鱗": 3, "雁行": 2 };
 let D = null;          // /api/deckdata
-let cur = null;        // {reg, form, cards:[name,...]}
+let cur = null;        // {reg, form, slots:(name|null)[6]} — 盤面状態の唯一の正本
 let PREP = null;       // 戦前の間（§7.62）。非nullの間は上限も規則もこちら
 
 let STATE = null;
-
-function formDiagram(form) {
-  const nf = FORMS[form] || 0;
-  return `<span class="form-diagram" aria-hidden="true">${[0, 1, 2, 3, 4, 5]
-    .map((i) => `<i class="${i < nf ? "front" : "rear"}"></i>`).join("")}</span>`;
-}
 
 function armySummary(cards, form, cost, cap, side) {
   const counts = { "歩兵": 0, "騎兵": 0, "弓兵": 0, "槍": 0 };
@@ -630,13 +993,45 @@ function armySummary(cards, form, cost, cap, side) {
     <span>${icoTyp("騎兵")}騎 ${counts["騎兵"]}</span>
     <span>${icoTyp("弓兵")}弓 ${counts["弓兵"]}</span>
     ${counts["槍"] ? `<span>${icoTyp("槍")}槍 ${counts["槍"]}</span>` : ""}
-    <span class="formation-summary">${formDiagram(form)}${esc(form || "陣形未定")}・前${nf}／後${6 - nf}</span>
+    <span class="formation-summary">${esc(form || "陣形未定")}・前${nf}／後${6 - nf}</span>
     <b class="summary-cost num">${costText}</b>
   </div>`;
 }
 
 function currentCards() {
-  return (cur.cards || []).map((name) => D.roster.find((c) => c.name === name)).filter(Boolean);
+  return occupiedSlotIds().map((name) => D.roster.find((c) => c.name === name)).filter(Boolean);
+}
+
+function occupiedSlotIds() {
+  return normalizeSlots(cur && cur.slots).filter(Boolean);
+}
+
+function slotsFromCards(cards) {
+  return normalizeSlots(cards || []);
+}
+
+function unitsForBoard(cards) {
+  const fac = { "魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu" };
+  return Object.fromEntries((cards || []).map((c) => [c.name, {
+    name: c.name,
+    portraitUrl: c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`,
+    troopType: c.troopType || c.typ,
+    role: c.role,
+    cost: c.cost,
+    faction: fac[c.faction] || c.faction || "gunyu",
+  }]));
+}
+
+function placementErrors() {
+  if (!cur || !D) return [];
+  const nf = FORMS[cur.form] || 3;
+  return normalizeSlots(cur.slots).flatMap((name, i) => {
+    const c = name && D.roster.find((x) => x.name === name);
+    if (!c) return [];
+    if (i < nf && c.typ === "弓兵") return [`${c.name}: 弓兵は前衛に置けない`];
+    if (i >= nf && c.typ !== "弓兵" && !c.spear) return [`${c.name}: 後衛は弓兵か槍持ちだけ`];
+    return [];
+  });
 }
 
 async function viewDeck(state) {
@@ -645,7 +1040,7 @@ async function viewDeck(state) {
   D = await api("/api/deckdata");
   const reg = D.regs[0].name;
   const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
-  cur = { reg, form: saved.form, cards: [...saved.cards] };
+  cur = { reg, form: saved.form, slots: slotsFromCards(saved.cards) };
   $("#app").innerHTML = `
     <div class="deck-cta action-bar">
       <div class="action-copy">
@@ -691,7 +1086,11 @@ async function viewDeck(state) {
         <div class="section-label">陣形</div>
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
-        <div class="slots" id="slots"></div>
+        <section class="army-zone mine" aria-label="自軍の盤面">
+          <div class="army-zone-label"><b>自軍</b><span>タップまたはドラッグで交換</span></div>
+          <div id="slots"></div>
+        </section>
+        <div id="placement-errors" class="placement-errors" aria-live="polite"></div>
         <div class="entry-state" id="entrystate"></div>
         <div class="draft-panel" id="draft"></div>
         <div class="library" id="library"></div>
@@ -741,7 +1140,7 @@ function drawSortieBar() {
   const ok = D.boards_ok || {};
   const active = D.decks[cur.reg];
   const registered = !!(active && active.form === cur.form
-    && active.cards.join("、") === cur.cards.join("、"));
+    && active.cards.join("、") === occupiedSlotIds().join("、"));
   const save = $("#save");
   if (save) {
     save.disabled = registered;
@@ -783,15 +1182,17 @@ function drawRegTabs() {
       ${r.name}<small>　${r.cap}点</small></button>`).join("");
   $$("#regtabs button").forEach((b) => b.onclick = () => {
     const saved = D.decks[b.dataset.reg] || { form: "魚鱗", cards: [] };
-    cur = { reg: b.dataset.reg, form: saved.form, cards: [...saved.cards] };
+    cur = { reg: b.dataset.reg, form: saved.form, slots: slotsFromCards(saved.cards) };
     drawRegTabs(); drawFormTabs(); drawAll();
   });
 }
 function drawFormTabs() {
   $("#formtabs").innerHTML = Object.entries(FORMS).map(([f, n]) =>
     `<button class="${cur.form === f ? "on" : ""}" data-f="${f}">
-      ${formDiagram(f)}<span><b>${f}</b><small>前${n}・後${6 - n}</small></span></button>`).join("");
+      <span><b>${f}</b><small>前${n}・後${6 - n}</small></span></button>`).join("");
   $$("#formtabs button").forEach((b) => b.onclick = () => {
+    // 6要素を前衛左→右・後衛左→右としてそのまま新陣形へ割り当てる。
+    // 空枠を詰めないため、武将の消失も暗黙の再順序化も起こらない。
     cur.form = b.dataset.f; drawFormTabs(); drawAll();
   });
 }
@@ -871,7 +1272,7 @@ function drawDraft() {
       pin_form: pin, nonce: DRAFT.nonce,
       senki: PREP ? PREP.i : undefined });
     if (r.ok) {
-      cur.cards = r.cards;
+      cur.slots = slotsFromCards(r.cards);
       if (r.form) cur.form = r.form;   // 主役指定なら軍師が陣形も選び直す
       DRAFT.note = r.note;
     } else {
@@ -933,21 +1334,21 @@ function drawLibrary() {
     const name = $("#savename").value.trim();
     if (!name) { flashMsg("名前を付ける", true); return; }
     const r = await api("/api/savedeck",
-      { name, reg: cur.reg, form: cur.form, cards: cur.cards });
+      { name, reg: cur.reg, form: cur.form, cards: occupiedSlotIds() });
     if (!r.ok) { flashMsg(r.errors.join("／"), true); return; }
     D = await api("/api/deckdata"); flashMsg("保存した。"); drawLibrary();
   };
   $$("#library .lib-btns button").forEach((b) => b.onclick = async () => {
     const s = mine.find((x) => x.id === +b.dataset.id);
     if (b.dataset.a === "load") {
-      cur.form = s.form; cur.cards = [...s.cards]; drawFormTabs(); drawAll();
+      cur.form = s.form; cur.slots = slotsFromCards(s.cards); drawFormTabs(); drawAll();
       flashMsg(`「${s.name}」を編成台へ。登録するまで次戦には使われない。`);
     }
     if (b.dataset.a === "reg") {
       const r = await api("/api/deck", { reg: cur.reg, form: s.form, cards: s.cards });
       if (!r.ok) { flashMsg(r.errors.join("／"), true); return; }
       D = await api("/api/deckdata");
-      cur.form = s.form; cur.cards = [...s.cards]; drawFormTabs();
+      cur.form = s.form; cur.slots = slotsFromCards(s.cards); drawFormTabs();
       flashMsg(`「${s.name}」を登録した。次戦からこの陣。`); drawAll();
     }
     if (b.dataset.a === "del") {
@@ -960,7 +1361,7 @@ function drawLibrary() {
 function deckGenerals() {
   const set = new Set();
   for (const d of Object.values(D.decks)) for (const n of d.cards) set.add(n);
-  for (const n of cur.cards) set.add(n);
+  for (const n of occupiedSlotIds()) set.add(n);
   return [...set];
 }
 
@@ -1009,7 +1410,7 @@ function drawOnsho() {
 function drawRoster() {
   const q = $("#search").value.trim();
   const used = usedPersons(cur.reg);
-  const inDeck = new Set(cur.cards);
+  const inDeck = new Set(occupiedSlotIds());
   const band = BANDS[FILTER.band];
   const key = FILTER.sort.slice(0, -1);
   const dir = FILTER.sort.endsWith("-") ? -1 : 1;
@@ -1023,17 +1424,17 @@ function drawRoster() {
   $("#roster").innerHTML = list.map((c) => {
     const u = used.get(c.person);
     const dup = inDeck.has(c.name) ||
-      cur.cards.some((n) => { const x = D.roster.find((r) => r.name === n);
+      occupiedSlotIds().some((n) => { const x = D.roster.find((r) => r.name === n);
                               return x && x.person === c.person && x.name !== c.name; });
     // 戦前の間では、いまの残り予算で買えない札を沈める（詰将棋の可読性）。
     // ただし**枠が埋まっているときは沈めない** — 誰かを外せば買えるので、
     // 値段だけで沈めると「その武将は使えない」という嘘になる。
     const rest = PREP ? PREP.cap - deckCost() : Infinity;
-    const pricey = PREP && cur.cards.length < 6
+    const pricey = PREP && occupiedSlotIds().length < 6
       && !inDeck.has(c.name) && c.cost > rest + 1e-9;
     const off = u || dup;
-    return `<div class="card f${c.faction} ${off ? "used" : ""} ${pricey ? "pricey" : ""}"
-         data-n="${esc(c.name)}">
+    return `<button type="button" class="card f${c.faction} ${off ? "used" : ""} ${pricey ? "pricey" : ""}"
+         data-n="${esc(c.name)}" ${off ? "disabled" : ""} aria-label="${esc(c.name)} ${esc(c.typ)} コスト${c.cost}">
       <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
         loading="lazy" alt="">
         ${icoCost(c.cost)}
@@ -1045,14 +1446,31 @@ function drawRoster() {
       <div class="stats num">武勇${c.might}　知略${c.wits}</div>
       <div class="stats num">攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</div>
       <div class="skill">【${esc(c.skill)}】</div>
-    </div>`;
+    </button>`;
   }).join("");
   $$("#roster .card:not(.used)").forEach((el) => el.onclick = () => {
-    if (cur.cards.length >= 6) { flashMsg("6枚まで。どれかを外してから。", true); return; }
-    cur.cards.push(el.dataset.n); drawAll();
+    const board = FORMATION_BOARDS.get($("#slots"));
+    const selected = board && board.selectedIndex;
+    const next = normalizeSlots(cur.slots);
+    const empty = next.findIndex((x) => !x);
+    if (selected !== null && selected !== undefined) {
+      const old = next[selected];
+      next[selected] = el.dataset.n;
+      board.announcement = `${old || "空き枠"}を${el.dataset.n}へ交代しました`;
+      board.selectedIndex = null;
+      board.keyboardTargetIndex = null;
+    } else if (empty >= 0) {
+      next[empty] = el.dataset.n;
+    } else {
+      flashMsg("盤面で交代させる武将をタップしてから、新しい武将を選んでください。", true);
+      return;
+    }
+    cur.slots = next;
+    drawAll();
   });
   $$("#roster .card").forEach((el) => {
     el.onmouseenter = () => showCardInfo(el.dataset.n);
+    el.onfocus = () => showCardInfo(el.dataset.n);
   });
 }
 
@@ -1093,85 +1511,29 @@ function showCardInfo(name) {
 }
 
 function drawSlots() {
-  // 再描画でホバー中の枠ごと差し替わると mouseleave が永遠に来ず、
-  // 概要チップが取り残される（↑↓✕・ドラッグ経由で実際に起きた）。
-  // 描き直す前に必ず消す。
   hideTip();
-  const nf = FORMS[cur.form];
-  const rows = [];
-  for (let i = 0; i < 6; i++) {
-    const name = cur.cards[i];
-    const c = name && D.roster.find((x) => x.name === name);
-    const front = i < nf;
-    let warn = "";
-    if (c) {
-      if (front && c.typ === "弓兵") warn = "弓兵は前衛に置けない";
-      if (!front && c.typ !== "弓兵" && !c.spear) warn = "後衛は弓兵か槍持ちだけ";
-    }
-    rows.push(`<div class="slot ${front ? "front" : "rear"} ${c ? "" : "empty"}"
-         data-i="${i}" ${c ? 'draggable="true"' : ""}>
-      <span class="pos">${front ? "前衛" : "後衛"}${i + 1}</span>
-      ${c ? `<img class="mini-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">` : ""}
-      <span class="who">${c ? `<b>${esc(c.name)}</b><span class="unit-type ${TYPE_CLS[c.typ]}">${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "・槍" : ""}</span>
-        ${warn ? `<span class="warn">⚠ ${warn}</span>` : ""}` : "（クリックで加える）"}</span>
-      ${c ? `<span class="cost num">${c.cost}点</span>
-        <button class="mini" data-i="${i}" data-a="up" ${i === 0 ? "disabled" : ""}>↑</button>
-        <button class="mini" data-i="${i}" data-a="dn" ${i === cur.cards.length - 1 ? "disabled" : ""}>↓</button>
-        <button class="mini" data-i="${i}" data-a="rm">✕</button>` : ""}
-    </div>`);
-  }
-  $("#slots").innerHTML = rows.join("");
-  $$("#slots button").forEach((b) => b.onclick = () => {
-    const i = +b.dataset.i;
-    if (b.dataset.a === "rm") cur.cards.splice(i, 1);
-    if (b.dataset.a === "up") [cur.cards[i - 1], cur.cards[i]] = [cur.cards[i], cur.cards[i - 1]];
-    if (b.dataset.a === "dn") [cur.cards[i + 1], cur.cards[i]] = [cur.cards[i], cur.cards[i + 1]];
-    drawAll();
-  });
-  // 枠の武将: マウスオンで概要チップ、クリックで上の詳細パネルへ固定表示
-  $$("#slots .slot:not(.empty)").forEach((sl) => {
-    const name = cur.cards[+sl.dataset.i];
-    sl.onmouseenter = (e) => showTip(e, name);
-    sl.onmousemove = (e) => moveTip(e);
-    sl.onmouseleave = hideTip;
-    sl.onclick = (e) => {
-      if (e.target.closest("button")) return;   // ↑↓✕は並べ替え操作
-      hideTip();
-      showCardInfo(name);
-      $$("#slots .slot").forEach((x) => x.classList.remove("selected"));
-      sl.classList.add("selected");
-      const ci = $("#cardinfo");
-      if (ci && window.innerWidth <= 760) ci.scrollIntoView({ behavior: "smooth" });
-    };
-  });
-  // ドラッグ＆ドロップで並べ替え（↑↓はタッチ環境用に残す）
-  let dragFrom = null;
-  $$("#slots .slot").forEach((sl) => {
-    sl.ondragstart = (e) => {
-      dragFrom = +sl.dataset.i;
-      sl.classList.add("dragging");
-      hideTip();
-      e.dataTransfer.effectAllowed = "move";
-    };
-    sl.ondragend = () => {
-      dragFrom = null;
-      $$("#slots .slot").forEach((x) => x.classList.remove("dragging", "dragover"));
-    };
-    sl.ondragover = (e) => {
-      if (dragFrom === null) return;
-      e.preventDefault();
-      $$("#slots .slot").forEach((x) => x.classList.remove("dragover"));
-      sl.classList.add("dragover");
-    };
-    sl.ondrop = (e) => {
-      e.preventDefault();
-      if (dragFrom === null) return;
-      let to = Math.min(+sl.dataset.i, cur.cards.length - 1);
-      const [card] = cur.cards.splice(dragFrom, 1);
-      cur.cards.splice(to, 0, card);
+  const root = $("#slots");
+  if (!root) return;
+  mountFormationBoard(root, {
+    formation: FORM_KEY[cur.form] || "gyorin",
+    slots: normalizeSlots(cur.slots),
+    units: unitsForBoard(D.roster),
+    interactive: true,
+    onSlotsChange: (next) => {
+      cur.slots = normalizeSlots(next);
       drawAll();
-    };
+    },
   });
+  root.querySelectorAll(".fb-piece.occupied").forEach((piece) => {
+    const name = normalizeSlots(cur.slots)[+piece.dataset.slotIndex];
+    piece.addEventListener("mouseenter", (e) => showTip(e, name));
+    piece.addEventListener("mousemove", moveTip);
+    piece.addEventListener("mouseleave", hideTip);
+    piece.addEventListener("focus", () => showCardInfo(name));
+  });
+  const errors = placementErrors();
+  const errorBox = $("#placement-errors");
+  if (errorBox) errorBox.innerHTML = errors.map((x) => `<span>⚠ ${esc(x)}</span>`).join("");
 }
 
 /* ── 概要チップ（枠の武将のマウスオン・§7.59） ─────────── */
@@ -1212,10 +1574,12 @@ function hideTip() {
 }
 // チップは fixed なのでスクロールすると場所が嘘になる上、要素が
 // カーソルの下から滑り出ても mouseleave が来ないことがある。保険で消す。
-document.addEventListener("scroll", hideTip, { passive: true, capture: true });
+if (typeof document !== "undefined") {
+  document.addEventListener("scroll", hideTip, { passive: true, capture: true });
+}
 
 function deckCost() {
-  return cur.cards.reduce((s, n) => {
+  return occupiedSlotIds().reduce((s, n) => {
     const c = D.roster.find((x) => x.name === n); return s + (c ? c.cost : 0);
   }, 0);
 }
@@ -1230,7 +1594,7 @@ function drawArmySummary() {
 function onshoKou() {
   // このデッキに乗っている軍功（功）。予算は別枠（§7.61）— 本体の点を食わない
   if (!D.onsho) return 0;
-  const inDeck = new Set(cur.cards);
+  const inDeck = new Set(occupiedSlotIds());
   return D.onsho.reduce((s, o) =>
     s + o.kou * o.sets.filter((x) => inDeck.has(x.general)).length, 0);
 }
@@ -1268,9 +1632,10 @@ function flashMsg(text, isErr) {
 }
 
 async function saveDeck() {
-  const r = await api("/api/deck", { reg: cur.reg, form: cur.form, cards: cur.cards });
+  const cards = occupiedSlotIds();
+  const r = await api("/api/deck", { reg: cur.reg, form: cur.form, cards });
   if (r.ok) {
-    D.decks[cur.reg] = { form: cur.form, cards: [...cur.cards] };
+    D.decks[cur.reg] = { form: cur.form, cards: [...cards] };
     D.entry_errors = r.entry_errors;
     D.boards_ok = r.boards_ok;
     flashMsg("登録した。"); drawEntryState(); drawSortieBar();
@@ -1405,6 +1770,16 @@ async function viewReplay(state) {
       <div class="battle-side foe"><span>${foeSide}</span><b>${esc(d.foe_name)}</b></div>
     </div>
     ${tabs}
+    <div class="replay-armies" aria-label="両軍の布陣">
+      <section class="army-zone mine replay-army" aria-label="${mineSide}の盤面">
+        <div class="army-zone-label"><b>${mineSide}</b><span>${esc(d.mine_name)}・読み取り専用</span></div>
+        <div id="replay-mine-board"></div>
+      </section>
+      <section class="army-zone foe replay-army" aria-label="${foeSide}の盤面">
+        <div class="army-zone-label"><b>${foeSide}</b><span>${esc(d.foe_name)}・読み取り専用</span></div>
+        <div id="replay-foe-board"></div>
+      </section>
+    </div>
     <div class="replay-controls">
       <button id="play" class="primary">▶ 再生</button>
       <button id="skip">${FIGHT ? "結末まで飛ばす" : "全部表示"}</button>
@@ -1496,6 +1871,12 @@ async function viewReplay(state) {
 
   function loadGame(g) {
     clearInterval(timer);
+    if (g.mine_board) mountFormationBoard($("#replay-mine-board"), {
+      ...g.mine_board, interactive: false, onSlotsChange: () => {},
+    });
+    if (g.foe_board) mountFormationBoard($("#replay-foe-board"), {
+      ...g.foe_board, interactive: false, onSlotsChange: () => {},
+    });
     mineNames = g.mine_names || [];
     foeNames = g.foe_names || [];
     sideMap = [...(g.foe_names || []).map((n) => [n, "foe-name"]),
@@ -1652,8 +2033,13 @@ async function viewReplay(state) {
   }
 }
 
+/* Nodeの軽量テストから純粋関数とコンポーネント契約を検証できるようにする。 */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { FORMATIONS, normalizeSlots, swapOrMove, rankPosition, FormationBoard };
+}
+
 /* ── 起動 ──────────────────────── */
-(async function boot() {
+if (typeof document !== "undefined") (async function boot() {
   document.body.classList.toggle("debug", DEBUG);
   const state = await api("/api/state");
   shell(state);

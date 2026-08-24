@@ -412,9 +412,6 @@ h2 button.attack { float: right; font-size: 13px; }
 .unit-type.t-arc { border-color: #526d68; background: #172926; }
 .slot .cost { color: var(--gold); font-variant-numeric: tabular-nums; }
 .slot.empty .who { color: var(--faint); }
-.slot[draggable="true"] { cursor: grab; }
-.slot.dragging { opacity: .35; }
-.slot.dragover { border-style: solid; border-color: var(--gold); background: #2a2419; }
 .slot:not(.empty) { cursor: pointer; }
 .slot:not(.empty):hover { border-color: var(--line2); background: #251d13; }
 .slot.selected { border-style: solid; border-color: var(--gold);
@@ -864,3 +861,141 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
 .fx.ff { color: #d98b6a; border-color: #6e4230; }
 .fx.heal { color: #86c08d; border-color: #3c5f43; }
 .fx.lost { color: #9d8fbf; border-color: #4d4468; }
+
+/* ── FormationBoard: 実盤面（編成・戦記・リプレイ共用） ───── */
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.army-zone {
+  position: relative; margin: 10px 0; padding: 9px;
+  border-radius: 12px; background: #15110de8;
+}
+/* 陣営は色ではなく、明示ラベルと領域の線種・地紋で識別する。 */
+.army-zone.mine { border: 2px solid #b99a5f; }
+.army-zone.foe {
+  border: 2px dashed #9aa8b7;
+  background:
+    repeating-linear-gradient(135deg, #ffffff06 0 6px, transparent 6px 14px),
+    #15110de8;
+}
+.army-zone-label {
+  display: flex; align-items: center; gap: 8px; margin: -2px 0 8px;
+  font-size: 11px; color: var(--sub); letter-spacing: .06em;
+}
+.army-zone-label b {
+  display: inline-block; min-width: 4.5em; padding: 2px 9px; border-radius: 5px;
+  text-align: center; font-family: var(--font-min); font-size: 13px; letter-spacing: .16em;
+}
+.army-zone.mine .army-zone-label b {
+  color: #241a08; background: var(--gold-hi); border: 1px solid #fff1b8;
+}
+.army-zone.foe .army-zone-label b {
+  color: #f2f7ff; background: #557aa6; border: 1px dashed #d9e9fa;
+}
+
+.formation-board { display: grid; gap: 7px; width: 100%; }
+.fb-rank {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px;
+  align-items: center; min-width: 0; padding: 4px 2px;
+  border-radius: 9px; border: 1px solid #3d3326;
+}
+.fb-rank.front { background: linear-gradient(90deg, #4b2b1c33, #211a13); }
+.fb-rank.rear { background: linear-gradient(90deg, #2b3b4b2e, #1a1a18); }
+.fb-rank-label {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #e7d8bd; font-family: var(--font-min); font-size: 10px;
+  line-height: 1.25; letter-spacing: .05em; white-space: nowrap;
+}
+.fb-rank-label small { display: block; font-family: var(--font-body); font-size: 8px;
+  color: var(--sub); letter-spacing: 0; }
+.fb-rank-slots {
+  display: grid; grid-template-columns: repeat(var(--slot-count), minmax(64px, 72px));
+  justify-content: center; gap: 4px; min-width: 0;
+}
+.fb-slot { display: block; min-width: 0; border-radius: 10px; }
+.fb-piece {
+  position: relative; display: block; width: 100%; min-width: 64px; min-height: 64px;
+  aspect-ratio: 1; padding: 0; overflow: hidden; border-radius: 9px;
+  border: 3px solid var(--gun); background: #17130f; color: #fff;
+  touch-action: pan-y; user-select: none; -webkit-user-select: none;
+  box-shadow: inset 0 0 0 1px #0008; transition: transform .15s, box-shadow .15s,
+    opacity .15s, outline-color .15s;
+}
+.fb-piece.gi { border-color: #46689c; }
+.fb-piece.shoku { border-color: #47825a; }
+.fb-piece.go { border-color: #a04343; }
+.fb-piece.gunyu { border-color: #8a7640; }
+.fb-piece.occupied { touch-action: none; }
+.fb-piece.empty {
+  border: 2px dashed #766a58; background: #1b1712; color: #a99b84;
+}
+.fb-piece:disabled { cursor: default; opacity: 1; filter: none; }
+.fb-piece:disabled:hover { filter: none; }
+.fb-piece:focus-visible {
+  outline: 3px solid #fff3b0; outline-offset: 2px;
+  box-shadow: 0 0 0 5px #000, 0 5px 16px #0009;
+}
+.fb-piece.selected {
+  z-index: 2; transform: translateY(-3px); outline: 3px solid var(--gold-hi);
+  outline-offset: 2px; box-shadow: 0 8px 18px #000b, 0 0 0 5px #000;
+}
+.fb-piece.key-target { outline: 2px solid #f5e1a4; outline-offset: 1px; }
+.fb-portrait {
+  display: block; width: 100%; height: 100%; object-fit: cover; object-position: center;
+  pointer-events: none; -webkit-user-drag: none;
+}
+.fb-troop, .fb-cost {
+  position: absolute; z-index: 1; display: grid; place-items: center;
+  color: #fff; background: #090806e8; border: 1px solid #ffffffa8;
+  box-shadow: 0 1px 4px #000; text-shadow: 0 1px 2px #000;
+}
+.fb-troop { top: 3px; left: 3px; min-width: 25px; min-height: 25px; border-radius: 6px; }
+.fb-troop .tico { width: 20px; height: 20px; vertical-align: 0; }
+.fb-cost {
+  right: 3px; bottom: 3px; min-width: 24px; height: 24px; padding: 0 4px;
+  border-radius: 999px; font-weight: 800; font-size: 12px;
+}
+.fb-name {
+  position: absolute; inset: auto 31px 3px 3px; overflow: hidden;
+  color: #fff; background: #090806e8; border-radius: 4px; padding: 1px 3px;
+  font-family: var(--font-min); font-size: 8.5px; line-height: 1.25;
+  white-space: nowrap; text-overflow: ellipsis; text-shadow: 0 1px 2px #000;
+}
+.fb-empty-mark { display: grid; place-items: center; height: 100%; font-size: 22px; }
+.formation-board.interactive .fb-slot:not(.drop-target) .fb-piece:not(.selected):hover {
+  transform: translateY(-1px); box-shadow: 0 5px 12px #0008;
+}
+.fb-piece.drag-source { opacity: .32; transform: none; }
+.fb-slot.drop-target { outline: 3px solid var(--gold-hi); outline-offset: 2px; }
+.fb-slot.swap-target { outline-style: double; outline-width: 5px; }
+.fb-drag-proxy {
+  position: fixed; z-index: 100; left: 0; top: 0; margin: 0;
+  pointer-events: none; box-shadow: 0 12px 28px #000d !important; will-change: transform;
+}
+.placement-errors { display: grid; gap: 2px; margin: 5px 0; color: #f0a27d;
+  font-size: 11px; line-height: 1.5; }
+
+.replay-armies {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 12px;
+}
+.replay-army { margin: 0; }
+
+/* 武将一覧も実体をbuttonに統一。既存カード外観は維持する。 */
+button.card { width: 100%; min-height: 0; color: var(--ink); letter-spacing: normal; }
+button.card:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .replay-armies { grid-template-columns: 1fr; }
+  .army-zone { padding: 8px; }
+  .fb-rank { grid-template-columns: 28px minmax(0, 1fr); gap: 4px; padding: 4px 2px; }
+  .fb-rank-slots { gap: 4px; }
+  .fb-piece { min-width: 64px; min-height: 64px; }
+}
+
+@media (max-width: 389px) {
+  .fb-rank { grid-template-columns: 24px minmax(0, 1fr); gap: 3px; }
+  .fb-rank-slots { grid-template-columns: repeat(var(--slot-count), minmax(58px, 1fr)); gap: 3px; }
+  .fb-piece { min-width: 58px; min-height: 58px; }
+}

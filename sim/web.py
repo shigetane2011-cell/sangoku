@@ -263,6 +263,34 @@ def _roster_json(only=None):
     return out
 
 
+def _formation_board_json(army):
+    """FormationBoard の読み取り専用データ契約へ Army を詰め替える。
+
+    武将名を unitId とし、盤面順はエンジンと同じ
+    「前衛左→右、後衛左→右」。勢力には現行データの魏も含める。
+    """
+    brief = {c["name"]: c for c in _roster_json()}
+    faction = {"魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu"}
+    formation = {4: "kakuyoku", 3: "gyorin", 2: "gankou"}.get(
+        army.form.n_front, "gyorin")
+    slots = [c.name or None for c in army.cards]
+    slots = (slots + [None] * 6)[:6]
+    units = {}
+    for c in army.cards:
+        row = brief.get(c.name)
+        if not row:
+            continue
+        units[c.name] = {
+            "name": row["name"],
+            "portraitUrl": "/portrait/" + urllib.parse.quote(row["person"]),
+            "troopType": row["typ"],
+            "role": row["role"],
+            "cost": row["cost"],
+            "faction": faction.get(row["faction"], "gunyu"),
+        }
+    return {"formation": formation, "slots": slots, "units": units}
+
+
 class App(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ 低レベル
@@ -1194,20 +1222,30 @@ class App(BaseHTTPRequestHandler):
             return self._json({"error": "編成を再構成できない（登録が変わった）"}, 410)
         me_first = not (me and me.id == m["pid_b"])
         games = []
+        def add_boards(game, army_a, army_b):
+            mine_army, foe_army = ((army_a, army_b) if me_first
+                                    else (army_b, army_a))
+            game["mine_board"] = _formation_board_json(mine_army)
+            game["foe_board"] = _formation_board_json(foe_army)
+            return game
         try:
             if m["board"] in PL.REG_NAMES:
                 reg = PL.REG_NAMES.index(m["board"])
                 cap = M.REGULATIONS[reg][1]
-                g = PL.replay_data(M.with_surplus(a.unit(reg), cap),
-                                   M.with_surplus(b.unit(reg), cap),
+                army_a, army_b = a.unit(reg), b.unit(reg)
+                g = PL.replay_data(M.with_surplus(army_a, cap),
+                                   M.with_surplus(army_b, cap),
                                    0.5, m["seed"], me_first)
+                add_boards(g, army_a, army_b)
                 g["label"] = m["board"]
                 games.append(g)
             else:
                 for i, (label, cap) in enumerate(M.REGULATIONS):
-                    g = PL.replay_data(M.with_surplus(a.unit(i), cap),
-                                       M.with_surplus(b.unit(i), cap),
+                    army_a, army_b = a.unit(i), b.unit(i)
+                    g = PL.replay_data(M.with_surplus(army_a, cap),
+                                       M.with_surplus(army_b, cap),
                                        0.5, m["seed"] * 3 + i, me_first)
+                    add_boards(g, army_a, army_b)
                     g["label"] = label
                     games.append(g)
         except KeyError:
