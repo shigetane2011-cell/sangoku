@@ -3062,10 +3062,15 @@ def _who(u: Unit) -> str:
 
     同じ武将が両軍にいる対戦では、名前だけだとどちらの行か分からなくなる
     （実測: 両軍の満寵が同じ刻に技を撃ち、2行が区別不能だった）。その名に
-    限り軍名を冠する。"""
+    限り**軍名を後ろに添える**——「曹仁〔堅守〕（蜀軍）」の形。
+
+    前に冠していたのを後ろへ回した（§7.93）。武将名が先に来るほうが読みやすく、
+    名前で色を塗る画面側の処理もそのまま効く。なお両軍にいるのは**同じ札**
+    （両者が同じカードを選んだ）なので、勢力で分けられないことがある。その
+    ときは「（蜀軍・先手）／（蜀軍・後手）」と手番で分ける。"""
     if u.name:
         if u.name in _DUP_NAMES:
-            return "{}軍の{}".format(_JP["A" if u.side > 0 else "B"], u.name)
+            return "{}（{}軍）".format(u.name, _JP["A" if u.side > 0 else "B"])
         return u.name
     return "{}軍{}{}の{}".format(_JP["A" if u.side > 0 else "B"], _wing(u),
                                  "前衛" if u.is_front else "後衛", TYPE_JP[u.typ])
@@ -3077,8 +3082,8 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
     global _DUP_NAMES
     _DUP_NAMES = ({c.name for c in a.cards if c.name}
                   & {c.name for c in b.cards if c.name})
-    if _JP["A"] == _JP["B"]:            # 同勢力どうしは区別が付かないので添字
-        _JP["A"], _JP["B"] = _JP["A"] + "(先)", _JP["B"] + "(後)"
+    if _JP["A"] == _JP["B"]:            # 同勢力どうしは勢力名で分けられない
+        _JP["A"], _JP["B"] = _JP["A"] + "・先手", _JP["B"] + "・後手"
     def shape(army: Army) -> str:
         return FORM_NAME.get(army.form.n_front, f"前衛{army.form.n_front}枚")
     def mix(army: Army) -> str:
