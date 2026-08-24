@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
-"""画面の煙検査（§7.91）: 編成盤面を**実ブラウザで触って**確かめる。
+"""画面の煙検査（§7.91・§7.92）: 編成盤面を**実ブラウザで触って**確かめる。
 
-    python3 tools/ui_smoke.py             # 使い捨てのDBで起動して触る
-    python3 tools/ui_smoke.py --keep      # 走らせたDBを消さない（後で覗く用）
+    python3 tools/ui_smoke.py                # 1280 と 390 の両方で触る
+    python3 tools/ui_smoke.py --keep         # 走らせたDBを消さない
+    python3 tools/ui_smoke.py --allow-skip   # Playwright が無ければ素通り
 
-なぜこれが要るか。編成盤面（FormationBoard）の初版は、node の検査も
-python の検算も全部緑のまま、**満枠の編成が一切編集できない**状態で
-上がってきた。原因は捕捉フェーズの pointerdown が一覧の札を押した瞬間に
-選択を消していたことで、これは構文検査でもソース文字列の照合でも捕まらない。
-§7.90 で書いたとおり「構文が通ること・CLIが動くことは、画面が描けること・
-触れることの証拠にならない」。だから画面に触る変更は、ここを通してから出す。
+なぜこれが要るか。編成盤面の初版は、node の検査も python の検算も全部緑の
+まま、**満枠の編成が一切編集できない**状態で上がってきた。原因は捕捉フェーズの
+pointerdown が一覧の札を押した瞬間に選択を消していたことで、これは構文検査でも
+ソース文字列の照合でも捕まらない。§7.90 で書いたとおり「構文が通ることは
+画面が描けること・触れることの証拠にならない」。画面に触る変更はここを通す。
 
-Playwright が無ければ**何も測らずに 0 で抜ける**（環境の都合でCIを赤に
-しないため）。入れるときは:  pip install playwright && playwright install chromium
+**Playwright が無いときは既定で落ちる（終了コード1）。** 素通りして 0 を返すと、
+「CIが緑」が「画面を検査した」の証拠にならない——検査していないことと、検査して
+問題が無かったことは別物である。環境の都合で飛ばすなら --allow-skip を明示する。
+入れ方:  pip install playwright && playwright install chromium
 """
-import os, sys, time, json, shutil, tempfile, subprocess, urllib.request
+import os, sys, time, shutil, tempfile, subprocess, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,8 +24,26 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = int(os.environ.get("SANGOKU_SMOKE_PORT", "8971"))
 BASE = "http://127.0.0.1:{}".format(PORT)
 
+# 盤面の中身を読む。名前は駒ではなく**枠**の下にあるので .fb-slot から引く。
+NAMES = """() => [...document.querySelectorAll('#slots .fb-slot')].map((sl) => {
+  const p = sl.querySelector('.fb-piece');
+  const c = sl.querySelector('.fb-name');
+  return p && p.classList.contains('occupied') ? c.textContent.trim() : null;
+})"""
 
-def _wait_up(timeout=90.0):
+
+class Report:
+    def __init__(self):
+        self.fails = []
+
+    def check(self, cond, msg):
+        print(("○  " if cond else "×  ") + msg)
+        if not cond:
+            self.fails.append(msg)
+        return cond
+
+
+def _wait_up(timeout=120.0):
     end = time.time() + timeout
     while time.time() < end:
         try:
@@ -44,133 +64,351 @@ def _boot(datadir):
 
 
 def _chromium(pw):
-    """この環境の chromium を探す（playwright install 済みなら不要）。"""
     for cand in ("/opt/pw-browsers/chromium-1194/chrome-linux/chrome",):
         if os.path.exists(cand):
             return pw.chromium.launch(executable_path=cand)
     return pw.chromium.launch()
 
 
-NAMES = """() => [...document.querySelectorAll('#slots .fb-piece')]
-  .map((x, i) => {
-    const cap = x.parentElement.querySelector('.fb-name');
-    return x.classList.contains('occupied') ? cap.textContent : null;
-  })"""
+def _login(page, name):
+    page.goto(BASE + "/", wait_until="domcontentloaded")
+    page.wait_for_selector("#newname", timeout=120000)
+    page.fill("#newname", name)
+    page.click("#make")
+    page.wait_for_timeout(1500)
+
+
+def _open_deck(page):
+    page.goto(BASE + "/deck", wait_until="domcontentloaded")
+    page.wait_for_selector("#slots .fb-piece", timeout=120000)
+    page.wait_for_timeout(400)
+
+
+def _fill_board(page):
+    """一覧の札で6枠を埋める。"""
+    for _ in range(8):
+        if all(page.evaluate(NAMES)):
+            break
+        c = page.query_selector("#roster .card:not([disabled])")
+        if not c:
+            break
+        c.click()
+        page.wait_for_timeout(180)
+
+
+# ── 触りかたの検査（幅ごとに同じことをする）─────────────────
+def exercise(page, rep, label, touch):
+    def board():
+        return page.evaluate(NAMES)
+
+    def tag(msg):
+        return "[{}] {}".format(label, msg)
+
+    _open_deck(page)
+    _fill_board(page)
+    rep.check(len(board()) == 6, tag("盤面に6枠ある"))
+    rep.check(all(board()), tag("一覧の札で6枠が埋まる"))
+
+    # 駒どうしの入れ替え（タップ2回）——指でもマウスでも常に効く正路
+    before = board()
+    page.query_selector_all("#slots .fb-piece")[0].click(); page.wait_for_timeout(200)
+    page.query_selector_all("#slots .fb-piece")[5].click(); page.wait_for_timeout(400)
+    after = board()
+    rep.check(after[0] == before[5] and after[5] == before[0],
+              tag("駒をタップ2回で入れ替えられる（前衛↔後衛）"))
+
+    # 交代（駒を選ぶ→一覧の札）。初版が落ちていた道
+    before = board()
+    page.query_selector_all("#slots .fb-piece")[1].click(); page.wait_for_timeout(250)
+    cand = None
+    for c in page.query_selector_all("#roster .card:not([disabled])"):
+        if c.get_attribute("data-n") not in before:
+            cand = c
+            break
+    if not rep.check(cand is not None, tag("交代に使える札が一覧にある")):
+        return
+    name = cand.get_attribute("data-n")
+    cand.click(); page.wait_for_timeout(400)
+    rep.check(board()[1] == name, tag("駒を選んで一覧の札を押すと交代する"))
+
+    # 選択の帯（指で押せる大きさの「外す」）
+    before = board()
+    page.query_selector_all("#slots .fb-piece")[2].click(); page.wait_for_timeout(250)
+    bar = page.query_selector(".fb-bar-btn[data-bar='remove']")
+    if rep.check(bar is not None, tag("選ぶと操作の帯が出る")):
+        box = bar.bounding_box()
+        rep.check(box["height"] >= 44,
+                  tag("「枠から外す」が触りの目安44を満たす（{:.0f}px）".format(box["height"])))
+        bar.click(); page.wait_for_timeout(400)
+        rep.check(board()[2] is None, tag("帯の「枠から外す」で外れる"))
+        _fill_board(page)
+
+    # 隅の ✕
+    before = board()
+    rm = page.query_selector_all(".fb-remove")
+    if rep.check(bool(rm), tag("✕ が盤面にある")):
+        rm[0].click(); page.wait_for_timeout(400)
+        rep.check(board()[0] is None, tag("✕ で枠から外せる"))
+        _fill_board(page)
+
+    # キーボードだけで入れ替え（Enter で選ぶ→矢印で移す→Enter で確定）
+    before = board()
+    page.query_selector_all("#slots .fb-piece")[0].focus()
+    page.keyboard.press("Enter"); page.wait_for_timeout(200)
+    page.keyboard.press("ArrowRight"); page.wait_for_timeout(200)
+    page.keyboard.press("Enter"); page.wait_for_timeout(400)
+    after = board()
+    rep.check(after[0] == before[1] and after[1] == before[0],
+              tag("キーボードだけで入れ替えられる"))
+
+    # キーボードで外す（Delete）
+    before = board()
+    page.query_selector_all("#slots .fb-piece")[3].focus()
+    page.keyboard.press("Delete"); page.wait_for_timeout(400)
+    rep.check(board()[3] is None, tag("Delete で枠から外せる"))
+    _fill_board(page)
+
+    # 名前が読める。textContent では測れない（ellipsis は文字を消さない）ので
+    # **箱からの溢れ**で見る
+    caps = page.eval_on_selector_all(
+        "#slots .fb-slot",
+        "es => es.map(x => { const c = x.querySelector('.fb-name');"
+        " if (!c || !c.textContent.trim()) return null;"
+        " return [c.textContent.trim(),"
+        "  c.scrollWidth <= c.clientWidth + 1 && c.scrollHeight <= c.clientHeight + 2]; })")
+    shown = [c for c in caps if c and c[0] and c[0] != "空き枠"]
+    rep.check(bool(shown) and all(ok for _, ok in shown),
+              tag("駒の名前が箱に収まって読める（{}）".format(
+                  "／".join(t for t, ok in shown[:2] if ok)
+                  or "溢れ: " + "／".join(t for t, _ in shown[:2]))))
+
+    # 駒の当たり（触りの目安44）
+    box = page.query_selector("#slots .fb-piece").bounding_box()
+    rep.check(min(box["width"], box["height"]) >= 44,
+              tag("駒が触りの目安44を満たす（{:.0f}×{:.0f}）".format(box["width"], box["height"])))
+
+    # 陣形を変えても中身と並びが動かない
+    before = board()
+    page.click('#formtabs button:has-text("鶴翼")'); page.wait_for_timeout(400)
+    rep.check(board() == before, tag("陣形を変えても6枠の中身と並びは動かない"))
+
+    # 横に溢れない
+    rep.check(not page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"),
+        tag("横に溢れない"))
+
+    if touch:
+        _touch_checks(page, rep, tag, board)
+    else:
+        _drag_checks(page, rep, tag, board)
+
+
+def _drag_checks(page, rep, tag, board):
+    """マウスの実ドラッグ・盤外へ落とす・途中で切れる。"""
+    before = board()
+    ps = page.query_selector_all("#slots .fb-piece")
+    r0, r4 = ps[0].bounding_box(), ps[4].bounding_box()
+    page.mouse.move(r0["x"] + r0["width"] / 2, r0["y"] + r0["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(r0["x"] + 40, r0["y"] + 12, steps=4)
+    page.mouse.move(r4["x"] + r4["width"] / 2, r4["y"] + r4["height"] / 2, steps=10)
+    page.mouse.up(); page.wait_for_timeout(450)
+    after = board()
+    rep.check(after[0] == before[4] and after[4] == before[0],
+              tag("マウスのドラッグで入れ替わる"))
+    rep.check(page.eval_on_selector_all(".fb-drag-proxy", "e => e.length") == 0,
+              tag("ドラッグの影が残らない"))
+
+    # 盤の外へ落とす → 何も起きない
+    before = board()
+    ps = page.query_selector_all("#slots .fb-piece")
+    r0 = ps[0].bounding_box()
+    page.mouse.move(r0["x"] + r0["width"] / 2, r0["y"] + r0["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(r0["x"] + 40, r0["y"] + 10, steps=4)
+    page.mouse.move(10, 10, steps=10)
+    page.mouse.up(); page.wait_for_timeout(500)
+    rep.check(board() == before, tag("盤の外へ落としても並びは変わらない"))
+    rep.check(page.eval_on_selector_all(".fb-drag-proxy", "e => e.length") == 0,
+              tag("盤外で離しても影が残らない"))
+
+    # 途中で pointercancel（電話が鳴った等）→ 元に戻る
+    before = board()
+    ps = page.query_selector_all("#slots .fb-piece")
+    r0 = ps[0].bounding_box()
+    page.mouse.move(r0["x"] + r0["width"] / 2, r0["y"] + r0["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(r0["x"] + 45, r0["y"] + 10, steps=4)
+    page.evaluate("""() => {
+      const ev = new PointerEvent('pointercancel', {pointerId: 1, bubbles: true});
+      document.dispatchEvent(ev);
+    }""")
+    page.mouse.up(); page.wait_for_timeout(500)
+    rep.check(board() == before, tag("途中で切れても並びは変わらない"))
+
+
+def _touch_checks(page, rep, tag, board):
+    """指のとき、駒の上から始めた**縦スクロールを盤面が奪わない**。"""
+    page.query_selector("#slots").scroll_into_view_if_needed()
+    page.wait_for_timeout(300)
+    before = board()
+    top0 = page.evaluate("() => window.scrollY")
+    box = page.query_selector("#slots .fb-piece").bounding_box()
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.touchscreen.tap(1, 1)          # 選択を解いておく
+    page.wait_for_timeout(200)
+    # **振っている最中**を見る。離した後では、掴んでいても影は片付いていて
+    # 並びも戻るので、始まったかどうかが分からない（実際それで見逃した）。
+    page.evaluate("""([x, y]) => {
+      const el = document.elementFromPoint(x, y);
+      const mk = (type, cy) => new PointerEvent(type, {pointerId: 7, pointerType: 'touch',
+        isPrimary: true, bubbles: true, cancelable: true, clientX: x, clientY: cy});
+      el.dispatchEvent(mk('pointerdown', y));
+      for (let d = 6; d <= 60; d += 6) document.dispatchEvent(mk('pointermove', y - d));
+    }""", [cx, cy])
+    page.wait_for_timeout(150)
+    grabbed = (page.eval_on_selector_all(".fb-drag-proxy", "e => e.length")
+               + page.eval_on_selector_all("#slots .drag-source", "e => e.length"))
+    page.evaluate("""([x, y]) => {
+      document.dispatchEvent(new PointerEvent('pointerup', {pointerId: 7,
+        pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true,
+        clientX: x, clientY: y - 60}));
+    }""", [cx, cy])
+    page.wait_for_timeout(400)
+    rep.check(grabbed == 0, tag("指で縦に振ってもドラッグが始まらない"))
+    rep.check(board() == before, tag("縦振りで並びが変わらない"))
+    # 横に振ればちゃんと掴める
+    before = board()
+    ps = page.query_selector_all("#slots .fb-piece")
+    b0, b1 = ps[0].bounding_box(), ps[1].bounding_box()
+    page.evaluate("""([x0, y0, x1, y1]) => {
+      const el = document.elementFromPoint(x0, y0);
+      const mk = (type, cx, cy) => new PointerEvent(type, {pointerId: 8, pointerType: 'touch',
+        isPrimary: true, bubbles: true, cancelable: true, clientX: cx, clientY: cy});
+      el.dispatchEvent(mk('pointerdown', x0, y0));
+      const n = 8;
+      for (let i = 1; i <= n; i++)
+        document.dispatchEvent(mk('pointermove', x0 + (x1 - x0) * i / n, y0));
+      document.dispatchEvent(mk('pointerup', x1, y1));
+    }""", [b0["x"] + b0["width"] / 2, b0["y"] + b0["height"] / 2,
+           b1["x"] + b1["width"] / 2, b1["y"] + b1["height"] / 2])
+    page.wait_for_timeout(500)
+    after = board()
+    rep.check(after[0] == before[1] and after[1] == before[0],
+              tag("指で横に振れば掴んで入れ替えられる"))
+
+
+# ── 読み取り専用の盤面（戦記の敵陣・リプレイ）─────────────
+def readonly_checks(page, rep):
+    page.goto(BASE + "/senki", wait_until="domcontentloaded")
+    page.wait_for_timeout(1200)
+    btn = page.query_selector(".senki-row button, .sk-row button, button:has-text('挑む')")
+    if not rep.check(btn is not None, "戦記の戦前へ入れる"):
+        return
+    btn.click()
+    page.wait_for_selector("#foe-board .fb-piece", timeout=60000)
+    page.wait_for_timeout(600)
+    rep.check(page.eval_on_selector("#foe-board", "e => e.className").find("readonly") >= 0,
+              "敵陣の盤面は読み取り専用")
+    rep.check(page.eval_on_selector_all("#foe-board .fb-piece[disabled]", "e => e.length") == 6,
+              "敵陣の駒は押せない（disabled）")
+    rep.check(page.eval_on_selector_all("#foe-board .fb-remove", "e => e.length") == 0,
+              "敵陣に ✕ は出ない")
+    before = page.eval_on_selector_all(
+        "#foe-board .fb-name", "es => es.map(e => e.textContent)")
+    page.query_selector_all("#foe-board .fb-piece")[0].click(force=True)
+    page.query_selector_all("#foe-board .fb-piece")[3].click(force=True)
+    page.wait_for_timeout(300)
+    rep.check(page.eval_on_selector_all(
+        "#foe-board .fb-name", "es => es.map(e => e.textContent)") == before,
+        "敵陣は押しても動かない")
+    # 敵札の中身（必殺技・特性）が読める
+    rep.check(page.eval_on_selector_all(".foe-detail .fc-skill", "e => e.length") == 6,
+              "敵札の必殺技が6枚ぶん読める")
+    # 自軍・敵軍が同時に出ていて、線種で見分けられる（色だけに頼らない）
+    rep.check(page.eval_on_selector_all(".army-zone.mine, .army-zone.foe", "e => e.length") >= 2,
+              "自軍と敵軍の枠が同時に出る")
+    styles = page.evaluate("""() => {
+      const g = (s) => { const e = document.querySelector(s);
+        return e ? getComputedStyle(e).borderStyle : null; };
+      return [g('.army-zone.mine'), g('.army-zone.foe')];
+    }""")
+    rep.check(styles[0] != styles[1] and styles[1] == "dashed",
+              "自軍は実線・敵軍は破線（{} / {}）".format(*styles))
+    # 魏の枠色が指定どおり残っている
+    gi = page.evaluate("""() => {
+      const d = document.createElement('div');
+      d.className = 'fb-piece gi'; document.body.appendChild(d);
+      const c = getComputedStyle(d).borderTopColor; d.remove(); return c;
+    }""")
+    rep.check(gi.replace(" ", "") == "rgb(70,104,156)",
+              "魏の枠色 #46689c が残っている（{}）".format(gi))
+
+
+# ── リプレイの陣営札（同じ武将が両軍にいる場合）───────────
+def replay_side_check(rep):
+    import sim.match as M, sim.play as PL
+    cards = M._roster_cards()
+    dup = "曹仁〔堅守〕、孫乾〔従事〕、糜竺〔子仲〕、韓当〔老弓〕、樊建〔伝令〕、宗預〔使者〕"
+    a, ea = PL.parse_deck(cards, dup, "鶴翼")
+    b, eb = PL.parse_deck(cards, dup, "雁行")
+    if not rep.check(not ea and not eb, "同名両軍の編成を組める"):
+        return
+    d = PL.replay_data(a, b, 0.5, 12345, True)
+    marks = d.get("line_sides") or []
+    if not rep.check(len(d["lines"]) == len(marks) and bool(marks),
+                     "行と陣営札の本数が合う（{} / {}）".format(len(d["lines"]), len(marks))):
+        return
+    pairs = [(s, ln) for s, ln in zip(marks, d["lines"]) if "曹仁" in ln]
+    mine = [ln for s, ln in pairs if s == "mine"]
+    foe = [ln for s, ln in pairs if s == "foe"]
+    rep.check(bool(mine) and bool(foe),
+              "両軍の同名武将が自軍・敵軍に分かれる（自軍{}行・敵軍{}行）".format(
+                  len(mine), len(foe)))
+    ok = all(("(先)" in ln) == (s == "mine") for s, ln in pairs if "(先)" in ln or "(後)" in ln)
+    rep.check(ok, "陣営札が文中の軍名と食い違わない")
 
 
 def run():
+    allow_skip = "--allow-skip" in sys.argv
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("playwright が無いので画面の煙検査は飛ばす"
-              "（pip install playwright && playwright install chromium）")
-        return 0
+        if allow_skip:
+            print("Playwright が無いので画面の煙検査は飛ばす（--allow-skip 指定）")
+            return 0
+        print("×  Playwright が無く、画面の煙検査を**していない**。")
+        print("   pip install playwright && playwright install chromium")
+        print("   環境の都合で飛ばすなら --allow-skip を明示すること"
+              "（検査していないことと、検査して問題が無かったことは別物）。")
+        return 1
 
+    rep = Report()
     datadir = tempfile.mkdtemp(prefix="sangoku-smoke-")
     srv = _boot(datadir)
-    fails = []
     try:
         if not _wait_up():
-            print("×  サーバが上がらない"); return 1
+            print("×  サーバが上がらない")
+            return 1
         with sync_playwright() as pw:
             br = _chromium(pw)
-            ctx = br.new_context(viewport={"width": 1280, "height": 1000})
-            page = ctx.new_page()
-            errs = []
-            page.on("pageerror", lambda e: errs.append(str(e)))
-            page.goto(BASE + "/", wait_until="networkidle")
-
-            # 名乗る（鍵の無い手元用の口。名前だけで入れる）
-            page.fill("#newname", "煙検査")
-            page.click("#make")
-            page.wait_for_timeout(1500)
-            page.goto(BASE + "/deck", wait_until="networkidle")
-            page.wait_for_selector("#slots .fb-piece", timeout=60000)
-
-            def board():
-                return page.evaluate(NAMES)
-
-            def check(cond, msg):
-                print(("○  " if cond else "×  ") + msg)
-                if not cond:
-                    fails.append(msg)
-
-            check(len(board()) == 6, "盤面に6枠ある")
-
-            # ── 一覧の札で枠を埋められる ──
-            card = page.query_selector("#roster .card:not([disabled])")
-            first = card.get_attribute("data-n")
-            card.click(); page.wait_for_timeout(300)
-            check(first in board(), "一覧の札を押すと空き枠に入る（{}）".format(first))
-
-            # ── 駒どうしの入れ替え（タップ2回）──
-            for _ in range(5):
-                c = page.query_selector("#roster .card:not([disabled])")
-                if not c:
-                    break
-                c.click(); page.wait_for_timeout(200)
-            before = board()
-            filled = [i for i, n in enumerate(before) if n]
-            if len(filled) >= 2:
-                a, b = filled[0], filled[-1]
-                page.query_selector_all("#slots .fb-piece")[a].click()
-                page.wait_for_timeout(200)
-                page.query_selector_all("#slots .fb-piece")[b].click()
-                page.wait_for_timeout(400)
-                after = board()
-                check(after[a] == before[b] and after[b] == before[a],
-                      "駒をタップ2回で入れ替えられる")
-
-            # ── 交代（駒を選ぶ→一覧の札）。初版が落ちていた道 ──
-            before = board()
-            spot = [i for i, n in enumerate(before) if n][0]
-            page.query_selector_all("#slots .fb-piece")[spot].click()
-            page.wait_for_timeout(250)
-            cand = None
-            for c in page.query_selector_all("#roster .card:not([disabled])"):
-                if c.get_attribute("data-n") not in before:
-                    cand = c; break
-            if cand is None:
-                check(False, "交代に使える札が一覧に無い（検査を組み直すこと）")
-            else:
-                name = cand.get_attribute("data-n")
-                cand.click(); page.wait_for_timeout(400)
-                check(board()[spot] == name,
-                      "駒を選んで一覧の札を押すと交代する（{} → {}）".format(before[spot], name))
-
-            # ── 枠から外せる ──
-            before = board()
-            spot = [i for i, n in enumerate(before) if n][0]
-            rm = page.query_selector_all(".fb-remove")
-            if not rm:
-                check(False, "✕ で枠から外せる（外す手段が盤面に無い）")
-            else:
-                rm[0].click(); page.wait_for_timeout(400)
-                check(board()[spot] is None, "✕ で枠から外せる")
-
-            # ── 名前が読める ──
-            # textContent では捕まらない。CSS の ellipsis は文字を消さないので、
-            # DOM 上は「張宝〔地公将軍〕」のままでも画面には「張…」しか出ない。
-            # 箱からの**溢れ**（縦横）で測る。
-            caps = page.eval_on_selector_all(
-                "#slots .fb-slot",
-                "es => es.map(x => { const c = x.querySelector('.fb-name');"
-                " if (!c || !c.textContent.trim()) return null;"
-                " return [c.textContent.trim(),"
-                "  c.scrollWidth <= c.clientWidth + 1 && c.scrollHeight <= c.clientHeight + 2]; })")
-            shown = [c for c in caps if c and c[0] and c[0] != "空き枠"]
-            check(bool(shown) and all(ok for _, ok in shown),
-                  "駒の名前が箱に収まって読める（{}）".format(
-                      "／".join(t for t, ok in shown[:3] if ok) or
-                      "溢れている: " + "／".join(t for t, ok in shown[:3] if not ok)))
-
-            # ── 陣形を変えても武将が消えない・順序が変わらない ──
-            before = board()
-            page.click('#formtabs button:has-text("鶴翼")'); page.wait_for_timeout(400)
-            check(board() == before, "陣形を変えても6枠の中身と並びは動かない")
-
-            check(not errs, "画面の例外なし{}".format("：" + "／".join(errs) if errs else ""))
+            for label, w, h, mob in (("卓上1280", 1280, 1000, False),
+                                     ("携帯390", 390, 844, True)):
+                ctx = br.new_context(viewport={"width": w, "height": h},
+                                     is_mobile=mob, has_touch=mob,
+                                     device_scale_factor=2 if mob else 1)
+                page = ctx.new_page()
+                errs = []
+                page.on("pageerror", lambda e: errs.append(str(e)))
+                _login(page, "煙検査" + label)
+                exercise(page, rep, label, mob)
+                if not mob:
+                    readonly_checks(page, rep)
+                rep.check(not errs, "[{}] 画面の例外なし{}".format(
+                    label, "：" + "／".join(errs) if errs else ""))
+                ctx.close()
             br.close()
+        replay_side_check(rep)
     finally:
         srv.terminate()
         try:
@@ -182,9 +420,13 @@ def run():
         else:
             shutil.rmtree(datadir, ignore_errors=True)
 
-    print("—" * 40)
-    if fails:
-        print("落ちた検査 {} 件".format(len(fails)))
+    print("—" * 46)
+    print("※ 実機（iOS Safari / Android Chrome）は**ここでは測れない**。"
+          "指の検査は Chromium の触り模擬まで。")
+    if rep.fails:
+        print("落ちた検査 {} 件".format(len(rep.fails)))
+        for f in rep.fails:
+            print("   × " + f)
         return 1
     print("画面の煙検査: 通った")
     return 0

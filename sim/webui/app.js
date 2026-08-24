@@ -204,7 +204,19 @@ class FormationBoard {
       this.root.appendChild(this.live);
       this.rows = this.root.querySelector(".fb-rows");
     }
-    this.rows.innerHTML = `${row(true)}${row(false)}`;
+    // 選んでいる間だけ出す操作の帯。**指で押せる大きさの「外す」**はここ
+    // （駒の隅の ✕ は 22px しかなく、触りの目安 44 を割る・§7.92）。
+    // 何を選んでいるかが文字で見えるようになる利もある。
+    const picked = this.props.interactive && this.selectedIndex !== null
+      ? (this.props.units[slots[this.selectedIndex]] || {}).name
+        || slots[this.selectedIndex] : null;
+    const bar = picked ? `<div class="fb-bar">
+      <span class="fb-bar-who">選択中　<b>${esc(picked)}</b></span>
+      <span class="fb-bar-hint">別の駒か一覧の札を選ぶと交代</span>
+      <button type="button" class="fb-bar-btn" data-bar="remove">枠から外す</button>
+      <button type="button" class="fb-bar-btn ghost" data-bar="cancel">やめる</button>
+    </div>` : "";
+    this.rows.innerHTML = `${row(true)}${row(false)}${bar}`;
     if (this.live.textContent !== this.announcement) this.live.textContent = this.announcement;
     this.root.querySelectorAll(".fb-piece").forEach((button) => {
       if (!this.props.interactive) return;
@@ -214,9 +226,16 @@ class FormationBoard {
     this.root.querySelectorAll(".fb-remove").forEach((button) => {
       button.addEventListener("click", () => this.removeSlot(+button.dataset.removeIndex));
     });
+    this.root.querySelectorAll(".fb-bar-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.bar === "remove") this.removeSlot(this.selectedIndex);
+        else this.clearSelection();
+      });
+    });
   }
 
   removeSlot(index) {
+    if (!Number.isInteger(index)) return;
     const before = normalizeSlots(this.props.slots);
     const id = before[index];
     if (!id) return;
@@ -235,16 +254,29 @@ class FormationBoard {
     const index = +button.dataset.slotIndex;
     this.pointer = { id: e.pointerId, from: index, startX: e.clientX, startY: e.clientY,
                      x: e.clientX, y: e.clientY, button, dragging: false, target: null,
-                     moved: false, canDrag: !!normalizeSlots(this.props.slots)[index] };
+                     moved: false, touch: e.pointerType === "touch",
+                     canDrag: !!normalizeSlots(this.props.slots)[index] };
+  }
+
+  /* 掴んだと見なすか。**指のときは横に振ったときだけ**（§7.92）。
+     駒に touch-action:none を敷くと、駒の上から始めた縦スクロールが
+     ページではなくドラッグになる。読むための縦振りを盤面が奪ってはいけない。
+     指での前後衛の入れ替えは**タップ2回**が正路（そちらは常に効く）。
+     マウス・ペンには touch-action は掛からないので今までどおり全方向。 */
+  dragBegins(p, dx, dy) {
+    const dist = Math.hypot(dx, dy);
+    if (!p.touch) return dist >= 8;
+    return Math.abs(dx) >= 12 && Math.abs(dx) > Math.abs(dy) * 1.2;
   }
 
   onPointerMove(e) {
     const p = this.pointer;
     if (!p || e.pointerId !== p.id) return;
     p.x = e.clientX; p.y = e.clientY;
-    const distance = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+    const dx = e.clientX - p.startX, dy = e.clientY - p.startY;
+    const distance = Math.hypot(dx, dy);
     p.moved = distance >= 8;
-    if (!p.dragging && p.canDrag && distance >= 8) this.startDrag(e);
+    if (!p.dragging && p.canDrag && this.dragBegins(p, dx, dy)) this.startDrag(e);
     if (!p.dragging) return;
     e.preventDefault();
     this.moveProxy(e.clientX, e.clientY);
@@ -964,7 +996,7 @@ async function viewSenkiPrep(i) {
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
         <section class="army-zone mine" aria-label="自軍の盤面">
-          <div class="army-zone-label"><b>自軍</b><span>タップまたはドラッグで交換</span></div>
+          <div class="army-zone-label"><b>自軍</b><span>駒をタップして選ぶ（マウスは横へドラッグでも）</span></div>
           <div id="slots"></div>
         </section>
         <div id="placement-errors" class="placement-errors" aria-live="polite"></div>
@@ -1047,7 +1079,7 @@ function drawPrep(msg) {
               + `（盤面の武将を選び、一覧から軽い武将へ交代する）`
     : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
        : (bad ? "置けない兵がいる（⚠の武将を交換または交代する）"
-          : "6人そろった。盤面内はタップ2回かドラッグで入れ替え、一覧の札で交代、✕で外す"));
+          : "6人そろった。駒を2回タップで入れ替え、選んでから一覧の札で交代、✕か「枠から外す」で外す"));
 }
 
 /* ── 編成 ──────────────────────── */
@@ -1172,7 +1204,7 @@ async function viewDeck(state) {
         <div class="form-tabs" id="formtabs"></div>
         <div class="cost-meter" id="meter"><div class="fill"></div><div class="label"></div></div>
         <section class="army-zone mine" aria-label="自軍の盤面">
-          <div class="army-zone-label"><b>自軍</b><span>タップまたはドラッグで交換</span></div>
+          <div class="army-zone-label"><b>自軍</b><span>駒をタップして選ぶ（マウスは横へドラッグでも）</span></div>
           <div id="slots"></div>
         </section>
         <div id="placement-errors" class="placement-errors" aria-live="polite"></div>
@@ -1884,7 +1916,7 @@ async function viewReplay(state) {
   let gi = 0;
   let timer = null;
   let sideMap = null;
-  let mineNames = [], foeNames = [];
+  let mineNames = [], foeNames = [], dupNames = new Set(), lineSides = [];
   const boot = () => loadGame(d.games[gi]);
   $$(".game-tabs button").forEach((b) => b.onclick = () => {
     gi = +b.dataset.i;
@@ -1966,8 +1998,10 @@ async function viewReplay(state) {
     foeNames = g.foe_names || [];
     sideMap = [...(g.foe_names || []).map((n) => [n, "foe-name"]),
                ...(g.mine_names || []).map((n) => [n, "mine-name"])];
+    dupNames = new Set(mineNames.filter((n) => foeNames.includes(n)));
+    lineSides = g.line_sides || [];
     const log = $("#log");
-    log.innerHTML = g.lines.map((ln) => fmtLine(ln)).join("");
+    log.innerHTML = g.lines.map((ln, i) => fmtLine(ln, i)).join("");
     $("#battle-summary").innerHTML = replayOutcome(g, d, isParticipant);
     drawChart(g, -1);
     drawNotes(g);
@@ -1980,38 +2014,42 @@ async function viewReplay(state) {
     return m ? (+m[1] - 8) * 60 + (+m[2]) : null;
   }
 
-  function markNames(html_) {
+  function markNames(html_, lineSide) {
     if (!sideMap) return html_;
     for (const [name, side] of sideMap) {
+      // 両軍にいる武将は名前だけでは色を決められない。**行の主体**で塗る
+      // （分からない行では塗らない — 嘘の色を置くより無色のほうがまし）。
+      const cls = dupNames.has(name)
+        ? (lineSide === "mine" ? "mine-name"
+           : lineSide === "foe" ? "foe-name" : null)
+        : side;
+      if (!cls) continue;
       html_ = html_.split(esc(name)).join(
-        `<span class="${side}">${esc(name)}</span>`);
+        `<span class="${cls}">${esc(name)}</span>`);
     }
     return html_;
   }
 
-  function fmtLine(ln) {
+  function fmtLine(ln, idx) {
     let cls = "line", body = esc(ln);
     if (/^━━/.test(ln)) cls += " band";
     else if (/「.+」$/.test(ln.trim()) && !ln.includes("【")) cls += " quote";
     if (ln.includes("◇戦況")) cls += " check";
+    // 自軍・敵軍の札は**盤面が決めたもの**をそのまま使う（§7.92）。
+    // 以前は文章から武将名を拾って当てていたが、同じ武将が両軍にいると
+    // 必ず取り違えた（両軍の曹仁〔堅守〕の行が2本とも「自軍」になった）。
+    // 軍名の照合も「曹軍／孫軍」決め打ちで、実際の勢力名（蜀軍・呉軍）とは
+    // 噛み合っていなかった。語りを読んで当てるのはやめる。
+    const mark = lineSides[idx];
     let side = "system-event", sideText = "戦況";
-    if (!ln.includes("◇戦況") && !/^━━/.test(ln)) {
-      const mineAt = Math.min(...(mineNames.map((n) => ln.indexOf(n)).filter((i) => i >= 0)
-        .concat(ln.indexOf(d.me_first ? "曹軍" : "孫軍")).filter((i) => i >= 0)));
-      const foeAt = Math.min(...(foeNames.map((n) => ln.indexOf(n)).filter((i) => i >= 0)
-        .concat(ln.indexOf(d.me_first ? "孫軍" : "曹軍")).filter((i) => i >= 0)));
-      if (Number.isFinite(mineAt) && (!Number.isFinite(foeAt) || mineAt <= foeAt)) {
-        side = "mine-event"; sideText = mineSide;
-      } else if (Number.isFinite(foeAt)) {
-        side = "foe-event"; sideText = foeSide;
-      }
-    }
+    if (mark === "mine") { side = "mine-event"; sideText = mineSide; }
+    else if (mark === "foe") { side = "foe-event"; sideText = foeSide; }
     cls += " " + side;
     body = body.replace(/【([^】:]+)】/g, (m0, x) =>
       /^\d+$/.test(x) ? m0 : `【<span class="skillname">${x}</span>】`);
     body = body.replace(/^(◆)/, '<span class="art">◆</span>');
     body = body.replace(/【(\d+:\d+)】/, '<span class="t">$1</span>');
-    body = markNames(body);
+    body = markNames(body, mark);
     return `<div class="${cls}" data-t="${lineTime(ln) ?? ""}"><span class="side-mark">${sideText}</span>${body}</div>`;
   }
 

@@ -928,7 +928,9 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
 .fb-piece.shoku { border-color: #47825a; }
 .fb-piece.go { border-color: #a04343; }
 .fb-piece.gunyu { border-color: #8a7640; }
-.fb-piece.occupied { touch-action: none; }
+/* 縦は**ページに譲る**。駒の上から始めた縦スクロールがドラッグに化けると、
+   読むための指の動きを盤面が食う（§7.92）。横振りだけを掴みに使う。 */
+.fb-piece.occupied { touch-action: pan-y; }
 .fb-piece.empty {
   border: 2px dashed #766a58; background: #1b1712; color: #a99b84;
 }
@@ -996,6 +998,28 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
   position: fixed; z-index: 100; left: 0; top: 0; margin: 0;
   pointer-events: none; box-shadow: 0 12px 28px #000d !important; will-change: transform;
 }
+/* 選択中の帯。触りの操作はここが本線（駒の隅の ✕ は指には小さい）。 */
+/* 文字は2行、ボタンは横並び。**入れ子の桁で崩れないように格子で組む**
+   （盤面は幅340pxの脇柱にも入るので、折り返し任せだと文字とボタンが
+   互い違いに割り込む）。 */
+.fb-bar {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px;
+  margin-top: 7px; padding: 7px 8px; border-radius: 9px;
+  border: 1px solid var(--gold); background: #241c11;
+}
+.fb-bar-who, .fb-bar-hint { grid-column: 1 / -1; }
+.fb-bar-who { font-family: var(--font-min); font-size: 12px; color: #e7d8bd; }
+.fb-bar-who b { color: var(--gold-hi); }
+.fb-bar-hint { color: var(--sub); font-size: 11px; line-height: 1.4; }
+.fb-bar-btn {
+  width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid #8a6a44; background: #3a2a18; color: #f0e2c6;
+  font-family: var(--font-min); font-size: 13px; cursor: pointer;
+}
+.fb-bar-btn.ghost { background: transparent; color: var(--sub); border-color: #4d4335; }
+.fb-bar-btn:hover { border-color: var(--gold); color: #fff; }
+.fb-bar-btn:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
+
 .placement-errors { display: grid; gap: 2px; margin: 5px 0; color: #f0a27d;
   font-size: 11px; line-height: 1.5; }
 

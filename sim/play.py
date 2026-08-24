@@ -1241,7 +1241,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     実況行・形勢の時系列・戦果表・勝敗。CLI の replay_one と同じ素材から作る
     （同じ量の定義を2箇所に持たない: 行は narrate、数字は simulate の診断出力）。
     """
-    lines = F.narrate(ua, ub, dt, seed=seed)
+    line_sides = []
+    lines = F.narrate(ua, ub, dt, seed=seed, sides=line_sides)
     series = []
     r = F.simulate(ua, ub, dt, seed=seed, series=series)
     step = max(1, len(series) // 240)
@@ -1256,7 +1257,12 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                  "heal": round(hl), "lost": round(al)}
                 for n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al in xs]
     sc = r["score"] if me_first else 1.0 - r["score"]
+    # 行ごとの主体を**自軍/敵軍に翻訳して**渡す（§7.92）。画面が文章から
+    # 名前を拾って当てる必要をなくす — 同じ武将が両軍にいると必ず外す。
+    mine_key = "A" if me_first else "B"
     return {"lines": lines,
+            "line_sides": ["mine" if x == mine_key else ("foe" if x else "")
+                           for x in line_sides],
             "notes": battle_notes(ua, ub, r, series, me_first),
             "mine_names": [u.name for u in (ua if me_first else ub).cards if u.name],
             "foe_names": [u.name for u in (ub if me_first else ua).cards if u.name],

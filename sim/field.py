@@ -2045,7 +2045,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp],
                                 "{}の【{}】！　だが{}の構えに阻まれ、"
                                 "霧散した！".format(_who(u), name,
-                                                _who(blocker)), 1.0))
+                                                _who(blocker)), 1.0,
+                                side=_side_of(u)))
             return
         # 代償（スーサイド）: 現在兵力の割合を払う。遅延窓（_men_add）を通す
         # ので同時解決は保たれる。誰の与ダメにも数えない — 自傷であって
@@ -2072,14 +2073,14 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         ev.append(Event(t, k, LINE_PRIO[k],
                         _skill_line(u, name, tstr, tgts, kind, amount, secs,
                                     stat),
-                        mag))
+                        mag, side=_side_of(u)))
         # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは技と同じ
         # 値を持たせ、強い技を撃った武将から喋る。
         if u.quote and seen is not None and ("声", id(u)) not in seen:
             seen.add(("声", id(u)))
             ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
                             "{}「{}」".format(_who(u), u.quote), mag,
-                            ref=id(ev[-1])))
+                            ref=id(ev[-1]), side=_side_of(u)))
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
     ally = "味方" in tstr or "自分" in tstr
@@ -2774,7 +2775,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     events.append(Event(t, "決着", 1,
                         "{}軍の本陣、破られる！　{}は乱軍の中に倒れ、全軍に"
                         "動揺が走った！".format(_JP["A" if k == 0 else "B"],
-                                          _who(cmds[0]))))
+                                          _who(cmds[0])),
+                        side="A" if k == 0 else "B"))
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
         if series is not None:
@@ -3038,6 +3040,16 @@ class Event:
     # 台詞が紐づく本体行の id()。**本体が枠から落ちたら台詞も出さない**（§9.4。
     # 技の行が消えて声だけ残る「孤児の台詞」が実測で出た）。0 なら独立行。
     ref: int = 0
+    # 出来事の**主体がどちらの軍か**（"A"/"B"、両軍・無主体なら ""）。
+    # 画面はこれを見て自軍・敵軍の札を付ける。文章から名前を拾って当てる
+    # やり方は、同じ武将が両軍にいると必ず取り違える（§7.92。実測で両軍の
+    # 曹仁〔堅守〕の行が2本とも「自軍」になった）。**語りではなく盤面が正。**
+    side: str = ""
+
+
+def _side_of(u: Unit) -> str:
+    """その隊がどちらの軍か（Event.side 用）。"""
+    return "A" if u.side > 0 else "B"
 
 
 def _wing(u: Unit) -> str:
@@ -3101,7 +3113,7 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         ev.append(Event(0.0, "予告", LINE_PRIO["予告"],
             "{}、戦列を離れて敵陣の外へ大きく回り込む。戻るまでおよそ"
             "{:.0f}分、その間は矛を交えられない賭けである。".format(
-                _who(u), mins(u.total_len / u.speed))))
+                _who(u), mins(u.total_len / u.speed)), side=_side_of(u)))
 
 
 CHECKPOINT_MIN = 120.0      # 戦況板の間隔（表示分。2時間ごと＝10:00,12:00,14:00,16:00）
@@ -3153,12 +3165,13 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
                     "両軍の前衛、干戈を交える。{}と{}が正面から"
                     "ぶつかり合う（{}組が交戦）。".format(
-                        _who(best[1]), _who(best[2]), n)))
+                        _who(best[1]), _who(best[2]), n)))   # 両軍の出来事
             else:
                 ev.append(Event(t, "接敵", LINE_PRIO["接敵"],
                     "{}、押し出して{}の側面に回り込む。正面に受ける敵なし"
                     "（{}組が交戦）。".format(
-                        _who(best[1]), _who(best[2]), n)))
+                        _who(best[1]), _who(best[2]), n),
+                    side=_side_of(best[1])))
     # 迂回の到達
     for u in list(ua) + list(ub):
         k = ("着", id(u))
@@ -3173,7 +3186,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 "{}、ついに敵陣の背後へ現れる。{}の側背を突く"
                 "（残り{:.0f}%）。".format(
                     _who(u), _who(tgt) if tgt else "後衛",
-                    100 * tgt.ratio() if tgt else 0)))
+                    100 * tgt.ratio() if tgt else 0), side=_side_of(u)))
     # 騎兵が突撃の勢いを使い切る（乱戦に呑まれる）
     if CHARGE_BONUS > 0.0:
         for u in list(ua) + list(ub):
@@ -3185,7 +3198,8 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 seen.add(k)
                 ev.append(Event(t, "突撃", LINE_PRIO["突撃"],
                     "{}、突撃の勢い尽き、乱戦に呑まれる（{:.0f}% → {:.0f}%）。".format(
-                        _who(u), 100 * (1.0 + CHARGE_BONUS), 100 * _output(u))))
+                        _who(u), 100 * (1.0 + CHARGE_BONUS), 100 * _output(u)),
+                    side=_side_of(u)))
     # 弓の抑制
     for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
                              (ub, ua, lambda i, j: gap[j][i])):
@@ -3199,7 +3213,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
                     "{}、{}に間近まで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
-                        _who(u), _who(near), 100 * sup)))
+                        _who(u), _who(near), 100 * sup), side=_side_of(u)))
     # 壊滅
     for u in list(ua) + list(ub):
         k = ("滅", id(u))
@@ -3210,7 +3224,8 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
                 "{}の隊、支えきれず崩れ立つ（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
                     _who(u), u.men0 - u.men,
-                    _JP["A" if u.side > 0 else "B"], 100 * rest)))
+                    _JP["A" if u.side > 0 else "B"], 100 * rest),
+                side=_side_of(u)))
 
 
 def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
@@ -3223,7 +3238,7 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
                 "{}、敵陣の背後へ回り込めぬまま日が暮れる"
                 "（道のりの{:.0f}%まで進んでいた）。".format(
-                    _who(u), 100 * u.progress / u.total_len)))
+                    _who(u), 100 * u.progress / u.total_len), side=_side_of(u)))
     lost_a = sum(u.men0 - u.men for u in ua)
     lost_b = sum(u.men0 - u.men for u in ub)
     win = "A" if ra > rb else "B"
@@ -3235,12 +3250,17 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
 
 
 def narrate(a: Army, b: Army, dt: float = 0.25,
-            seed: "int | None" = None) -> List[str]:
+            seed: "int | None" = None,
+            sides: "List[str] | None" = None) -> List[str]:
     """1部隊戦の実況行を返す。8〜12行（§9.3）。
 
     **種は必ず本番と同じものを渡すこと。** 渡さないと乱数の無い戦いを語ることに
     なり、実況が「実際に起きた戦い」と別物になる（§8.4 はリプレイを戦闘イベント
     ログの正とすると決めている）。
+
+    sides を渡すと、行と**同じ長さ・同じ並び**で各行の主体（"A"/"B"/""）を
+    詰める。画面の自軍・敵軍の札はこれを見る。文章から武将名を拾って当てる
+    やり方は、同じ武将が両軍にいると必ず取り違える（§7.92）。
     """
     ev: List[Event] = []
     r = simulate(a, b, dt=dt, events=ev, seed=seed)
@@ -3289,7 +3309,19 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
     # **台詞は合流させない。** 技の行に埋め込むと誰の声か紛れる（§9.4）。
     kept.sort(key=lambda e: (e.t, e.prio))
     out, i = [], 0
-    out.append("━━ 合戦開始 ━━━━━━━━━━━━━━━━")
+
+    def emit(line, side=""):
+        out.append(line)
+        if sides is not None:
+            sides.append(side)
+
+    def common(events):
+        """束ねた出来事の主体。**割れていたら「どちらでもない」に倒す。**
+        当てられないときに片側と言い切るのが、そもそもの取り違えの因である。"""
+        ss = {e.side for e in events}
+        return ss.pop() if len(ss) == 1 else ""
+
+    emit("━━ 合戦開始 ━━━━━━━━━━━━━━━━")
     while i < len(kept):
         same = [kept[i]]
         while (i + 1 < len(kept) and kept[i + 1].t >= 0.0
@@ -3301,16 +3333,17 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
         head = "【布陣】" if same[0].t < 0.0 else "【{}】".format(clock(same[0].t))
         mark = "◆" if any(id(e) in art for e in body) else "　"
         if body:
-            out.append(mark + head + " " + " ".join(e.text for e in body))
+            emit(mark + head + " " + " ".join(e.text for e in body),
+                 common(body))
         for q in quotes:
-            out.append("　　　　　　" + q.text)
+            emit("　　　　　　" + q.text, q.side)
         i += 1
     if r["score"] > 0.5:
-        out.append("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["A"]))
+        emit("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["A"]))
     elif r["score"] < 0.5:
-        out.append("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["B"]))
+        emit("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["B"]))
     else:
-        out.append("━━ 引き分け ━━━━━━━━━━━━━━━━")
+        emit("━━ 引き分け ━━━━━━━━━━━━━━━━")
     return out
 
 
