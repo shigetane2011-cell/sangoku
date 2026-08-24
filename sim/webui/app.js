@@ -77,15 +77,24 @@ class FormationBoard {
     this.documentPointerUp = (e) => this.onPointerUp(e);
     this.documentPointerCancel = (e) => this.onPointerCancel(e);
     this.outsidePointerDown = (e) => {
-      if (this.props.interactive && this.selectedIndex !== null && !this.root.contains(e.target)) {
-        this.clearSelection();
-      }
+      if (this.shouldClearOnOutside(e.target)) this.clearSelection();
     };
     document.addEventListener("pointerdown", this.outsidePointerDown, true);
     document.addEventListener("pointermove", this.documentPointerMove, { passive: false });
     document.addEventListener("pointerup", this.documentPointerUp);
     document.addEventListener("pointercancel", this.documentPointerCancel);
     this.render();
+  }
+
+  /* 盤面の外を押したとき選択を解くか。**選択を保つ場所**（武将一覧など、
+     [data-keep-selection] の内側）は「外」と見なさない — ここを捕捉フェーズで
+     無条件に消していたせいで、駒を選んでから一覧の札を押す「交代」が成立して
+     いなかった（押した瞬間に選択が消え、一覧側の click が走る頃には選択なし）。 */
+  shouldClearOnOutside(target) {
+    if (!this.props.interactive || this.selectedIndex === null) return false;
+    if (this.root.contains(target)) return false;
+    if (target && target.closest && target.closest("[data-keep-selection]")) return false;
+    return true;
   }
 
   setProps(props) {
@@ -123,26 +132,46 @@ class FormationBoard {
   ariaLabel(index, unit) {
     const pos = this.slotMeta(index);
     if (!unit) return `空きスロット ${pos.row}${pos.position}`;
-    return `${unit.name} ${pos.row}${pos.position} ${unit.troopType} コスト${unit.cost}`;
+    if (unit.unknown) return `${unit.name}（いまは使えない） ${pos.row}${pos.position}`;
+    return `${unit.name} ${pos.row}${pos.position} ${unit.troopType}`
+      + `${unit.spear ? "・槍" : ""} コスト${unit.cost}`;
   }
 
-  unitHTML(index, id) {
-    const unit = id ? this.props.units[id] : null;
+  slotHTML(index, id) {
+    let unit = id ? this.props.units[id] : null;
+    // 名簿に無い武将（登用が変わった後の古い登録など）を**空き枠として描かない**。
+    // 空に見えるのに何も置けない枠になり、盤面が嘘をつく。誰か居ることは見せて、
+    // ✕ で外せるようにする。
+    if (id && !unit) unit = { name: id, unknown: true, cost: "？", troopType: "" };
     const selected = index === this.selectedIndex;
     const candidate = index === this.keyboardTargetIndex && selected === false;
     const faction = unit ? (FACTION_CLASS[unit.faction] || unit.faction || "gunyu") : "";
     const disabled = this.props.interactive ? "" : " disabled";
-    const state = [unit ? "occupied" : "empty", selected ? "selected" : "",
+    const state = [unit ? "occupied" : "empty", unit && unit.unknown ? "unknown" : "",
+                   selected ? "selected" : "",
                    candidate ? "key-target" : ""].filter(Boolean).join(" ");
-    return `<button type="button" class="fb-piece ${state} ${faction}"
+    // 名前は**駒の中に敷かない**。72pxの中へ8.5pxで押し込むと、どの武将も
+    // 1文字＋「…」になって読めない（誰がどこに居るかを見る画面でそれは本末転倒）。
+    // 顔は正方形のまま残し、名前は枠の下へ2行で出す。
+    const piece = `<button type="button" class="fb-piece ${state} ${faction}"
       data-slot-index="${index}" aria-label="${esc(this.ariaLabel(index, unit))}"
       aria-pressed="${selected ? "true" : "false"}"${disabled}>
-      ${unit ? `<img class="fb-portrait" src="${esc(unit.portraitUrl)}" alt="">
-        <span class="fb-troop" aria-hidden="true">${icoTyp(unit.troopType)}</span>
-        <span class="fb-cost num" aria-hidden="true">${esc(unit.cost)}</span>
-        <span class="fb-name" aria-hidden="true">${esc(unit.name)}</span>`
-        : '<span class="fb-empty-mark" aria-hidden="true">＋</span>'}
+      ${!unit ? '<span class="fb-empty-mark" aria-hidden="true">＋</span>'
+        : unit.unknown ? '<span class="fb-empty-mark" aria-hidden="true">？</span>'
+        : `<img class="fb-portrait" src="${esc(unit.portraitUrl)}" alt="">
+        <span class="fb-troop" aria-hidden="true">${icoTyp(unit.troopType, unit.spear)}</span>
+        <span class="fb-cost num" aria-hidden="true">${esc(unit.cost)}</span>`}
     </button>`;
+    // 枠から外す（旧UIの ✕）。駒の中に入れ子の button は置けないので兄弟にする。
+    const rm = unit && this.props.interactive
+      ? `<button type="button" class="fb-remove" data-remove-index="${index}"
+           aria-label="${esc(unit.name)} を枠から外す" title="枠から外す">✕</button>` : "";
+    const cap = !unit ? `<span class="fb-name empty">空き枠</span>`
+      : unit.unknown
+        ? `<span class="fb-name unknown">${esc(unit.name)}</span>`
+          + `<span class="fb-note">使えない</span>`
+        : `<span class="fb-name">${esc(unit.name)}</span>`;
+    return piece + rm + cap;
   }
 
   render() {
@@ -157,19 +186,47 @@ class FormationBoard {
         <div class="fb-rank-slots" style="--slot-count:${count}">
           ${Array.from({ length: count }, (_, k) => {
             const i = start + k;
-            return `<span class="fb-slot" data-slot-index="${i}">${this.unitHTML(i, slots[i])}</span>`;
+            return `<span class="fb-slot" data-slot-index="${i}">${this.slotHTML(i, slots[i])}</span>`;
           }).join("")}
         </div>
       </div>`;
     };
     this.root.className = `formation-board ${this.props.interactive ? "interactive" : "readonly"}`;
-    this.root.innerHTML = `${row(true)}${row(false)}
-      <span class="sr-only" aria-live="polite" aria-atomic="true">${esc(this.announcement)}</span>`;
+    // 読み上げ欄は**作り直さない**。支援技術が拾うのは「既にある live 領域の
+    // 中身が変わったとき」で、領域ごと差し替えると読まれない。行だけ描き替え、
+    // 文言は textContent で入れる。
+    if (!this.live || !this.root.contains(this.live)) {
+      this.root.innerHTML = `<div class="fb-rows"></div>`;
+      this.live = document.createElement("span");
+      this.live.className = "sr-only";
+      this.live.setAttribute("aria-live", "polite");
+      this.live.setAttribute("aria-atomic", "true");
+      this.root.appendChild(this.live);
+      this.rows = this.root.querySelector(".fb-rows");
+    }
+    this.rows.innerHTML = `${row(true)}${row(false)}`;
+    if (this.live.textContent !== this.announcement) this.live.textContent = this.announcement;
     this.root.querySelectorAll(".fb-piece").forEach((button) => {
       if (!this.props.interactive) return;
       button.addEventListener("pointerdown", (e) => this.onPointerDown(e));
       button.addEventListener("keydown", (e) => this.onKeyDown(e));
     });
+    this.root.querySelectorAll(".fb-remove").forEach((button) => {
+      button.addEventListener("click", () => this.removeSlot(+button.dataset.removeIndex));
+    });
+  }
+
+  removeSlot(index) {
+    const before = normalizeSlots(this.props.slots);
+    const id = before[index];
+    if (!id) return;
+    const next = normalizeSlots(before);
+    next[index] = null;
+    const unit = this.props.units[id];
+    this.announcement = `${unit ? unit.name : id}を枠から外しました`;
+    this.selectedIndex = null;
+    this.keyboardTargetIndex = null;
+    this.props.onSlotsChange(next);
   }
 
   onPointerDown(e) {
@@ -325,6 +382,9 @@ class FormationBoard {
   onKeyDown(e) {
     const index = +e.currentTarget.dataset.slotIndex;
     if (e.key === "Escape") { e.preventDefault(); this.clearSelection(); return; }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); this.removeSlot(index); return;
+    }
     if (["Enter", " "].includes(e.key)) {
       e.preventDefault();
       if (this.selectedIndex === null) {
@@ -846,6 +906,21 @@ async function viewSenkiPrep(i) {
   cur = { reg: p.board, form: start.form || p.enemy.form,
           slots: slotsFromCards(start.cards) };
   const foeSummary = armySummary(p.enemy.cards, p.enemy.form, p.enemy.cost, null, "foe");
+  // 敵札の中身（兵力・攻勢・必殺技・特性）。**盤面は配置しか語らない** —
+  // 見立てが「重い1枚は壁で受けよ」と言っても、どれが重い1枚かはここでしか
+  // 読めない（§7.62 の詰将棋の可読性）。盤面の下に畳んで置く。
+  const foe = p.enemy.cards.map((c, k) => `
+    <div class="foe-card f${c.faction}">
+      <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
+      <div class="fc-body">
+        <div class="fc-head"><b>${esc(c.name)}</b>
+          <span class="cost num">${c.cost}点</span></div>
+        <div class="muted num">${(k >= p.enemy.front) ? "後衛" : "前衛"}・<span class="unit-type ${TYPE_CLS[c.typ]}">${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "・槍" : ""}</span>・${esc(c.role)}
+          ｜兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}</div>
+        <div class="fc-skill">【${esc(c.skill)}】${(c.traits || []).length
+          ? "　特性: " + c.traits.map((t) => esc(t.name)).join("・") : ""}</div>
+      </div>
+    </div>`).join("");
   const rewards = p.recruits.map((g) => `
     <span class="rec-chip"><img src="/portrait/${encodeURIComponent(g.person)}"
       alt="">${esc(g.name)}</span>`).join("");
@@ -871,6 +946,10 @@ async function viewSenkiPrep(i) {
           <div class="army-zone-label"><b>敵軍</b><span>読み取り専用</span></div>
           <div id="foe-board"></div>
         </section>
+        <details class="foe-detail" open>
+          <summary>敵札の中身<span class="muted">　兵力・攻勢・必殺技・特性</span></summary>
+          ${foe}
+        </details>
         ${p.enemy.taunt ? `<div class="ci-quote">「${esc(p.enemy.taunt)}」<span class="muted">— ${esc(p.enemy.lead)}</span></div>` : ""}
         ${rewards ? `<div class="prep-reward">勝てば登用 ${rewards}</div>` : ""}
       </div>
@@ -911,7 +990,7 @@ async function viewSenkiPrep(i) {
       <input id="search" placeholder="名で探す">
     </div>
     <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
-    <div class="cards" id="roster"></div>`;
+    <div class="cards" id="roster" data-keep-selection></div>`;
   drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
   $("#prep-back").onclick = () => { location.href = "/senki"; };
@@ -968,7 +1047,7 @@ function drawPrep(msg) {
               + `（盤面の武将を選び、一覧から軽い武将へ交代する）`
     : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
        : (bad ? "置けない兵がいる（⚠の武将を交換または交代する）"
-          : "6人そろった。盤面内はタップ2回かドラッグで交換できる"));
+          : "6人そろった。盤面内はタップ2回かドラッグで入れ替え、一覧の札で交代、✕で外す"));
 }
 
 /* ── 編成 ──────────────────────── */
@@ -1016,6 +1095,9 @@ function unitsForBoard(cards) {
     name: c.name,
     portraitUrl: c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`,
     troopType: c.troopType || c.typ,
+    // 槍は**後衛に置けるかを決める当の属性**（後衛は弓兵か槍持ちだけ）。
+    // 盤面から落とすと、置けない理由が盤面の上に見えなくなる。
+    spear: !!c.spear,
     role: c.role,
     cost: c.cost,
     faction: fac[c.faction] || c.faction || "gunyu",
@@ -1026,8 +1108,11 @@ function placementErrors() {
   if (!cur || !D) return [];
   const nf = FORMS[cur.form] || 3;
   return normalizeSlots(cur.slots).flatMap((name, i) => {
-    const c = name && D.roster.find((x) => x.name === name);
-    if (!c) return [];
+    if (!name) return [];
+    const c = D.roster.find((x) => x.name === name);
+    // 名簿に無い札はここで止める。放っておくと出陣してからサーバに
+    // 「カードが見つからない」と言われるだけで、どこが悪いのか盤面から読めない。
+    if (!c) return [`${name}: いまは使えない武将（✕で外して組み直す）`];
     if (i < nf && c.typ === "弓兵") return [`${c.name}: 弓兵は前衛に置けない`];
     if (i >= nf && c.typ !== "弓兵" && !c.spear) return [`${c.name}: 後衛は弓兵か槍持ちだけ`];
     return [];
@@ -1077,7 +1162,7 @@ async function viewDeck(state) {
           <button class="mini ghost" id="guide-open" title="相性と布陣の勘どころ">軍略の手引き</button>
         </div>
         <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
-        <div class="cards" id="roster"></div>
+        <div class="cards" id="roster" data-keep-selection></div>
       </div>
       <div class="panel mine-panel side-panel">
         <h2 class="side-heading mine-heading">自軍編成<span class="sub">6人を前衛・後衛へ配置</span></h2>
@@ -1462,7 +1547,7 @@ function drawRoster() {
     } else if (empty >= 0) {
       next[empty] = el.dataset.n;
     } else {
-      flashMsg("盤面で交代させる武将をタップしてから、新しい武将を選んでください。", true);
+      flashMsg("枠が埋まっている。交代する武将を盤面で選んでから、この札を押す（✕で外してもよい）。", true);
       return;
     }
     cur.slots = next;

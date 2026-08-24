@@ -263,14 +263,21 @@ def _roster_json(only=None):
     return out
 
 
-def _formation_board_json(army):
+_FB_FACTION = {"魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu"}
+
+
+def _formation_board_json(army, brief=None):
     """FormationBoard の読み取り専用データ契約へ Army を詰め替える。
 
     武将名を unitId とし、盤面順はエンジンと同じ
     「前衛左→右、後衛左→右」。勢力には現行データの魏も含める。
+
+    brief（名前→札）は呼び手が使い回せる。天下のリプレイは3戦×2軍で
+    6回ここを通るので、毎回 _roster_json() を組み直さない。
     """
-    brief = {c["name"]: c for c in _roster_json()}
-    faction = {"魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu"}
+    if brief is None:
+        brief = {c["name"]: c for c in _roster_json()}
+    faction = _FB_FACTION
     formation = {4: "kakuyoku", 3: "gyorin", 2: "gankou"}.get(
         army.form.n_front, "gyorin")
     slots = [c.name or None for c in army.cards]
@@ -284,6 +291,8 @@ def _formation_board_json(army):
             "name": row["name"],
             "portraitUrl": "/portrait/" + urllib.parse.quote(row["person"]),
             "troopType": row["typ"],
+            # 槍は後衛の可否を決める属性なので盤面まで運ぶ（§7.91）
+            "spear": bool(row.get("spear")),
             "role": row["role"],
             "cost": row["cost"],
             "faction": faction.get(row["faction"], "gunyu"),
@@ -1222,11 +1231,13 @@ class App(BaseHTTPRequestHandler):
             return self._json({"error": "編成を再構成できない（登録が変わった）"}, 410)
         me_first = not (me and me.id == m["pid_b"])
         games = []
+        fb_brief = {c["name"]: c for c in _roster_json()}
+
         def add_boards(game, army_a, army_b):
             mine_army, foe_army = ((army_a, army_b) if me_first
                                     else (army_b, army_a))
-            game["mine_board"] = _formation_board_json(mine_army)
-            game["foe_board"] = _formation_board_json(foe_army)
+            game["mine_board"] = _formation_board_json(mine_army, fb_brief)
+            game["foe_board"] = _formation_board_json(foe_army, fb_brief)
             return game
         try:
             if m["board"] in PL.REG_NAMES:
