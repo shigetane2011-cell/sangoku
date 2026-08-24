@@ -897,8 +897,8 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
 
 .formation-board { display: grid; gap: 7px; width: 100%; }
 .fb-rank {
-  display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px;
-  align-items: center; min-width: 0; padding: 5px 4px;
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px;
+  align-items: center; min-width: 0; padding: 4px 2px;
   border-radius: 9px; border: 1px solid #3d3326;
 }
 .fb-rank.front { background: linear-gradient(90deg, #4b2b1c33, #211a13); }
@@ -912,7 +912,7 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
   color: var(--sub); letter-spacing: 0; }
 .fb-rank-slots {
   display: grid; grid-template-columns: repeat(var(--slot-count), minmax(64px, 72px));
-  justify-content: center; gap: 6px; min-width: 0;
+  justify-content: center; gap: 4px; min-width: 0;
 }
 .fb-slot { display: block; min-width: 0; border-radius: 10px; }
 .fb-piece {
