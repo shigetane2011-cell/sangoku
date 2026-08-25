@@ -1305,6 +1305,17 @@ class Card:
         return f"{TYPE_JP[self.typ]}{ROLE_JP[self.role]}{self.cost:g}"
 
 
+# 陣形の「深さ」の倍率（§7.104）。前衛の枚数で引く。**1.0 は従来と同一。**
+#
+# 「狭く深い」と名乗っている雁行が、深さだけ既定のままだった（狭＝frontage
+# ×0.7 は入っているのに、深＝rear_gap が標準）。深くするだけだと後衛が
+# 遠のいて撃てなくなり、**深いほど弱い**という単調な軸になる（field.py の
+# 残課題に「rear_gap に見返りを付けて、単調でない軸にする」と残っていた）。
+# そこで深さぶんは**後衛の射程で相殺**する（Unit で加算）。結果として深さは
+# 攻撃力を変えず、「壁が破れてから後衛へ取り付くまでの時間」だけを買う。
+FORM_DEPTH = {4: 1.0, 3: 1.0, 2: 1.0}
+
+
 @dataclass(frozen=True)
 class Formation:
     """陣形は (前衛の枚数, 正面幅) だけで表す。
@@ -1320,7 +1331,11 @@ class Formation:
     rear_gap: float = REAR_Y - FRONT_Y
 
     def rear_y(self) -> float:
-        return FRONT_Y + self.rear_gap
+        return FRONT_Y + self.rear_gap * FORM_DEPTH.get(self.n_front, 1.0)
+
+    def extra_depth(self) -> float:
+        """標準（120m）より何m深いか。後衛の射程はこのぶん伸ばす。"""
+        return self.rear_y() - (FRONT_Y + (REAR_Y - FRONT_Y))
 
     def card_width(self) -> float:
         return self.frontage / max(self.n_front, 1)
@@ -1441,6 +1456,11 @@ class Unit:
             # 配置で固定なので戦闘中に係数が切り替わることはない。
             self.rng = SPEAR_RANGE
             self.atk *= SPEAR_REAR
+        if not is_front and self.rng > 0.0:
+            # 深く構えたぶんだけ射程を伸ばす（§7.104）。深さで**届く相手が
+            # 変わらない**ようにするための相殺で、贈り物ではない。これが無いと
+            # 深い陣形は一方的に不利になり、深さが選択にならない。
+            self.rng += form.extra_depth()
         self.width = form.card_width()
         self.depth = form.card_depth()
 

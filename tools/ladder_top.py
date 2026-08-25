@@ -384,6 +384,34 @@ def form_edges(cards, jobs_n, shares=(0.34, 0.46, 0.58), members=2):
             for a in "鶴魚雁" for b in "鶴魚雁" if a != b}, len(jobs)
 
 
+def cmd_depth(args):
+    """雁行の「深さ」を振って、素の盤面の偏りが下がるか測る（§7.104）。
+
+    **陣形の相殺は切って測る。** 相殺は偏りを隠すための帳尻合わせなので、
+    入れたままだと「深さが効いた」のか「相殺が効いている」のかが分からない。
+    ここで見たいのは素の盤面が良くなるかどうか。
+    """
+    cards = _cards()
+    base_pair, base_depth = dict(F.FORM_PAIR), dict(F.FORM_DEPTH)
+    F.FORM_PAIR.update({k: 0.0 for k in F.FORM_PAIR})
+    print("陣形の相殺は切って測る（素の盤面を見る）")
+    print("狙い: 循環 魚鱗→鶴翼→雁行→魚鱗 の各辺 57%\n")
+    print("{:>10s} {:>10s} {:>10s} {:>10s} {:>12s}".format(
+        "雁行の深さ", "魚→鶴", "鶴→雁", "雁→魚", "後衛の伸び"))
+    try:
+        for mult in args.mult:
+            F.FORM_DEPTH[2] = mult
+            e, n = form_edges(cards, args.jobs, members=args.members)
+            print("{:>9.2f}x {:>9.1f}% {:>9.1f}% {:>9.1f}% {:>11.0f}m   （{}局）".format(
+                mult, e[("魚", "鶴")], e[("鶴", "雁")], e[("雁", "魚")],
+                F.FORM_DEEP.extra_depth(), n))
+            sys.stdout.flush()
+    finally:
+        F.FORM_PAIR.update(base_pair)
+        F.FORM_DEPTH.update(base_depth)
+    return 0
+
+
 def cmd_formpair(args):
     """陣形の残差の相殺（FORM_PAIR）を振って、辺がどこまで動くか測る。
 
@@ -417,6 +445,10 @@ def main():
     s = sub.add_parser("field", help="24人の総当たり")
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_field)
+    s = sub.add_parser("depth", help="雁行の深さを振って素の偏りを測る")
+    s.add_argument("--mult", type=float, action="append", default=[])
+    s.add_argument("--members", type=int, default=2)
+    s.set_defaults(fn=cmd_depth)
     s = sub.add_parser("formpair", help="陣形の相殺を振って辺の動きを測る")
     s.add_argument("--set", action="append", default=[],
                    help="(3,4),(4,2),(2,3) をカンマ区切りで。例 -6.1,4.5,5.8")
