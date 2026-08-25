@@ -1248,14 +1248,28 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     step = max(1, len(series) // 240)
     mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
     def rows(xs):
-        # 末尾3つは §7.88 の「見えにくい効き」（同士討ち・反射・軽減）
-        return [{"name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
-                 "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
-                 "men0": round(m0), "skill_dealt": round(sd),
-                 "fell": F.clock(fa) if fa is not None else None,
-                 "ff": round(ff), "refl": round(rf), "cut": round(cs),
-                 "heal": round(hl), "lost": round(al)}
-                for n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al in xs]
+        # §7.88 の「見えにくい効き」＋ §7.94 の合戦詳録。列は末尾に足す
+        out = []
+        for (n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al,
+             tk, fi, st, sp, pair, det) in xs:
+            out.append({
+                "name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
+                "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
+                "men0": round(m0), "skill_dealt": round(sd),
+                "fell": F.clock(fa) if fa is not None else None,
+                "ff": round(ff), "refl": round(rf), "cut": round(cs),
+                "heal": round(hl), "lost": round(al),
+                # 合戦詳録（§7.94）
+                "taken": round(tk), "fires": fi,
+                # 阻害は戦場の分で（実況の時刻と同じ物差し・§9.1）
+                "stun": round(F.mins(st)), "sup": round(sp),
+                # 矛先: 与えた量の大きい順。細かい流れ弾は割合で切る
+                "targets": [[k, round(v)] for k, v in
+                            sorted(pair.items(), key=lambda kv: -kv[1])
+                            if v >= 0.02 * max(d, 1.0)],
+                "detour": round(det) if det is not None else None,
+            })
+        return out
     sc = r["score"] if me_first else 1.0 - r["score"]
     # 行ごとの主体を**自軍/敵軍に翻訳して**渡す（§7.92）。画面が文章から
     # 名前を拾って当てる必要をなくす — 同じ武将が両軍にいると必ず外す。
@@ -1288,7 +1302,7 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
         for (name, typ, dealt, men, men0, sd, fa,
-             ff, rf, cs, hl, al) in rows:
+             ff, rf, cs, hl, al, *_detail) in rows:
             pct = 100.0 * men / men0 if men0 > 0 else 0.0
             state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
             when = "・{}崩".format(F.clock(fa)) if fa is not None else ""

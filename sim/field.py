@@ -1317,6 +1317,7 @@ class Unit:
         "total_len", "progress", "is_front", "x0", "detour",
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
+        "taken", "stun_time", "sup_lost", "pair",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1436,6 +1437,11 @@ class Unit:
         self.cut_saved = 0.0    # 必殺技防御・通常攻撃防御で減らした被害
         self.healed = 0.0       # 味方（自分含む）へ入れた回復の総量
         self.atk_lost = 0.0     # 弱体を受けて出せなかった火力（受け手側で数える）
+        # 合戦詳録（§7.94）。同じく**表示専用**。
+        self.taken = 0.0        # 受けた被害の総量（同士討ち含む・回復は引かない）
+        self.stun_time = 0.0    # 行動阻害で立ちすくんでいた秒数
+        self.sup_lost = 0.0     # 接敵抑制で失った矢の量（撃ち手側で数える）
+        self.pair = {}          # 矛先: 敵の名前 -> 与えた被害（通常・技・延焼）
         self.scut_mult = 1.0    # 必殺技被害の倍率（1=素通し・§7.51）
         self.refl = 0.0         # 必殺技反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
@@ -1973,6 +1979,19 @@ _SKILL_DELTA = None
 _SKILL_FX = None
 
 
+def _detour_pct(u: Unit) -> "float | None":
+    """迂回の進み（§7.94・表示専用）。賭けに出た騎兵だけ値を持つ。"""
+    if u.typ == CAV and u.detour > DETOUR_SHOW and u.total_len > 1.0:
+        return 100.0 * u.progress / u.total_len
+    return None
+
+
+def _pair_add(u: Unit, f: Unit, amount: float) -> None:
+    """矛先の帳簿（§7.94・表示専用）。誰が誰へ何を与えたか。"""
+    k = f.name or TYPE_JP[f.typ]
+    u.pair[k] = u.pair.get(k, 0.0) + amount
+
+
 def _men_add(f: Unit, d: float) -> None:
     """兵力を増減する。技のフェーズ中なら蓄積器へ回す。"""
     if _SKILL_DELTA is None:
@@ -2194,6 +2213,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
+            f.taken += take                # 表示専用（§7.94）
+            _pair_add(u, f, take)
             if TRAMPLE > 0.0 and eff > f.men:
                 # 貫通（§7.76 試作）: 隊を消してなお余る一撃は、最も近い
                 # 別の敵へ TRAMPLE 掛けで通す（1段のみ・連鎖しない）。
@@ -2208,6 +2229,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     _men_add(g2, -spill)
                     u.dealt += spill
                     u.dealt_skill += spill
+                    g2.taken += spill          # 表示専用（§7.94）
+                    _pair_add(u, g2, spill)
                     done += spill
             if f.refl > 0.0:
                 # 反射は撃ち手の防御・反射・カットを通さない素の返り
@@ -2217,6 +2240,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 f.dealt += back
                 f.dealt_skill += back
                 f.refl_back += back        # 表示専用（§7.88）
+                u.taken += back            # 表示専用（§7.94）
+                _pair_add(f, u, back)
             done += take                    # 防御ぶんを引いた実害を出す
     if done > 0.0:
         say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
@@ -2287,6 +2312,8 @@ def _overtime(units, t: float, dt: float) -> None:
                     # **延焼も撃ち手の戦果**（§7.89）。これを数えていなかった
                     src.dealt += took
                     src.dealt_skill += took
+                    u.taken += took            # 表示専用（§7.94）
+                    _pair_add(src, u, took)
 
 
 def _expire(units, t: float) -> None:
@@ -2387,6 +2414,7 @@ def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
                * (100.0 / (100.0 + x.dfn * x.def_mult)))
         acc[k] += hit
         u.ff_dealt += hit          # 表示専用（§7.88）
+        x.taken += hit             # 表示専用（§7.94・同士討ちの被害も被ダメ）
 
 
 def chaos_ff(u: Unit) -> float:
@@ -2634,6 +2662,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     x.disrupt *= math.exp(-dt / DISRUPT_TAU)
                 if x.chaos > 0.0 and t + dt >= x.chaos_until:
                     x.chaos = 0.0
+                # 行動阻害の秒数（§7.94・表示専用）。atk_mult=0 は stun だけが作る
+                if x.men > 0.0 and x.atk_mult == 0.0:
+                    x.stun_time += dt
             if CHARGE_BONUS > 0.0:
                 for i, x in enumerate(ua):
                     if min(gap[i]) <= 1.0:
@@ -2649,11 +2680,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
+                sup = _suppress(u, gap[i])
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, gap[i]) * _output(u) * fa * ramp * ta)
+                        * sup * _output(u) * fa * ramp * ta)
                 if u.atk_mult < 1.0:      # 表示専用（§7.89）
                     u.atk_lost += base / max(u.atk_mult, 1e-9) - base
+                if sup < 1.0:             # 表示専用（§7.94・抑制で失った矢）
+                    u.sup_lost += base / max(sup, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
                     _friendly_fire(u, ua, da, base * ff)
@@ -2673,6 +2707,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     u.dealt += hit
+                    f.taken += hit             # 表示専用（§7.94）
+                    k94 = f.name or TYPE_JP[f.typ]
+                    u.pair[k94] = u.pair.get(k94, 0.0) + hit
                     db[j] += hit
             if SEQUENTIAL_DAMAGE:      # 陽性対照。通常は通らない
                 for u, d in zip(ub, db):
@@ -2685,11 +2722,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
+                sup = _suppress(u, col)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
-                        * _suppress(u, col) * _output(u) * fb * ramp * tb)
+                        * sup * _output(u) * fb * ramp * tb)
                 if u.atk_mult < 1.0:      # 表示専用（§7.89）
                     u.atk_lost += base / max(u.atk_mult, 1e-9) - base
+                if sup < 1.0:             # 表示専用（§7.94・抑制で失った矢）
+                    u.sup_lost += base / max(sup, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
                     _friendly_fire(u, ub, db, base * ff)
@@ -2709,6 +2749,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     u.dealt += hit
+                    f.taken += hit             # 表示専用（§7.94）
+                    k94 = f.name or TYPE_JP[f.typ]
+                    u.pair[k94] = u.pair.get(k94, 0.0) + hit
                     da[i] += hit
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
@@ -2818,11 +2861,15 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
-                         u.healed, u.atk_lost) for u in ua],
+                         u.healed, u.atk_lost,
+                         u.taken, u.fires, u.stun_time, u.sup_lost,
+                         dict(u.pair), _detour_pct(u)) for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
-                         u.healed, u.atk_lost) for u in ub],
+                         u.healed, u.atk_lost,
+                         u.taken, u.fires, u.stun_time, u.sup_lost,
+                         dict(u.pair), _detour_pct(u)) for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。

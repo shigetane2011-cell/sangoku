@@ -1911,6 +1911,7 @@ async function viewReplay(state) {
         <svg class="eval" id="chart" viewBox="0 0 340 180"></svg>
         <div class="notes" id="notes"></div>
         <div class="report" id="report"></div>
+        <div id="detail"></div>
       </div>
     </div>`;
   let gi = 0;
@@ -2006,6 +2007,7 @@ async function viewReplay(state) {
     drawChart(g, -1);
     drawNotes(g);
     drawReport(g);
+    drawDetail(g);
     startPlayback(g);
   }
 
@@ -2153,6 +2155,58 @@ async function viewReplay(state) {
       }).join("");
     $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
       side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
+  }
+
+  /* ── 合戦詳録（§7.94）: 軍師の見立て → 軍功帳 → 詳録 の三段目。
+     読み物の下に畳んで置く。開かない人の画面は1ミリも変えない。 ── */
+  function drawDetail(g) {
+    const box = $("#detail");
+    if (!g.mine || !g.mine.length) { box.innerHTML = ""; return; }
+    const k = (v) => (v / 1000).toFixed(1);
+    const table = (label, us) => `
+      <div class="side-label">${label}</div>
+      <div class="detail-scroll"><table class="detail-table num">
+        <thead><tr><th>武将</th><th>与ダメ</th><th>うち技</th><th>被ダメ</th>
+          <th>軽減</th><th>癒し</th><th>発動</th><th>阻害</th><th>戦場を去る</th></tr></thead>
+        <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
+          <td class="uname">${esc(u.name)}</td>
+          <td>${k(u.dealt)}千</td><td>${k(u.skill_dealt)}千</td>
+          <td>${k(u.taken)}千</td>
+          <td>${u.cut >= 50 ? k(u.cut) + "千" : "—"}</td>
+          <td>${u.heal >= 50 ? k(u.heal) + "千" : "—"}</td>
+          <td>${u.fires}回</td>
+          <td>${u.stun ? u.stun + "分" : "—"}</td>
+          <td>${u.fell ? u.fell + " 崩" : (u.men / u.men0 <= 0.005 ? "壊滅" : "残" + Math.round(100 * u.men / u.men0) + "%")}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>`;
+    // 矛先: 誰が誰を削ったか（与えた量の大きい順・上位3）
+    const spears = (us) => us.filter((u) => (u.targets || []).length)
+      .map((u) => `<div class="detail-line"><b>${esc(u.name)}</b> → ${
+        u.targets.slice(0, 3).map(([n2, v]) => `${esc(n2)} ${k(v)}千`).join("・")}${
+        u.targets.length > 3 ? "・…" : ""}</div>`).join("");
+    // 機動と抑制: 出た札だけ名指しする（空騒ぎの行を作らない）
+    const moves = [...g.mine, ...g.foe].flatMap((u) => {
+      const out = [];
+      if (u.detour !== null && u.detour !== undefined)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　敵陣の外へ迂回（道のりの${u.detour}%まで）</div>`);
+      if ((u.sup || 0) >= 300)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　接敵抑制で矢 ${k(u.sup)}千ぶんを失う</div>`);
+      if ((u.ff || 0) >= 300)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　混乱し、味方へ ${k(u.ff)}千の流れ矢</div>`);
+      if ((u.refl || 0) >= 300)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技を跳ね返し ${k(u.refl)}千</div>`);
+      if ((u.lost || 0) >= 300)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　弱体で ${k(u.lost)}千ぶんの火力を封じられる</div>`);
+      return out;
+    }).join("");
+    box.innerHTML = `<details class="battle-detail">
+      <summary>合戦詳録を開く<small class="muted">　数字で振り返る（矛先・被害・機動）</small></summary>
+      ${table("自軍（" + esc(d.mine_name) + "）", g.mine)}
+      ${table("敵軍（" + esc(d.foe_name) + "）", g.foe)}
+      <div class="side-label">─ 矛先（誰が誰を削ったか・上位3） ─</div>
+      ${spears(g.mine)}${spears(g.foe)}
+      ${moves ? `<div class="side-label">─ 機動と乱れ ─</div>${moves}` : ""}
+    </details>`;
   }
 }
 

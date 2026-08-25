@@ -346,6 +346,28 @@ def readonly_checks(page, rep):
 
 
 # ── リプレイの陣営札（同じ武将が両軍にいる場合）───────────
+def detail_check(rep):
+    """合戦詳録（§7.94）の帳簿が回っているか。数字は盤面の実測で釣り合いを見る。"""
+    import sim.match as M, sim.play as PL
+    cards = M._roster_cards()
+    a, _ = PL.parse_deck(cards, "曹仁〔堅守〕、孫乾〔従事〕、糜竺〔子仲〕、"
+                         "韓当〔老弓〕、樊建〔伝令〕、宗預〔使者〕", "鶴翼")
+    b, _ = PL.parse_deck(cards, "周泰〔身代〕、丁奉〔雪中〕、黄蓋〔苦肉〕、"
+                         "呂範〔子衡〕、荀攸〔謀主〕、王平〔無当〕", "雁行")
+    d = PL.replay_data(a, b, 0.5, 777, True)
+    rows = d["mine"] + d["foe"]
+    rep.check(all(k in u for u in rows
+                  for k in ("taken", "fires", "stun", "sup", "targets")),
+              "詳録の列（被ダメ・発動・阻害・抑制・矛先）が全員ぶん出る")
+    # 与えたものは受け取られている: 矛先の合計 ≈ 相手側の被ダメ合計
+    # （同士討ちは矛先に入れず被ダメに入るので、被ダメ側が少し大きくてよい）
+    given = sum(v for u in rows for _, v in u["targets"])
+    taken = sum(u["taken"] for u in rows)
+    rep.check(taken >= given > 0,
+              "矛先の合計 {:.0f} ≦ 被ダメの合計 {:.0f}（帳尻が合う）".format(given, taken))
+    rep.check(any(u["fires"] > 0 for u in rows), "必殺技の発動回数が数えられている")
+
+
 def replay_side_check(rep):
     import sim.match as M, sim.play as PL
     cards = M._roster_cards()
@@ -413,6 +435,7 @@ def run():
                 ctx.close()
             br.close()
         replay_side_check(rep)
+        detail_check(rep)
     finally:
         srv.terminate()
         try:
