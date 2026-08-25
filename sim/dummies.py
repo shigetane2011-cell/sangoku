@@ -158,25 +158,6 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     return M.Entry(tuple(units), name=p.name)
 
 
-# 前衛に取り置く予算（上限に対する割合）。**枠数で割る**ので、前衛が薄い陣形
-# ほど1枚あたりが厚くなる。壁が薄い性格が真っ先に破れて後衛を食われる、という
-# 実測（§7.102）への対処。0 にすると取り置かない＝旧来の挙動。
-FRONT_BUDGET = 0.35
-
-
-def _wall_floor(costs: List[float], k: int, wall: float) -> float:
-    """近接の残り k 枠を「1枠 wall 以上」で埋めるときの最低額の見積り。
-
-    wall 以上の札が足りなければ安い札で埋める（**組めない上限を作らない**）。
-    """
-    if k <= 0:
-        return 0.0
-    fit = [c for c in costs if c >= wall - 1e-9][:k]
-    if len(fit) < k:
-        fit += [c for c in costs if c < wall - 1e-9][:k - len(fit)]
-    return sum(fit)
-
-
 def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
                caps=None) -> M.Entry:
     """性格に沿って 3部隊18人を選ぶ。**規則を破る編成は作らない。**
@@ -200,7 +181,6 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     for label, cap in (caps if caps is not None else M.REGULATIONS):
         nf = FORM_BY_NAME[p.form].n_front
         want_arc = M.UNIT_SIZE - nf
-        wall = FRONT_BUDGET * cap / nf     # 前衛1枠に確保する額（§7.102）
         pick: List[F.Card] = []
         for _ in range(M.UNIT_SIZE):
             spent = sum(x.cost for x in pick)
@@ -210,32 +190,19 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
             avail = [c for c in pool if M.person_of(c) not in used]
             arc = sorted(c.cost for c in avail if c.typ == F.ARC)
             mel = sorted(c.cost for c in avail if c.typ != F.ARC)
-
-            def _fit(keep_wall):
-                out = []
-                for c in avail:
-                    is_arc = c.typ == F.ARC
-                    if is_arc and need_arc <= 0:
-                        continue
-                    if not is_arc and need_mel <= 0:
-                        continue
-                    if keep_wall and not is_arc and c.cost < wall - 1e-9:
-                        continue
-                    a2 = list(arc); m2 = list(mel)
-                    (a2 if is_arc else m2).remove(c.cost)
-                    km = need_mel - (0 if is_arc else 1)
-                    floor = sum(a2[:need_arc - (1 if is_arc else 0)])
-                    floor += (_wall_floor(m2, km, wall) if keep_wall
-                              else sum(m2[:km]))
-                    if spent + c.cost + floor <= cap + 1e-9:
-                        out.append(c)
-                return out
-
-            # **前衛に壁の予算を先に取り置く。** 取り置かないと、弓を好む性格
-            # （斉射・軍師）が後衛へ予算を吸い上げ、前衛が1点札2枚になる。
-            # そこが真っ先に破れて後ろが食われる（§7.102 の実測）。
-            # 取り置くと組めない上限では、取り置きなしへ落とす。
-            ok = _fit(True) or _fit(False)
+            ok = []
+            for c in avail:
+                is_arc = c.typ == F.ARC
+                if is_arc and need_arc <= 0:
+                    continue
+                if not is_arc and need_mel <= 0:
+                    continue
+                a2 = list(arc); m2 = list(mel)
+                (a2 if is_arc else m2).remove(c.cost)
+                floor = (sum(a2[:need_arc - (1 if is_arc else 0)])
+                         + sum(m2[:need_mel - (0 if is_arc else 1)]))
+                if spent + c.cost + floor <= cap + 1e-9:
+                    ok.append(c)
             if not ok:
                 break
             want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
