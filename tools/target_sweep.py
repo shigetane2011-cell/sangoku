@@ -52,13 +52,17 @@ def _army(G, persona, form_name, wise, with_skill, target):
     for i in range(6 - nf):
         rear.append(G._synth(G.BASE_COST, G.ARC, G.DPS if i else G.BAL))
     cards = front + rear
+    # 知力の散らばりが狙い撃ちの値打ちを決めるので、そこを軸にする。
+    # **平らを「全員同値」にしてはいけない。** 同値だと max も min も先頭を
+    # 返すだけで、「知力が最高」と「最低」が同じ隊を指す——測定ではなく
+    # 引き分けになる（初版がこれで、両者の値が小数3桁まで一致した）。
+    # 平らは「なだらかに散る」、軍師入りは「1人だけ突出」で対比させる。
     if wise:
-        # **軍師を1人置く。** 知力だけ突出させ、他は平らに下げる。
-        # 知力の散らばりが狙い撃ちの値打ちを決めるので、そこを軸にする。
         cards = [replace(c, might=80.0, wits=(220.0 if i == len(cards) - 1 else 70.0))
                  for i, c in enumerate(cards)]
     else:
-        cards = [replace(c, might=80.0, wits=100.0) for c in cards]
+        cards = [replace(c, might=80.0, wits=85.0 + 6.0 * i)
+                 for i, c in enumerate(cards)]
     # **対照は「技なし」でなければならない。** 合成カードは既定で標準技を
     # 持っているので、撃ち手だけ差し替えるときに対照側の技を消し忘れると、
     # 「試験技 対 標準技」を測ることになる（実際それで弱体の値段が負に出た）。
