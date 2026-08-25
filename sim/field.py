@@ -1186,13 +1186,34 @@ ROLE_LEAN_SPAN = 0.10
 # （兵力を増やせば攻撃力が ROLE_ATK_EXP で減る）ので、これは**強化ではなく
 # 配分の付け替え**である。BLEND_COST 以上は一切触らない——高い帯の
 # 「矛は高い札に持たせる」という型は、テストプレイで面白いと判断して残した。
+# 寄せ具合は実測で解いた（3陣形×歩騎×均衡火力・合成カードで型だけを見る）。
+# 読み（前衛の非耐久 − 同コストの耐久）:
+#
+#   blend  cost1  cost2  cost3 | cost4  cost5   ← 4点以上は触らない
+#    0.00  -1.42  -1.15  -0.83 | -0.49  -0.07
+#    0.50  -0.76  -0.67  -0.61 |
+#    0.65  -0.54  -0.52  -0.53 |   ← 採用。cost4 と揃って平らになる
+#    0.75  -0.43  -0.47  -0.50 |
+#
+# **狙いは 0 にすることではない。** cost4 が -0.49 なのだから、そこへ揃えれば
+# 「安いことによる余計な罰」だけが消え、型の味（非耐久はやや損）は残る。
+# 0.75 でも平らになるが、**目的を達する最小の寄せ**として 0.65 を採った。
+# 型の見分け（耐久を100とした兵力）は主にコスト1で縮む:
+#   0.00 → 1点: 耐久100 均衡71 火力51 ／ 0.65 → 1点: 100 / 89 / 80
+#   3点では 100 / 77 / 61 と顔つきが残る。1点に表せる差はもともと薄い。
 ROLE_MEN_BLEND_COST = 4.0   # これ以上のコストは今までどおり
-ROLE_MEN_BLEND = 0.0        # コスト1での寄せ具合（0=無効）。実測で決める
+ROLE_MEN_BLEND = 0.65       # コスト1での寄せ具合（0=無効）
 
 
-def role_men(role: str, lean: float = 0.0, cost: "float | None" = None) -> float:
+def role_men(role: str, lean: float = 0.0, cost: "float | None" = None,
+             typ: "str | None" = None) -> float:
     """役割の兵力倍率に、カード個別の寄せを乗せる。"""
     rm = ROLE_MEN[role]
+    # **測った範囲にだけ効かせる。** 寄せは前衛の枠（歩兵・騎兵）で解いた。
+    # 弓兵は後衛の枠にいて交換レートが違ううえ、実測では全帯が健全だった
+    # （帯ごと +0.13/+0.08/+0.28/+1.53）。測っていない所へ広げない（§13）。
+    if ROLE_MEN_BLEND > 0.0 and typ == ARC:
+        return rm * (1.0 + ROLE_LEAN_SPAN * max(-1.0, min(1.0, lean)))
     if ROLE_MEN_BLEND > 0.0 and cost is not None and cost < ROLE_MEN_BLEND_COST:
         # コスト1で ROLE_MEN_BLEND、BLEND_COST で 0 の一次。耐久そのものは動かない
         w = ROLE_MEN_BLEND * min(1.0, max(0.0, (ROLE_MEN_BLEND_COST - cost)
@@ -1364,7 +1385,7 @@ class Unit:
         #   SPLIT_EXP = 1.0 … 兵力 ∝ c、  攻撃 ∝ 一定 （軍全体の兵力も火力も Σc で加法）
         # どちらでも 1枚の総合値は c に比例するが、**軍としての合計**が加法になるのは
         # 1.0 のときだけ。コストの加算性はここで決まる。
-        rm = role_men(card.role, card.lean, card.cost)
+        rm = role_men(card.role, card.lean, card.cost, card.typ)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
             * lean_men_comp(card.typ, card.def_lean, card.spd_lean) \
             * (1.0 + min(max(card.floor_adj, -0.10), 0.10))
