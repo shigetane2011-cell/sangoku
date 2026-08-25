@@ -362,6 +362,54 @@ def cmd_shape(args):
     return 0
 
 
+def form_edges(cards, jobs_n, shares=(0.34, 0.46, 0.58), members=2):
+    """3陣形の辺（陣形どうしの勝率）を測る。**形の配分は同じ範囲で振る。**"""
+    ents = [("{}-{}".format(p.name, num), D.make_entry(cards, p, 1000 + i * 7 + num))
+            for i, p in enumerate(shapes(shares)) for num in range(1, members + 1)]
+    jobs = [(a, b, reg, sd)
+            for a, b in itertools.combinations(ents, 2)
+            for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
+    res = Pool(jobs_n).map(_duel, jobs, chunksize=32)
+    win, tot = defaultdict(Counter), defaultdict(Counter)
+    for na, nb, diff in res:
+        a, b = na[0], nb[0]          # 陣形の1文字（鶴・魚・雁）
+        if a == b:
+            continue
+        tot[a][b] += 1; tot[b][a] += 1
+        if diff > 0:
+            win[a][b] += 1
+        elif diff < 0:
+            win[b][a] += 1
+    return {(a, b): 100.0 * win[a][b] / tot[a][b]
+            for a in "鶴魚雁" for b in "鶴魚雁" if a != b}, len(jobs)
+
+
+def cmd_formpair(args):
+    """陣形の残差の相殺（FORM_PAIR）を振って、辺がどこまで動くか測る。
+
+    **狙いへ届くつまみなのかを先に確かめる。** 届かないなら値付けの話では
+    なく、盤面の仕掛けが足りないという話になる（§13: 崖の上に値段を置かない）。
+    """
+    cards = _cards()
+    base = dict(F.FORM_PAIR)
+    print("いまの値: {}".format(base))
+    print("狙い: 循環 魚鱗→鶴翼→雁行→魚鱗 の各辺 57%（§7.55）\n")
+    print("{:>26s} {:>10s} {:>10s} {:>10s}".format(
+        "(3,4) (4,2) (2,3)", "魚→鶴", "鶴→雁", "雁→魚"))
+    try:
+        for trio in args.set:
+            vals = [float(x) for x in trio.split(",")]
+            F.FORM_PAIR.update({(3, 4): vals[0], (4, 2): vals[1], (2, 3): vals[2]})
+            e, n = form_edges(cards, args.jobs, members=args.members)
+            print("{:>26s} {:>9.1f}% {:>9.1f}% {:>9.1f}%   （{}局）".format(
+                "{:+.1f} {:+.1f} {:+.1f}".format(*vals),
+                e[("魚", "鶴")], e[("鶴", "雁")], e[("雁", "魚")], n))
+            sys.stdout.flush()
+    finally:
+        F.FORM_PAIR.update(base)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="在野ラダーの上位を測る")
     ap.add_argument("-j", "--jobs", type=int, default=4)
@@ -369,6 +417,11 @@ def main():
     s = sub.add_parser("field", help="24人の総当たり")
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_field)
+    s = sub.add_parser("formpair", help="陣形の相殺を振って辺の動きを測る")
+    s.add_argument("--set", action="append", default=[],
+                   help="(3,4),(4,2),(2,3) をカンマ区切りで。例 -6.1,4.5,5.8")
+    s.add_argument("--members", type=int, default=2)
+    s.set_defaults(fn=cmd_formpair)
     s = sub.add_parser("shape", help="器を固定して形だけで総当たりする")
     s.add_argument("--members", type=int, default=MEMBERS)
     s.add_argument("--no-formpair", action="store_true",
