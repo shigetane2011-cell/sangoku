@@ -1738,7 +1738,7 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """効果文から「攻撃力 +9%（15秒）」などの状態効果を取り出す。
 
     符号が向き先を決める。**プラスは自分（または味方）、マイナスは対象**。
-    「突撃 / 敵1体（最前） / ダメージ 威力160% + 移動速度 +30%（12秒）」の
+    「突撃 / 敵1体（兵力が最多） / ダメージ 威力160% + 移動速度 +30%（12秒）」の
     +30% は敵の速度を上げる技ではなく、突っ込む自分の速度である。
     """
     out = []
@@ -1900,6 +1900,13 @@ def _skill_targets(target: str, u, foe, own):
         return [min(alive, key=lambda x: _d2(u, x))]
     if "1列" in target:                  # レーンは無いので「最も近い3枚」へ写す
         return sorted(alive, key=lambda x: _d2(u, x))[:3]
+    # 敵1体（兵力が最多）。**分岐を明示する。** 以前はここに枝が無く、
+    # 「敵1体（最前）」という札の文が黙って**この既定**へ落ちていた——文は
+    # 「最前」と言い、盤面は「兵力が最も多い敵」を撃つ（実測で後衛の厚い隊が
+    # 選ばれた）。23枚が同じ嘘をついていた。文を挙動に合わせて改名し、
+    # 既定に落ちる形をやめた（§7.95）。
+    if "兵力が最多" in target:
+        return [max(alive, key=lambda x: x.men)]
     return [max(alive, key=lambda x: x.men)]
 
 
@@ -3419,7 +3426,7 @@ SYNTH_SKILL_POWER = 3.0
 SYNTH_SKILL_PAY = {"inf": (0.63, 0.195), "cav": (0.52, 0.207),
                    "arc": (0.38, 0.122)}
 SYNTH_SKILL_KIND = "melee"
-SYNTH_SKILL_TARGET = "敵1体（最前）"
+SYNTH_SKILL_TARGET = "敵1体（兵力が最多）"
 
 
 def _synth(cost: float, typ: str, role: str = BAL) -> Card:
@@ -4059,7 +4066,7 @@ def cmd_heal(args) -> None:
     def army(power, heal, typ=INF, gc=100.0):
         n = "＿測" + repr((power, heal, typ, gc))
         SKILL_INFO[n] = Skill(power, "melee", 0.0, heal)
-        SKILL_TARGET[n] = "敵1体（最前）" if power > 0 else "味方1体（残兵力が最少）"
+        SKILL_TARGET[n] = "敵1体（兵力が最多）" if power > 0 else "味方1体（残兵力が最少）"
         return Army(tuple(Card(BASE_COST, typ, r, skill=n, gauge_cost=gc)
                           for r in MIXED_ROLES), FORM_STANDARD)
 
@@ -4261,7 +4268,7 @@ def cmd_targets(args) -> None:
     print("対象範囲の値段（コスト点・効果は固定で対象だけ変える・前衛が撃つ）")
     print()
     print("  {:<22}{:>10}{:>10}{:>12}".format("対象", "打撃500%", "回復150%", "攻+10%30秒"))
-    foe_targets = ["敵1体（最前）", "敵1体（正面）", "敵1列", "敵前衛", "敵後衛",
+    foe_targets = ["敵1体（兵力が最多）", "敵1体（正面）", "敵1列", "敵前衛", "敵後衛",
                    "敵正面2体", "敵全体"]
     own_targets = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
                    "味方1列", "味方前衛", "味方後衛", "味方全体"]

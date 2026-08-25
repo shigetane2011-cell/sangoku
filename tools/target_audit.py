@@ -25,6 +25,7 @@
 
 この道具が探すのは、その規約と CSV の書き方が食い違っている札である。
 """
+import re
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -237,6 +238,104 @@ def positive_control():
     return ok
 
 
+# ── 対象文字列は、書いてあるとおりの相手を選んでいるか（§7.95）──────
+#
+# 向き先（味方か敵か）の次は**その中の誰か**である。「敵1体（最前）」は
+# 実測で**兵力が最も多い敵**を選んでいた——選択子に枝が無く、黙って既定へ
+# 落ちていたためで、23枚が同じ嘘をついていた。札の文が嘘をつくのは、
+# 値段が少しずれるより重い（編成の判断がまるごと狂う）。以後は毎回測る。
+
+# 括弧の中で「誰を」と言える見出し。**ここに無い見出しは赤にする。**
+# 見出しを知らないときに黙って通すのは、選択子が枝を持たずに既定へ落ちるのと
+# 同じ失敗である（実際それで「最前」を取り逃した）。札に新しい見出しを足す者は、
+# それを検める術もここへ足すこと。
+KNOWN_DESC = {"兵力が最多", "残兵力が最少", "攻撃力が最高", "損害が最大", "正面"}
+
+
+def _label_claims(target, u, picked, foes, own):
+    """札の文が約束していることを、選ばれた隊が満たしているか。
+    (満たしたか, 何を確かめたか) を返す。確かめようがない文は (True, "") 。"""
+    ally = ("味方" in target) or ("自分" in target)
+    pool = [x for x in (own if ally else foes) if x.men > 0.0]
+    m = re.search(r"（([^）]+)）", target)
+    if m and m.group(1) not in KNOWN_DESC:
+        return False, "見出し「{}」を検める術がない（未知の指定）".format(m.group(1))
+    if not picked or not pool:
+        return True, ""
+    def d2(x):
+        return (u.x - x.x) ** 2 + (u.y - x.y) ** 2
+    checks = []
+    if "自分と" in target:
+        # 「自分と前衛1体」= 自分＋その側の1体（＝2隊）
+        want_front = "前衛" in target
+        checks.append((len(picked) <= 2 and picked[0] is u, "自分を含む"))
+        others = [x for x in picked if x is not u]
+        checks.append((all(x.is_front == want_front for x in others),
+                       ("前衛" if want_front else "後衛") + "から1体"))
+    elif "1体" in target or target == "自分":
+        checks.append((len(picked) == 1, "1体だけ選ぶ"))
+    if "全体" in target:
+        checks.append((len(picked) == len(pool), "全員を選ぶ"))
+    if "自分" in target and "と" not in target:
+        checks.append((picked == [u], "自分だけ"))
+    if "前衛" in target and "自分と" not in target and "1列" not in target:
+        checks.append((all(x.is_front for x in picked), "前衛だけ"))
+    if ("後衛" in target or "後列" in target) and "自分と" not in target:
+        checks.append((all(not x.is_front for x in picked), "後衛だけ"))
+    if "兵力が最多" in target:
+        best = max(pool, key=lambda x: x.men)
+        checks.append((picked[0].men >= best.men - 1e-6, "兵力が最も多い隊"))
+    if "残兵力が最少" in target:
+        best = min(pool, key=lambda x: x.ratio())
+        checks.append((picked[0].ratio() <= best.ratio() + 1e-9, "残兵力が最も少ない隊"))
+    if "攻撃力が最高" in target:
+        best = max(pool, key=lambda x: x.atk * x.atk_mult)
+        checks.append((picked[0].atk * picked[0].atk_mult
+                       >= best.atk * best.atk_mult - 1e-6, "攻撃力が最も高い隊"))
+    if "損害が最大" in target:
+        best = max(pool, key=lambda x: x.men0 - x.men)
+        checks.append(((picked[0].men0 - picked[0].men)
+                       >= (best.men0 - best.men) - 1e-6, "損害が最も大きい隊"))
+    if "正面" in target and "2体" not in target:
+        near = min(pool, key=d2)
+        checks.append((abs(d2(picked[0]) - d2(near)) < 1e-6, "いちばん近い隊"))
+    if "1列" in target:
+        want = sorted(pool, key=d2)[:3]
+        checks.append((set(map(id, picked)) == set(map(id, want)), "近い3枚"))
+    if not checks:
+        return True, ""
+    ok = all(c for c, _ in checks)
+    return ok, "／".join(w for c, w in checks if not c) or "／".join(w for _, w in checks)
+
+
+def audit_labels(show_all):
+    """すべての対象文字列について、選ばれた隊が文の約束を満たすか測る。"""
+    army = F.flat_army()
+    ua, ub = F.build(army, 1), F.build(army, -1)
+    # **同点を作らない。** 全員同じ兵力だと「最多」も「最少」も何でも通る。
+    for k, x in enumerate(ua + ub):
+        x.men = x.men0 * (0.2 + 0.06 * k)
+    targets = sorted(set(F.SKILL_TARGET.values()))
+    print("対象文字列 {} 種について、選ばれた隊が文の約束を満たすか測る。"
+          .format(len(targets)))
+    bad = []
+    for tgt in targets:
+        ally = ("味方" in tgt) or ("自分" in tgt)
+        for caster in (ua[0], ua[len(ua) - 1]):      # 前衛から・後衛から
+            picked = F._skill_targets(tgt, caster, ub, ua)
+            ok, what = _label_claims(tgt, caster, picked, ub, ua)
+            side_ok = all((x in ua) == ally for x in picked)
+            if not (ok and side_ok):
+                bad.append((tgt, what))
+                print("×  {:<22} {}".format(
+                    tgt, what if not ok else "味方と敵を取り違えている"))
+                break
+        else:
+            if show_all:
+                print("○  {:<22}".format(tgt))
+    return bad
+
+
 def audit_traits(show_all):
     """固有特性も**同じ器**（_apply_skill）を通るので、同じ物差しで測る。"""
     R.load_traits_into_field()
@@ -290,6 +389,9 @@ def run():
             print("○  " + line + "  → " + "／".join(
                 "{}{}".format(s, i) for s, i, _, _ in moved[:4]))
 
+    print("—" * 60)
+    lbad = audit_labels(show_all)
+    bad += [(t, "", [w], []) for t, w in lbad]
     print("—" * 60)
     tbad, tinfo = audit_traits(show_all)
     bad += [(n, "", nt, []) for n, nt in tbad]
