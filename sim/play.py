@@ -299,11 +299,19 @@ def save_board(cx, b: L.Board) -> None:
 
 
 def ensure_dummies(cx, cards) -> Dict[str, M.Entry]:
+    """足りなければ在野を足す。**頭数ではなく「埋まっている枠」で数える。**
+
+    旧実装（§7.102）が作った同名の在野が残っている DB では、頭数だけ
+    MIN_DUMMIES に届いてしまい、**欠けている性格が永久に埋まらない**。
+    枠（性格, 通し番号）の異なり数で見れば、同名がいくつ居ても正しく足りる。
+    既に居る同名はそのまま残す（武名を持っているので消さない）。
+    """
     ents = dummy_entries(cx, cards)
-    if len(ents) < MIN_DUMMIES:
+    have = sum(len(v) for v in D.existing_slots(cx).values())
+    if have < MIN_DUMMIES:
         # **名前と番号は seed_ladder が数えて決める**（§7.102）。ここから
         # 通し番号を渡すと、性格を足したときに割り当てがずれて重複が出る。
-        D.seed_ladder(cx, cards, MIN_DUMMIES - len(ents))
+        D.seed_ladder(cx, cards, MIN_DUMMIES - have)
         ents = dummy_entries(cx, cards)
     return ents
 
