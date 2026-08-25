@@ -36,7 +36,10 @@ PERSONA = {
 }
 FOE_TARGETS = ["敵1体（兵力が最多）", "敵1体（兵力が最少）", "敵1体（正面）",
                "敵1体（残兵力が最少）", "敵1体（知力が最高）", "敵1体（知力が最低）",
-               "敵1列", "敵前衛", "敵後衛", "敵全体"]
+               "敵正面2体", "敵1列", "敵前衛", "敵後衛", "敵後列", "敵全体"]
+OWN_TARGETS = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
+               "味方1列", "味方前衛", "味方後衛", "味方全体",
+               "自分と前衛1体", "自分と後衛1体"]
 NEW = ("敵1体（兵力が最少）", "敵1体（知力が最高）", "敵1体（知力が最低）")
 ANCHOR = ("敵1体（兵力が最多）", "敵1体（正面）", "敵1列", "敵前衛", "敵全体")
 
@@ -76,14 +79,23 @@ def _army(G, persona, form_name, wise, with_skill, target):
     return G.Army(tuple(cards), form)
 
 
+EFFECTS = {
+    # 敵向け
+    "打撃": lambda G: G.Skill(power=5.0, kind="melee"),
+    "弱体": lambda G: G.Skill(mods=(("atk", -0.10, 30.0),)),
+    # 味方向け（符号が向き先を決めるので、味方対象はプラスで書く・§7.93）
+    "回復": lambda G: G.Skill(heal=1.5, kind="melee"),
+    "強化": lambda G: G.Skill(mods=(("atk", 0.10, 30.0),)),
+}
+
+
 def cell(job):
     persona, form_name, wise, target, effect = job
     from sim import field as G
     from sim import match as MM
     G.SKILLS_ON = True
     G.TRAITS_ON = False
-    sk = (G.Skill(power=5.0, kind="melee") if effect == "打撃"
-          else G.Skill(mods=(("atk", -0.10, 30.0),)))
+    sk = EFFECTS[effect](G)
     a = _army(G, persona, form_name, wise, sk, target)
     b = _army(G, persona, form_name, wise, None, target)
     for army in (a, b):
@@ -97,12 +109,19 @@ def cell(job):
 
 
 def main():
-    targets = list(NEW + ANCHOR) if "--new" in sys.argv else FOE_TARGETS
-    jobs = [(p, f, w, t, e)
-            for p in PERSONA for f in NF for w in (False, True)
-            for t in targets for e in ("打撃", "弱体")]
-    print("測る: 対象{} × 相手{}通り × 効果2 = {} 局".format(
-        len(targets), len(PERSONA) * len(NF) * 2, len(jobs)), flush=True)
+    if "--new" in sys.argv:
+        foe, own = list(NEW + ANCHOR), []
+    else:
+        foe, own = FOE_TARGETS, OWN_TARGETS
+    jobs = ([(p, f, w, t, e)
+             for p in PERSONA for f in NF for w in (False, True)
+             for t in foe for e in ("打撃", "弱体")]
+            + [(p, f, w, t, e)
+               for p in PERSONA for f in NF for w in (False, True)
+               for t in own for e in ("回復", "強化")])
+    targets = foe + own
+    print("測る: 敵{} + 味方{} 対象 × 相手{}通り = {} 局".format(
+        len(foe), len(own), len(PERSONA) * len(NF) * 2, len(jobs)), flush=True)
     res = Pool(4).map(cell, jobs, chunksize=4)
 
     from collections import defaultdict
@@ -112,11 +131,15 @@ def main():
         agg[(t, e)].append(v)
         split[(t, e, w)].append(v)
 
-    for effect in ("打撃", "弱体"):
+    for effect in ("打撃", "弱体", "回復", "強化"):
+        if not any((t, effect) in agg for t in targets):
+            continue
         print("\n── {}（コスト点。18通りの相手で）──".format(effect))
         print("  {:<22}{:>8}{:>8}{:>8}{:>8}{:>7}   {:>8}{:>8}".format(
             "対象", "平均", "中央", "最小", "最大", "幅", "知力平ら", "軍師入り"))
         for t in targets:
+            if (t, effect) not in agg:
+                continue
             v = agg[(t, effect)]
             flat = split[(t, effect, False)]
             wise = split[(t, effect, True)]
@@ -125,13 +148,15 @@ def main():
                 (max(v) / min(v)) if min(v) > 0.01 else float("inf"),
                 statistics.mean(flat), statistics.mean(wise)))
 
-    print("\n── 錨からの比（既存の表へ入れるとき、この比で置く）──")
-    for effect in ("打撃", "弱体"):
-        base = statistics.mean(agg[("敵1体（正面）", effect)])
-        print("  {}: 敵1体（正面）を 1.00 としたとき".format(effect))
-        for t in targets:
-            print("    {:<22}{:>7.2f}".format(
-                t, statistics.mean(agg[(t, effect)]) / base if base else 0.0))
+    print("\n── 生の平均（表へ入れる前の素の値）──")
+    for effect in ("打撃", "弱体", "回復", "強化"):
+        rows = [(t, statistics.mean(agg[(t, effect)]))
+                for t in targets if (t, effect) in agg]
+        if not rows:
+            continue
+        print("  {}:".format(effect))
+        for t, v in rows:
+            print("    {!r}: {:.4f},".format(t, v))
     return 0
 
 

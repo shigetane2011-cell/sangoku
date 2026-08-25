@@ -540,27 +540,53 @@ def sac_price(pct: float) -> float:
     return y1 + (y1 - y0) * (pct - x1) / (x1 - x0)
 
 
+# 対象係数は**丸ごと一致**で引く（§7.100）。以前は部分一致
+# （`k in target or target in k`）だったため、静かに3つ壊れていた:
+#
+#   ・「敵後列」は表に無く既定へ落ち、盤面では同じ挙動の「敵後衛」と
+#     別の値段になっていた（打撃 1.00 対 0.79・状態 3.00 対 1.12。各5枚）。
+#   ・「自分と前衛1体」は先に並ぶ「自分」に食われ、**実測して置いた 1.13 が
+#     一度も使われていなかった**（0.90 が引かれる）。「自分と後衛1体」も同じ。
+#   ・「敵1体（残兵力が最少）」はどちらの表にも無く既定へ（6枚）。
+#
+# 部分一致で規則を書くと、語を足した瞬間に静かに壊れる。表に無い対象は
+# **黙って既定へ落とさず、名指しで知らせる**。
+_UNPRICED = set()
+
+
+def _lookup(table, target, what):
+    v = table.get(target)
+    if v is not None:
+        return v
+    # 側違いの引きは知らせない（敵対象に回復係数を訊く・味方対象に打撃係数を
+    # 訊く、は呼び手が量0のときにも通すためで、値は使われない）。
+    ally = ("味方" in target) or ("自分" in target)
+    if (ally and what == "打撃") or (not ally and what == "回復"):
+        return None
+    key = (what, target)
+    if key not in _UNPRICED:
+        _UNPRICED.add(key)
+        import sys as _sys
+        print("！ 対象「{}」の{}係数が表に無い（既定で通す）".format(target, what),
+              file=_sys.stderr)
+    return None
+
+
 def target_fx(target: str) -> float:
-    """状態効果（攻/防/阻害/混乱）の対象係数。実測表→無ければ旧 TARGET_N。"""
+    """状態効果（攻/防/阻害/混乱）の対象係数。"""
     side = TARGET_FX_OWN if ("味方" in target or "自分" in target) else TARGET_FX_FOE
-    for k, v in side.items():
-        if k in target or target in k:
-            return v
-    return target_n(target)
+    v = _lookup(side, target, "状態効果")
+    return target_n(target) if v is None else v
 
 
 def target_dmg_f(target: str) -> float:
-    for k, v in TARGET_DMG_F.items():
-        if k in target or target in k:
-            return v
-    return 1.0
+    v = _lookup(TARGET_DMG_F, target, "打撃")
+    return 1.0 if v is None else v
 
 
 def target_heal_f(target: str) -> float:
-    for k, v in TARGET_HEAL_F.items():
-        if k in target or target in k:
-            return v
-    return 1.0
+    v = _lookup(TARGET_HEAL_F, target, "回復")
+    return 1.0 if v is None else v
 
 # **1枚のコスト1点は、軍全体に均等配分した1点より 1.27倍 効く**（実測。-2〜+2 点で
 # 1.259〜1.291 と線形）。集中させたほうが強いという Lanchester の効きである。
