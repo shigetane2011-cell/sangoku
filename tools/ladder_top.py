@@ -150,7 +150,52 @@ def cmd_field(args):
         print("    {:8s} × {:8s}  {}{}".format(a, b, same, mark))
     dup = sum(1 for s in ov.values() if all(x == M.UNIT_SIZE for x in s))
     print("  丸ごと同じ組: {} / {}".format(dup, len(ov)))
+
+    archetype_matrix(res, names)
     return 0
+
+
+def archetype_matrix(results, names):
+    """**型どうしの総当たり。** 順位表ではなく相性の表を出す。
+
+    ラダーの勝率だけ見ていると「上位が同じ型で埋まる」を、稽古台の人選の
+    話だと思ってしまう。だが**1つの型が他の全部に勝ち越しているなら、
+    それは稽古台ではなく値付けの問題である**（型を足しても最強が1つなのは
+    変わらない）。三すくみが有るか無いかを、ここで直接見る。
+    """
+    kinds = sorted({n[:2] for n in names})
+    win = defaultdict(Counter)      # win[A][B] = A が B に勝った数
+    tot = defaultdict(Counter)
+    for na, nb, diff in results:
+        a, b = na[:2], nb[:2]
+        if a == b:
+            continue
+        tot[a][b] += 1
+        tot[b][a] += 1
+        if diff > 0:
+            win[a][b] += 1
+        elif diff < 0:
+            win[b][a] += 1
+
+    print("\n── 型どうしの勝率（行が列に勝つ%）──")
+    print("        " + "".join("{:>7s}".format(k) for k in kinds))
+    for a in kinds:
+        row = ["{:>7s}".format("--" if a == b else
+                               "{:.0f}".format(100.0 * win[a][b] / tot[a][b]))
+               for b in kinds]
+        beat = sum(1 for b in kinds
+                   if a != b and win[a][b] > tot[a][b] - win[a][b])
+        print("  {:6s}".format(a) + "".join(row)
+              + "   勝ち越し {}/{}".format(beat, len(kinds) - 1))
+
+    top = [a for a in kinds
+           if all(a == b or win[a][b] * 2 > tot[a][b] for b in kinds)]
+    print("\n  **全ての型に勝ち越している型: {}**".format(
+        "、".join(top) if top else "無し（三すくみが成立している）"))
+    if top:
+        print("  → 稽古台の人選ではなく**値付けの問題**。型を足しても最強は"
+              "1つのまま。")
+    return top
 
 
 def cmd_cand(args):
