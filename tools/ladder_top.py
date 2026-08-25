@@ -301,6 +301,58 @@ def cmd_meta(args):
     return 0
 
 
+# 形の実験（§7.104）。**器を1つに固定して、形だけを変える。**
+# 型どうしの相性表（field）は強弓が7型すべてに勝ち越すと出たが、強弓と重装
+# だけが手練れの器（_meta_entry）で組まれ、他の6性格は好みの器で組まれる。
+# あの表は「形の強さ」と「組み方の巧さ」を混ぜて測っている。ここでは全部を
+# 手練れの器で組み、**陣形（前衛の枚数）と後衛へ回す予算だけ**を振る。
+SHAPES = tuple(
+    D.Persona("{}{:02.0f}".format({"鶴翼": "鶴", "魚鱗": "魚", "雁行": "雁"}[form],
+                                  share * 100),
+              {F.ARC: 1.0, F.INF: 1.0, F.CAV: 1.0},
+              {F.DPS: 1.0, F.BURST: 1.0, F.BAL: 1.0, F.SUP: 1.0, F.TANK: 1.0},
+              form, 0.5, rear_share=share)
+    for form, shares in (("鶴翼", (0.22, 0.34, 0.46)),      # 前4・後2
+                         ("魚鱗", (0.38, 0.50, 0.62)),      # 前3・後3
+                         ("雁行", (0.50, 0.62, 0.74)))      # 前2・後4
+    for share in shares
+)
+
+
+def cmd_shape(args):
+    """器を固定し、形（陣形 × 後衛予算）だけで総当たりする。
+
+    兵種・役割の好みは**全部 1.0 に揃える**。好みが残っていると「その形が
+    強い」のか「その好みが強い」のかが混ざる。
+    """
+    cards = _cards()
+    ents = [("{}-{}".format(p.name, num), D.make_entry(cards, p, 1000 + i * 7 + num))
+            for i, p in enumerate(SHAPES) for num in range(1, MEMBERS + 1)]
+    for n, e in ents:
+        errs = M.validate(e)
+        if errs:
+            print("組めていない:", n, errs)
+            return 1
+    names = [n for n, _ in ents]
+    jobs = [(a, b, reg, sd)
+            for a, b in itertools.combinations(ents, 2)
+            for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
+    print("測る: 形{}種 × {}人 = {}人の総当たり {}局".format(
+        len(SHAPES), MEMBERS, len(ents), len(jobs)))
+    res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
+    rate = _tally(res, names)
+    print("\n── 形ごとの勝率（3人の平均）──")
+    per = defaultdict(list)
+    for n in names:
+        per[n.split("-")[0]].append(rate[n])
+    for k, v in sorted(per.items(), key=lambda kv: -statistics.mean(kv[1])):
+        print("  {:6s} {:5.1f}%   （{}）".format(
+            k, statistics.mean(v), " ".join("{:.0f}".format(x) for x in sorted(v))))
+    archetype_matrix([(a.split("-")[0] + "00", b.split("-")[0] + "00", d)
+                      for a, b, d in res], [k + "00" for k in per])
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="在野ラダーの上位を測る")
     ap.add_argument("-j", "--jobs", type=int, default=4)
@@ -308,6 +360,8 @@ def main():
     s = sub.add_parser("field", help="24人の総当たり")
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_field)
+    s = sub.add_parser("shape", help="器を固定して形だけで総当たりする")
+    s.set_defaults(fn=cmd_shape)
     s = sub.add_parser("meta", help="手練れの引きの尖りを掃引する")
     s.add_argument("--pow", type=float, action="append", default=[])
     s.set_defaults(fn=cmd_meta)
