@@ -270,16 +270,18 @@ def entry_of(cx, cards, player_id: str, name: str
 # ----------------------------------------------------------------------------
 
 def dummy_entries(cx, cards) -> Dict[str, M.Entry]:
-    """登録済みダミーの編成を (性格, 通し番号) から決定的に再構成する。"""
-    pidx = {p.name: i for i, p in enumerate(D.PERSONAS)}
+    """登録済みダミーの編成を (性格, 通し番号) から決定的に再構成する。
+
+    名前の読み方は `dummies.parse_name` ただ一つ（§7.102）。ここに自前の
+    正規表現を置くと、増員側と食い違ったときに気づけない。
+    """
     out: Dict[str, M.Entry] = {}
     for pl in P.all_players(cx, kind=P.DUMMY):
-        m = re.match(r"^(.+?)(\d+)$", pl.display_name)
-        if not m or m.group(1) not in pidx:
+        got = D.parse_name(pl.display_name)
+        if not got:
             continue
-        k = pidx[m.group(1)]
-        out[pl.id] = D.make_entry(cards, D.PERSONAS[k],
-                                  D.deck_seed(k, int(m.group(2))))
+        k, num = got
+        out[pl.id] = D.make_entry(cards, D.PERSONAS[k], D.deck_seed(k, num))
     return out
 
 
@@ -299,9 +301,9 @@ def save_board(cx, b: L.Board) -> None:
 def ensure_dummies(cx, cards) -> Dict[str, M.Entry]:
     ents = dummy_entries(cx, cards)
     if len(ents) < MIN_DUMMIES:
-        # **番号は続きから**（§7.83）。0 から振り直すと既存の在野と名前も
-        # メールも衝突して増員そのものが落ちる。
-        D.seed_ladder(cx, cards, MIN_DUMMIES - len(ents), start=len(ents))
+        # **名前と番号は seed_ladder が数えて決める**（§7.102）。ここから
+        # 通し番号を渡すと、性格を足したときに割り当てがずれて重複が出る。
+        D.seed_ladder(cx, cards, MIN_DUMMIES - len(ents))
         ents = dummy_entries(cx, cards)
     return ents
 

@@ -27,6 +27,8 @@
 from __future__ import annotations
 
 import random
+import re
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
@@ -156,6 +158,25 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     return M.Entry(tuple(units), name=p.name)
 
 
+# 前衛に取り置く予算（上限に対する割合）。**枠数で割る**ので、前衛が薄い陣形
+# ほど1枚あたりが厚くなる。壁が薄い性格が真っ先に破れて後衛を食われる、という
+# 実測（§7.102）への対処。0 にすると取り置かない＝旧来の挙動。
+FRONT_BUDGET = 0.35
+
+
+def _wall_floor(costs: List[float], k: int, wall: float) -> float:
+    """近接の残り k 枠を「1枠 wall 以上」で埋めるときの最低額の見積り。
+
+    wall 以上の札が足りなければ安い札で埋める（**組めない上限を作らない**）。
+    """
+    if k <= 0:
+        return 0.0
+    fit = [c for c in costs if c >= wall - 1e-9][:k]
+    if len(fit) < k:
+        fit += [c for c in costs if c < wall - 1e-9][:k - len(fit)]
+    return sum(fit)
+
+
 def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
                caps=None) -> M.Entry:
     """性格に沿って 3部隊18人を選ぶ。**規則を破る編成は作らない。**
@@ -179,6 +200,7 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     for label, cap in (caps if caps is not None else M.REGULATIONS):
         nf = FORM_BY_NAME[p.form].n_front
         want_arc = M.UNIT_SIZE - nf
+        wall = FRONT_BUDGET * cap / nf     # 前衛1枠に確保する額（§7.102）
         pick: List[F.Card] = []
         for _ in range(M.UNIT_SIZE):
             spent = sum(x.cost for x in pick)
@@ -188,19 +210,32 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
             avail = [c for c in pool if M.person_of(c) not in used]
             arc = sorted(c.cost for c in avail if c.typ == F.ARC)
             mel = sorted(c.cost for c in avail if c.typ != F.ARC)
-            ok = []
-            for c in avail:
-                is_arc = c.typ == F.ARC
-                if is_arc and need_arc <= 0:
-                    continue
-                if not is_arc and need_mel <= 0:
-                    continue
-                a2 = list(arc); m2 = list(mel)
-                (a2 if is_arc else m2).remove(c.cost)
-                floor = (sum(a2[:need_arc - (1 if is_arc else 0)])
-                         + sum(m2[:need_mel - (0 if is_arc else 1)]))
-                if spent + c.cost + floor <= cap + 1e-9:
-                    ok.append(c)
+
+            def _fit(keep_wall):
+                out = []
+                for c in avail:
+                    is_arc = c.typ == F.ARC
+                    if is_arc and need_arc <= 0:
+                        continue
+                    if not is_arc and need_mel <= 0:
+                        continue
+                    if keep_wall and not is_arc and c.cost < wall - 1e-9:
+                        continue
+                    a2 = list(arc); m2 = list(mel)
+                    (a2 if is_arc else m2).remove(c.cost)
+                    km = need_mel - (0 if is_arc else 1)
+                    floor = sum(a2[:need_arc - (1 if is_arc else 0)])
+                    floor += (_wall_floor(m2, km, wall) if keep_wall
+                              else sum(m2[:km]))
+                    if spent + c.cost + floor <= cap + 1e-9:
+                        out.append(c)
+                return out
+
+            # **前衛に壁の予算を先に取り置く。** 取り置かないと、弓を好む性格
+            # （斉射・軍師）が後衛へ予算を吸い上げ、前衛が1点札2枚になる。
+            # そこが真っ先に破れて後ろが食われる（§7.102 の実測）。
+            # 取り置くと組めない上限では、取り置きなしへ落とす。
+            ok = _fit(True) or _fit(False)
             if not ok:
                 break
             want = (cap - spent) / max(M.UNIT_SIZE - len(pick), 1)
@@ -325,27 +360,82 @@ def _spend_rest(pick: List[F.Card], pool: Sequence[F.Card], used: set,
     return pick
 
 
-def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24, start: int = 0
+NAME_RE = re.compile(r"^(.+?)(\d+)$")
+
+
+def parse_name(display_name: str):
+    """在野の表示名 → (性格の番号, 通し番号)。読めなければ None。
+
+    **名前の規則はここ一箇所。** 増員する側（seed_ladder）と編成を再構成する
+    側（play.dummy_entries）が別々に正規表現を持つと、片方だけ直したときに
+    「登録はできたが編成が作れない在野」が生まれる。
+    """
+    m = NAME_RE.match(display_name or "")
+    if not m:
+        return None
+    for i, p in enumerate(PERSONAS):
+        if p.name == m.group(1):
+            return i, int(m.group(2))
+    return None
+
+
+def existing_slots(cx) -> Dict[int, set]:
+    """今居る在野を (性格の番号 → 使用済みの通し番号) にまとめる。"""
+    from . import players as P
+    taken: Dict[int, set] = {i: set() for i in range(len(PERSONAS))}
+    for pl in P.all_players(cx, kind=P.DUMMY):
+        got = parse_name(pl.display_name)
+        if got:
+            taken[got[0]].add(got[1])
+    return taken
+
+
+def next_slots(taken: Dict[int, set], n: int) -> List[Tuple[int, int]]:
+    """次に作る n 体の (性格の番号, 通し番号)。**人数の少ない性格から**。
+
+    通し番号を全体の連番から割り出すと（旧実装）、性格を1つ足した瞬間に
+    割り当てがずれ、**同じ名前が二人生まれて別の性格が0人のまま**になる。
+    実際 6→8 に増やしたあと、斉射03・疾風03・鉄壁03 が二重に、
+    強弓01・強弓02・重装01 が欠けた。名前は数えて決める。
+    """
+    have = {i: set(taken.get(i, ())) for i in range(len(PERSONAS))}
+    out: List[Tuple[int, int]] = []
+    for _ in range(n):
+        pi = min(range(len(PERSONAS)), key=lambda i: (len(have[i]), i))
+        num = 1
+        while num in have[pi]:
+            num += 1
+        have[pi].add(num)
+        out.append((pi, num))
+    return out
+
+
+def slot_email(pi: int, num: int) -> str:
+    """メールも (性格, 通し番号) から決める。**予約ドメイン**（届かない）。
+
+    旧実装は登録順の連番から作っていたので、名前と対応が取れなかった。
+    ハイフン入りの形にしてあるので旧式（dummy000@…）とは衝突しない。
+    """
+    from . import players as P
+    return "dummy-{:02d}-{:02d}@{}".format(pi, num, P.DUMMY_DOMAIN)
+
+
+def seed_ladder(cx, cards: Sequence[F.Card], n: int = 24
                 ) -> List[Tuple[str, Persona, M.Entry]]:
     """ダミーを n 体登録し、それぞれの編成を作る。
 
     **メールは予約ドメイン**（`players.DUMMY_DOMAIN`）。足場を撤去し忘れても
     実在アドレスへは届かない。
 
-    start は**既に居るダミーの数**（§7.83）。0 から振り直すと名前も
-    メールも既存と衝突し、在野を増やそうとした瞬間に IntegrityError で
-    落ちていた（増員の道が塞がっていた）。
+    名前と番号は**今 DB に居る在野を数えて**決める（§7.102）。連番から
+    割り出す旧実装は、性格を足すたびに割り当てがずれた。
     """
     from . import players as P
     out = []
-    for k in range(n):
-        i = start + k
-        pi = i % len(PERSONAS)
+    for pi, num in next_slots(existing_slots(cx), n):
         p = PERSONAS[pi]
-        num = i // len(PERSONAS) + 1
-        name = "{}{:02d}".format(p.name, num)
-        pl = P.register(cx, name, kind=P.DUMMY,
-                        email="dummy{:03d}@{}".format(i, P.DUMMY_DOMAIN))
+        pl = P.register(cx, "{}{:02d}".format(p.name, num), kind=P.DUMMY,
+                        email=slot_email(pi, num))
         out.append((pl.id, p, make_entry(cards, p, deck_seed(pi, num))))
     return out
 
@@ -398,6 +488,90 @@ def form_table(dt: float = 0.5, seeds: int = 40) -> None:
         print("  {:<6} 対 {:<6} {:>6.1f}%  ({}マス)".format(fx, fy, st.mean(vs), len(vs)))
 
 
+def check_roster(n: int = 24) -> int:
+    """名簿の付け方の検算（§7.102）。**DB を触らずに紙の上で回す。**
+
+    見るもの:
+      - 0 から n まで足していって、名前が重複しない・欠番が出ない
+      - 途中で性格を増やしても、**既に居る在野の名前が動かない**
+      - 名前 → (性格, 通し番号) が往復する
+      - メールが重複しない
+    """
+    global PERSONAS
+    bad = 0
+    print("名簿の検算")
+
+    taken = {i: set() for i in range(len(PERSONAS))}
+    seen = []
+    for _ in range(n):
+        (pi, num), = next_slots(taken, 1)
+        taken[pi].add(num)
+        seen.append("{}{:02d}".format(PERSONAS[pi].name, num))
+    dup = sorted({x for x in seen if seen.count(x) > 1})
+    print("  [1] {} 人を1人ずつ足す … 重複 {}".format(n, dup or "なし"))
+    bad += 1 if dup else 0
+
+    per = {}
+    for nm in seen:
+        got = parse_name(nm)
+        if got is None:
+            print("  [2] 読めない名前:", nm); bad += 1; continue
+        per.setdefault(got[0], []).append(got[1])
+        if "{}{:02d}".format(PERSONAS[got[0]].name, got[1]) != nm:
+            print("  [2] 往復しない:", nm); bad += 1
+    gaps = {PERSONAS[i].name: sorted(v) for i, v in per.items()
+            if sorted(v) != list(range(1, len(v) + 1))}
+    print("  [2] 名前 → (性格, 番号) の往復と欠番 … 欠番 {}".format(gaps or "なし"))
+    bad += 1 if gaps else 0
+
+    # 性格が増えても既存の名前は動かない（旧実装はここで全部ずれた）。
+    # **本物の PERSONAS を一時的に縮めて**、増える前後を通す。
+    full = PERSONAS
+    try:
+        PERSONAS = full[:-1]
+        half: Dict[int, set] = {}
+        first = []
+        for _ in range(n // 2):
+            (pi, num), = next_slots(half, 1)
+            half.setdefault(pi, set()).add(num)
+            first.append("{}{:02d}".format(PERSONAS[pi].name, num))
+        PERSONAS = full
+        grown = {i: set(v) for i, v in half.items()}
+        more = []
+        for _ in range(n - n // 2):
+            (pi, num), = next_slots(grown, 1)
+            grown.setdefault(pi, set()).add(num)
+            more.append("{}{:02d}".format(PERSONAS[pi].name, num))
+    finally:
+        PERSONAS = full
+    clash = sorted(set(first) & set(more))
+    print("  [3] 性格を1つ足しても既存と衝突しない … 衝突 {}".format(clash or "なし"))
+    bad += 1 if clash else 0
+
+    mails = [slot_email(i, k) for i in range(len(PERSONAS))
+             for k in range(1, n // len(PERSONAS) + 2)]
+    dupm = sorted({x for x in mails if mails.count(x) > 1})
+    off = [m for m in mails if not m.endswith("@example.invalid")]
+    print("  [4] メールの重複 {} / 予約ドメイン外 {}".format(dupm or "なし", off or "なし"))
+    bad += 1 if (dupm or off) else 0
+
+    # 陽性対照: 旧実装（通し番号を全体から割り出す）を再現する。**性格が
+    # 6 の時代に 15 人、8 になってから 9 人**——実際に起きた並びで回す。
+    def _old(i, k):
+        return "{}{:02d}".format(full[i % k].name, i // k + 1)
+    old = [_old(i, 6) for i in range(15)] + [_old(i, 8) for i in range(15, 24)]
+    old_dup = sorted({x for x in old if old.count(x) > 1})
+    old_gap = sorted(set(seen) - set(old))
+    print("  [5] 陽性対照（旧実装・性格が6→8に増えた状況）… 重複 {} / 欠番 {}"
+          .format(old_dup or "なし", old_gap or "なし"))
+    if not (old_dup and old_gap):
+        print("      !!! 旧実装の不具合が再現しない＝計器が壊れている !!!")
+        bad += 1
+
+    print("\n" + ("検算 NG が {} 件".format(bad) if bad else "検算 OK"))
+    return bad
+
+
 def main() -> None:
     import argparse
     p = argparse.ArgumentParser(description="ダミー（性格つき自動編成）")
@@ -406,6 +580,9 @@ def main() -> None:
     s.add_argument("--dt", type=float, default=0.5)
     s.add_argument("--seeds", type=int, default=40)
     s.set_defaults(fn=lambda a: form_table(a.dt, a.seeds))
+    s = sub.add_parser("roster", help="名簿の付け方を検算する")
+    s.add_argument("-n", type=int, default=24)
+    s.set_defaults(fn=lambda a: sys.exit(1 if check_roster(a.n) else 0))
     a = p.parse_args()
     a.fn(a)
 
