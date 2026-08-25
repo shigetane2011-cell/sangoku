@@ -1171,10 +1171,34 @@ MIXED_ROLES = (TANK, TANK, BAL, BAL, DPS, DPS)
 # 指摘への答え。型の隣（耐久1.4 対 支援1.15 など）を跨がない幅に抑える。
 ROLE_LEAN_SPAN = 0.10
 
+# 安い前衛での役割の寄せ（§7.97）。**役割の型はコストによらず一定だったが、
+# 盤面ではそうなっていない。** 兵力↔攻撃力の交換レートは前衛の枠で
+# コストによって変わり、安い帯では兵力が、高い帯では攻撃力が得になる。
+# 実測（規則どおりの布陣・3陣形・同コストの耐久を物差しに）:
+#
+#     前衛の非耐久   コスト1点 -0.75 ／ 2-4点 -0.65 ／ 5-7点 +0.88 ／ 8-10点 +3.20
+#
+# 安い非耐久は「選ぶ理由が無い」域まで沈み（楽綝 -1.90・潘璋 -1.82）、
+# 高い非耐久は跳ね上がる。**帯で符号が反転している**ので、個別の帯調整
+# （兵力の上乗せ）では直せない——壊れているのは札ではなく型の値付けである。
+#
+# 処置は「安い帯だけ、役割の型を耐久側へ寄せる」。総合値は動かない
+# （兵力を増やせば攻撃力が ROLE_ATK_EXP で減る）ので、これは**強化ではなく
+# 配分の付け替え**である。BLEND_COST 以上は一切触らない——高い帯の
+# 「矛は高い札に持たせる」という型は、テストプレイで面白いと判断して残した。
+ROLE_MEN_BLEND_COST = 4.0   # これ以上のコストは今までどおり
+ROLE_MEN_BLEND = 0.0        # コスト1での寄せ具合（0=無効）。実測で決める
 
-def role_men(role: str, lean: float = 0.0) -> float:
+
+def role_men(role: str, lean: float = 0.0, cost: "float | None" = None) -> float:
     """役割の兵力倍率に、カード個別の寄せを乗せる。"""
-    return ROLE_MEN[role] * (1.0 + ROLE_LEAN_SPAN * max(-1.0, min(1.0, lean)))
+    rm = ROLE_MEN[role]
+    if ROLE_MEN_BLEND > 0.0 and cost is not None and cost < ROLE_MEN_BLEND_COST:
+        # コスト1で ROLE_MEN_BLEND、BLEND_COST で 0 の一次。耐久そのものは動かない
+        w = ROLE_MEN_BLEND * min(1.0, max(0.0, (ROLE_MEN_BLEND_COST - cost)
+                                          / (ROLE_MEN_BLEND_COST - 1.0)))
+        rm += (ROLE_MEN[TANK] - rm) * w
+    return rm * (1.0 + ROLE_LEAN_SPAN * max(-1.0, min(1.0, lean)))
 
 
 # 速度寄せの対価は**0**（§7.66）。車台の計器では速度+20%が兵力1.3〜1.6%と
@@ -1340,7 +1364,7 @@ class Unit:
         #   SPLIT_EXP = 1.0 … 兵力 ∝ c、  攻撃 ∝ 一定 （軍全体の兵力も火力も Σc で加法）
         # どちらでも 1枚の総合値は c に比例するが、**軍としての合計**が加法になるのは
         # 1.0 のときだけ。コストの加算性はここで決まる。
-        rm = role_men(card.role, card.lean)
+        rm = role_men(card.role, card.lean, card.cost)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
             * lean_men_comp(card.typ, card.def_lean, card.spd_lean) \
             * (1.0 + min(max(card.floor_adj, -0.10), 0.10))

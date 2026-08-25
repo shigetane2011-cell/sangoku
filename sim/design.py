@@ -177,7 +177,7 @@ def derive(d: Design) -> Dict[str, float]:
     # 2. 役割で 兵力 ↔ 攻撃力 を振る（積は保つので総合値は不変）。
     # カード個別の寄せ（§7.56）も同じ交換レートを通る。**定義は field.role_men
     # の1箇所**（ROLE_MEN が field の写しなので、ここも field を呼ぶ）。
-    rm = F.role_men(ROLE_KEY[d.role], d.lean)
+    rm = F.role_men(ROLE_KEY[d.role], d.lean, d.cost)
     men = F.CARD_MEN * s * rm
     # 防御寄せ・速度寄せ（§7.66）: 対価は兵力。**定義は field.lean_men_comp の
     # 1箇所**（役割寄せと同じ流儀）。盤面と設計式が同じものを払う。
