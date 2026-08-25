@@ -306,17 +306,21 @@ def cmd_meta(args):
 # だけが手練れの器（_meta_entry）で組まれ、他の6性格は好みの器で組まれる。
 # あの表は「形の強さ」と「組み方の巧さ」を混ぜて測っている。ここでは全部を
 # 手練れの器で組み、**陣形（前衛の枚数）と後衛へ回す予算だけ**を振る。
-SHAPES = tuple(
-    D.Persona("{}{:02.0f}".format({"鶴翼": "鶴", "魚鱗": "魚", "雁行": "雁"}[form],
-                                  share * 100),
-              {F.ARC: 1.0, F.INF: 1.0, F.CAV: 1.0},
-              {F.DPS: 1.0, F.BURST: 1.0, F.BAL: 1.0, F.SUP: 1.0, F.TANK: 1.0},
-              form, 0.5, rear_share=share)
-    for form, shares in (("鶴翼", (0.22, 0.34, 0.46)),      # 前4・後2
-                         ("魚鱗", (0.38, 0.50, 0.62)),      # 前3・後3
-                         ("雁行", (0.50, 0.62, 0.74)))      # 前2・後4
-    for share in shares
-)
+SHARES = (0.22, 0.34, 0.46, 0.58, 0.70)
+FORM_MARK = {"鶴翼": "鶴", "魚鱗": "魚", "雁行": "雁"}
+
+
+def shapes(shares=SHARES):
+    """**どの陣形も同じ範囲で振る。** 陣形ごとに違う範囲を当てると、
+    「その陣形が弱い」のか「その陣形に合わない配分しか試していない」のかが
+    分けられない（初版は雁行だけ後ろ寄りの範囲しか見ていなかった）。
+    """
+    return tuple(
+        D.Persona("{}{:02.0f}".format(FORM_MARK[form], share * 100),
+                  {F.ARC: 1.0, F.INF: 1.0, F.CAV: 1.0},
+                  {F.DPS: 1.0, F.BURST: 1.0, F.BAL: 1.0, F.SUP: 1.0, F.TANK: 1.0},
+                  form, 0.5, rear_share=share)
+        for form in ("鶴翼", "魚鱗", "雁行") for share in shares)
 
 
 def cmd_shape(args):
@@ -326,8 +330,13 @@ def cmd_shape(args):
     強い」のか「その好みが強い」のかが混ざる。
     """
     cards = _cards()
+    if args.no_formpair:
+        F.FORM_PAIR.update({k: 0.0 for k in F.FORM_PAIR})
+        print("**陣形の残差の相殺（FORM_PAIR）を切って測る**（陽性対照）")
+    else:
+        print("陣形の残差の相殺: {}".format(dict(F.FORM_PAIR)))
     ents = [("{}-{}".format(p.name, num), D.make_entry(cards, p, 1000 + i * 7 + num))
-            for i, p in enumerate(SHAPES) for num in range(1, MEMBERS + 1)]
+            for i, p in enumerate(shapes()) for num in range(1, args.members + 1)]
     for n, e in ents:
         errs = M.validate(e)
         if errs:
@@ -338,7 +347,7 @@ def cmd_shape(args):
             for a, b in itertools.combinations(ents, 2)
             for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
     print("測る: 形{}種 × {}人 = {}人の総当たり {}局".format(
-        len(SHAPES), MEMBERS, len(ents), len(jobs)))
+        len(shapes()), args.members, len(ents), len(jobs)))
     res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
     rate = _tally(res, names)
     print("\n── 形ごとの勝率（3人の平均）──")
@@ -361,6 +370,9 @@ def main():
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_field)
     s = sub.add_parser("shape", help="器を固定して形だけで総当たりする")
+    s.add_argument("--members", type=int, default=MEMBERS)
+    s.add_argument("--no-formpair", action="store_true",
+                   help="陣形の残差の相殺を切る（つまみが効いているかの対照）")
     s.set_defaults(fn=cmd_shape)
     s = sub.add_parser("meta", help="手練れの引きの尖りを掃引する")
     s.add_argument("--pow", type=float, action="append", default=[])
