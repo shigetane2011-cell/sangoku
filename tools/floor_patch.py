@@ -87,8 +87,47 @@ def sync():
     M._roster_cards.cache_clear() if hasattr(M._roster_cards, "cache_clear") else None
 
 
+def peel(check_only):
+    """**古びた帯調整を剥がす。** 調整を持つ札を、調整**なし**で測り直し、
+    帯の内側なら 0 に戻す。
+
+    値付けの土台が変わると（対象係数の再較正など）、以前に書いた調整は
+    その原因ごと消えていることがある。この道具は「いま帯の外にある札」しか
+    触らないので、**内側に入った札の調整は永久に残り続けていた**——実際に
+    馬岱〔追撃〕が、天井超過の原因が消えたあとも -3.8% を抱えたままで、
+    共通の物差し（§7.96）では -0.58 まで沈んでいた。冒頭の説明にある
+    「余りが出れば剥がす」は、これまで実装されていなかった。
+    """
+    rows = {g["名前"]: g for g in load_rows()}
+    held = {n: float(g["床調整"]) for n, g in rows.items()
+            if (g.get("床調整") or "").strip()}
+    if not held:
+        return
+    print("帯調整を持つ %d 枚を、調整なしで測り直す（古びていないか）"
+          % len(held), flush=True)
+    write_adj({n: 0.0 for n in held})
+    sync()
+    res = audit(list(held))
+    keep = {}
+    for n, v in res.items():
+        c = float(rows[n]["コスト"])
+        out = v < floor_of(c) or (c > 1.5 and v > ceil_of(c) + 0.10)
+        if out:
+            keep[n] = held[n]
+        else:
+            print("  剥がす: %-16s %+6.1f%% → 0   （調整なしで %+0.2f・帯の内側）"
+                  % (n, 100 * held[n], v), flush=True)
+    write_adj({**{n: 0.0 for n in held}, **keep})
+    sync()
+    if check_only:                      # --check では元に戻す
+        write_adj(held)
+        sync()
+
+
 def main():
     check_only = "--check" in sys.argv
+    if "--no-peel" not in sys.argv:
+        peel(check_only)
     rows = {g["名前"]: g for g in load_rows()}
     targets = [n for n, g in rows.items()
                if not (set(g["固有特性"].split("、")) & SKIP_TRAITS
