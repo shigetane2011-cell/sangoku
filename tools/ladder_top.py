@@ -393,8 +393,13 @@ def cmd_depth(args):
     """
     cards = _cards()
     base_pair, base_depth = dict(F.FORM_PAIR), dict(F.FORM_DEPTH)
-    F.FORM_PAIR.update({k: 0.0 for k in F.FORM_PAIR})
-    print("陣形の相殺は切って測る（素の盤面を見る）")
+    if args.pair:
+        v = [float(x) for x in args.pair.split(",")]
+        F.FORM_PAIR.update({(3, 4): v[0], (4, 2): v[1], (2, 3): v[2]})
+        print("陣形の相殺: {}".format(dict(F.FORM_PAIR)))
+    else:
+        F.FORM_PAIR.update({k: 0.0 for k in F.FORM_PAIR})
+        print("陣形の相殺は切って測る（素の盤面を見る）")
     print("狙い: 循環 魚鱗→鶴翼→雁行→魚鱗 の各辺 57%\n")
     print("{:>10s} {:>10s} {:>10s} {:>10s} {:>12s}".format(
         "雁行の深さ", "魚→鶴", "鶴→雁", "雁→魚", "後衛の伸び"))
@@ -448,6 +453,7 @@ def main():
     s = sub.add_parser("depth", help="雁行の深さを振って素の偏りを測る")
     s.add_argument("--mult", type=float, action="append", default=[])
     s.add_argument("--members", type=int, default=2)
+    s.add_argument("--pair", help="陣形の相殺を同時に入れる（既定は切る）")
     s.set_defaults(fn=cmd_depth)
     s = sub.add_parser("formpair", help="陣形の相殺を振って辺の動きを測る")
     s.add_argument("--set", action="append", default=[],
