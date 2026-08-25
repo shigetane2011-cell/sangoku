@@ -1941,6 +1941,15 @@ def _skill_targets(target: str, u, foe, own):
         return r or alive
     if "残兵力が最少" in target:
         return [min(alive, key=lambda x: x.ratio())]
+    # 狙い撃ちの選択子（§7.98）。**同じ見出しの札を重ねると同じ敵へ集まる**ので、
+    # 「散らばる範囲技」ではなく「特定の敵将を狙う編成」が組める。
+    # 位置ではなく相手の中身で選ぶため、相手の編成が対策になるのが利点。
+    if "知力が最高" in target:
+        return [max(alive, key=lambda x: x.wits)]
+    if "知力が最低" in target:
+        return [min(alive, key=lambda x: x.wits)]
+    if "兵力が最少" in target:           # 残兵力（割合）ではなく**頭数**が少ない隊
+        return [min(alive, key=lambda x: x.men)]
     if "正面" in target:                 # 敵1体（正面）: いちばん近い敵
         return [min(alive, key=lambda x: _d2(u, x))]
     if "1列" in target:                  # レーンは無いので「最も近い3枚」へ写す
@@ -4313,8 +4322,9 @@ def cmd_targets(args) -> None:
     print("対象範囲の値段（コスト点・効果は固定で対象だけ変える・前衛が撃つ）")
     print()
     print("  {:<22}{:>10}{:>10}{:>12}".format("対象", "打撃500%", "回復150%", "攻+10%30秒"))
-    foe_targets = ["敵1体（兵力が最多）", "敵1体（正面）", "敵1列", "敵前衛", "敵後衛",
-                   "敵正面2体", "敵全体"]
+    foe_targets = ["敵1体（兵力が最多）", "敵1体（兵力が最少）", "敵1体（正面）",
+                   "敵1体（知力が最高）", "敵1体（知力が最低）",
+                   "敵1列", "敵前衛", "敵後衛", "敵正面2体", "敵全体"]
     own_targets = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
                    "味方1列", "味方前衛", "味方後衛", "味方全体"]
     for t in foe_targets:

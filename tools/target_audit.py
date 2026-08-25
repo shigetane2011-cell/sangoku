@@ -249,7 +249,10 @@ def positive_control():
 # 見出しを知らないときに黙って通すのは、選択子が枝を持たずに既定へ落ちるのと
 # 同じ失敗である（実際それで「最前」を取り逃した）。札に新しい見出しを足す者は、
 # それを検める術もここへ足すこと。
-KNOWN_DESC = {"兵力が最多", "残兵力が最少", "攻撃力が最高", "損害が最大", "正面"}
+# 見出しは**丸ごと一致**で照らす。部分一致にすると「残兵力が最少」の中に
+# 「兵力が最少」が入っていて別の検査が誤って走る（この道具が実際に踏んだ）。
+KNOWN_DESC = {"兵力が最多", "兵力が最少", "残兵力が最少", "攻撃力が最高",
+              "知力が最高", "知力が最低", "損害が最大", "正面"}
 
 
 def _label_claims(target, u, picked, foes, own):
@@ -258,8 +261,9 @@ def _label_claims(target, u, picked, foes, own):
     ally = ("味方" in target) or ("自分" in target)
     pool = [x for x in (own if ally else foes) if x.men > 0.0]
     m = re.search(r"（([^）]+)）", target)
-    if m and m.group(1) not in KNOWN_DESC:
-        return False, "見出し「{}」を検める術がない（未知の指定）".format(m.group(1))
+    desc = m.group(1) if m else ""
+    if desc and desc not in KNOWN_DESC:
+        return False, "見出し「{}」を検める術がない（未知の指定）".format(desc)
     if not picked or not pool:
         return True, ""
     def d2(x):
@@ -282,21 +286,30 @@ def _label_claims(target, u, picked, foes, own):
         checks.append((all(x.is_front for x in picked), "前衛だけ"))
     if ("後衛" in target or "後列" in target) and "自分と" not in target:
         checks.append((all(not x.is_front for x in picked), "後衛だけ"))
-    if "兵力が最多" in target:
+    if desc == "兵力が最多":
         best = max(pool, key=lambda x: x.men)
         checks.append((picked[0].men >= best.men - 1e-6, "兵力が最も多い隊"))
-    if "残兵力が最少" in target:
+    if desc == "兵力が最少":
+        best = min(pool, key=lambda x: x.men)
+        checks.append((picked[0].men <= best.men + 1e-6, "兵力が最も少ない隊"))
+    if desc == "知力が最高":
+        best = max(pool, key=lambda x: x.wits)
+        checks.append((picked[0].wits >= best.wits - 1e-6, "知力が最も高い隊"))
+    if desc == "知力が最低":
+        best = min(pool, key=lambda x: x.wits)
+        checks.append((picked[0].wits <= best.wits + 1e-6, "知力が最も低い隊"))
+    if desc == "残兵力が最少":
         best = min(pool, key=lambda x: x.ratio())
         checks.append((picked[0].ratio() <= best.ratio() + 1e-9, "残兵力が最も少ない隊"))
-    if "攻撃力が最高" in target:
+    if desc == "攻撃力が最高":
         best = max(pool, key=lambda x: x.atk * x.atk_mult)
         checks.append((picked[0].atk * picked[0].atk_mult
                        >= best.atk * best.atk_mult - 1e-6, "攻撃力が最も高い隊"))
-    if "損害が最大" in target:
+    if desc == "損害が最大":
         best = max(pool, key=lambda x: x.men0 - x.men)
         checks.append(((picked[0].men0 - picked[0].men)
                        >= (best.men0 - best.men) - 1e-6, "損害が最も大きい隊"))
-    if "正面" in target and "2体" not in target:
+    if desc == "正面":
         near = min(pool, key=d2)
         checks.append((abs(d2(picked[0]) - d2(near)) < 1e-6, "いちばん近い隊"))
     if "1列" in target:
