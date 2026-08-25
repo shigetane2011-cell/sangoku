@@ -47,6 +47,9 @@ class Persona:
     role_w: Dict[str, float]    # 役割の重み
     form: str                   # 陣形の好み
     greed: float = 0.5          # 高コストへ寄せる度合い（0=薄く広く, 1=集中）
+    # --- 手練れ（§7.85・§7.103）。rear_share > 0 なら _meta_entry で組む ---
+    rear_share: float = 0.0     # 後衛へ回す予算の割合
+    wall_tank: float = 1.35     # 前衛で耐久役を選ぶ強さ（1.0 = こだわらない）
 
 
 PERSONAS: Tuple[Persona, ...] = (
@@ -80,11 +83,16 @@ PERSONAS: Tuple[Persona, ...] = (
     # 改設計前の6性格しか居なかった）。
     Persona("強弓", {F.ARC: 2.2, F.INF: 1.0, F.CAV: 0.5},
             {F.DPS: 2.4, F.BURST: 2.2, F.BAL: 1.0, F.SUP: 0.6, F.TANK: 0.4},
-            "魚鱗", 0.6),      # 壁3＋強弓3。§7.72 の実測で最も強い形
+            "魚鱗", 0.6, rear_share=0.50),   # 壁3＋強弓3。§7.72 で最も強い形
     Persona("重装", {F.INF: 2.0, F.CAV: 1.2, F.ARC: 0.6},
             {F.TANK: 2.6, F.BAL: 1.4, F.SUP: 1.0, F.DPS: 0.7, F.BURST: 0.4},
-            "鶴翼", 0.4),
+            "鶴翼", 0.4, rear_share=0.38),
 )
+
+# 手練れかどうかは**持ち物で決める**（§7.103）。名前の一覧を別に持つと、
+# 型を1つ足すたびに書き足すのを忘れて「登録はできたが手練れの器で組まれない」
+# 性格が生まれる。rear_share を持っていれば手練れ、が唯一の規則。
+META_PERSONAS = frozenset(p.name for p in PERSONAS if p.rear_share > 0)
 
 
 def _score(card: F.Card, p: Persona, want: float) -> float:
@@ -95,21 +103,58 @@ def _score(card: F.Card, p: Persona, want: float) -> float:
     return w * (1.0 + p.greed * (card.cost / max(want, 1e-6) - 1.0)) / (1.0 + d)
 
 
+# 手練れの引きの尖り具合（§7.103）。**大きいほど毎回いちばん強い札を取る。**
+# 決め打ちで取ると種を変えても同じデッキが出る——実測で 強弓02 と 強弓03 は
+# 3陣地とも6枚まるごと同じだった。上位が同じ顔で埋まるのはラダーとして
+# 困るので、**枠ごとに重みつきで引く**。0 にすると条件を満たす札から等確率。
+#
+# 掃引（性格6つ18人の固定の場へ、手練れ6人 × 972局。tools/ladder_top.py meta）:
+#
+#   尖り   手練れ6人の平均勝率   同じ型の3人の重なり（6枚中）
+#    12         82.2%                 3.2（最大 6 ＝丸ごと同じ陣地あり）
+#     8         77.4%                 2.3
+#     6         79.4%                 1.8（最大 4）
+#     4         76.0%                 1.2
+#
+# **強さはほぼ平ら、重なりだけが下がる。** 6 を採る——性格まかせの在野
+# （鉄壁は 0〜2枚）と同じ水準まで散り、手練れは上位に居続ける。
+META_POW = 6.0
+
+
+def _draw(rng, cands, weight, pow_, bias=None):
+    """候補から重みつきで1枚引く。重みは weight(c) を pow_ 乗したもの。
+
+    **最大値で正規化してから乗す。** 素の武力（〜290）を6乗すると桁が溢れ、
+    浮動小数の丸めで下位の札の重みが 0 になる（＝決め打ちに戻る）。
+
+    bias は**乗さない**線形の好み（兵種の重みなど）。乗すと 2.4 倍の好みが
+    191 倍になり、好みではなく縛りになる。
+    """
+    top = max(weight(c) for c in cands)
+    w = [max(weight(c) / top, 1e-9) ** pow_ * (bias(c) if bias else 1.0)
+         for c in cands]
+    return rng.choices(cands, weights=w, k=1)[0]
+
+
 # 手練れの在野（§7.85）。**性格の好みではなく、測って分かった型で組む** —
 # 「安い壁で受け、武/点の高い強弓を束ねる」（§7.71-72 の実測）。性格だけで
 # 組むと役割の重みしか見ないので同じ役割の中の効率が野放しになり、上の帯
 # （赤壁40点）ほど手練れのデッキに一方的に負けていた（実測: 24人中24人に敗北）。
-META_PERSONAS = {"強弓", "重装"}
 
 
 def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
                 caps=None) -> M.Entry:
-    """壁＋強弓で組む。強弓は後衛に厚く、重装は前衛に厚く配分する。"""
+    """壁＋主砲で組む。配分は性格の rear_share（後衛へ回す予算の割合）。
+
+    前衛の重みは **コスト（と耐久役の好み）を尖らせ、兵種は線形に**乗せる。
+    騎兵には耐久役が1枚も無いので、wall_tank を 1.0 にしないと騎兵の壁は
+    作れない（§7.103 で「突騎」の型を測るときに判った）。
+    """
     rng = random.Random("meta/{}/{}".format(p.name, seed))
     form = FORM_BY_NAME[p.form]
     nf = form.n_front
     n_rear = M.UNIT_SIZE - nf
-    rear_share = 0.50 if p.name == "強弓" else 0.38
+    rear_share = p.rear_share
     used: set = set()
     units: List[F.Army] = []
     arcs = [c for c in cards if c.typ == F.ARC and c.might > 0]
@@ -120,33 +165,35 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
         # 後衛: **予算内で武力の総和が大きくなるように**選ぶ。武/点で選ぶと
         # 1点の伝令（武77/1点＝77）が満寵（183/3点＝61）より上に来てしまい、
         # 兵力の薄い札ばかりの後衛になる（コスト曲線が下に凸なため）。
-        for c in sorted(arcs, key=lambda c: -(c.might + rng.random() * 40)):
-            if len(pick_r) == n_rear:
+        # 武力を重みに**引く**（決め打ちにしない理由は META_POW の項）。
+        while len(pick_r) < n_rear:
+            ok = [c for c in arcs
+                  if M.person_of(c) not in used
+                  and c.cost + (n_rear - len(pick_r) - 1) <= budget_r]
+            if not ok:
                 break
-            if M.person_of(c) in used:
-                continue
-            if c.cost + (n_rear - len(pick_r) - 1) <= budget_r:
-                pick_r.append(c); used.add(M.person_of(c)); budget_r -= c.cost
+            c = _draw(rng, ok, lambda x: x.might, META_POW)
+            pick_r.append(c); used.add(M.person_of(c)); budget_r -= c.cost
         while len(pick_r) < n_rear:      # 予算が足りなければ安い弓で埋める
             c = next(x for x in sorted(arcs, key=lambda x: x.cost)
                      if M.person_of(x) not in used)
             pick_r.append(c); used.add(M.person_of(c))
         # 前衛: 残りを壁へ**均等に**配る。高い順に取ると最後の枠に1点札の穴が
         # 空き、そこが46秒で崩れて戦列が破れる（実測で赤壁の負け筋がこれ）。
-        # 枠ごとに「残り予算÷残り枠」を狙って、それを超えない最も硬い札を選ぶ。
+        # 枠ごとに「残り予算÷残り枠」を狙って、それを超えない札から引く。
+        # **枠を埋める額は狙いどおりのまま**（重みはコストと耐久に置く）。
         left = cap - sum(c.cost for c in pick_r)
         for k in range(nf):
             slots_left = nf - k
             target = left / slots_left
-            best = None
-            for c in mel:
-                if M.person_of(c) in used or c.cost > target + 1e-9:
-                    continue
-                key = (c.role == F.TANK, c.cost)
-                if best is None or key > (best.role == F.TANK, best.cost):
-                    best = c
-            if best is None:
+            ok = [c for c in mel
+                  if M.person_of(c) not in used and c.cost <= target + 1e-9]
+            if not ok:
                 continue
+            best = _draw(rng, ok,
+                         lambda x: x.cost * (p.wall_tank if x.role == F.TANK
+                                             else 1.0),
+                         META_POW, bias=lambda x: p.typ_w.get(x.typ, 0.3))
             pick_f.append(best); used.add(M.person_of(best)); left -= best.cost
         while len(pick_f) < nf:
             c = next(x for x in sorted(mel, key=lambda x: x.cost)
@@ -172,7 +219,7 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     caps を渡すと上限を差し替えられる（既定は M.REGULATIONS）。たたき台
     生成（§7.54）が「上限の9割で組んで伸びしろを残す」ために使う。
     """
-    if p.name in META_PERSONAS:
+    if p.rear_share > 0:
         return _meta_entry(cards, p, seed, caps)
     rng = random.Random("{}/{}".format(p.name, seed))
     pool = sorted(cards, key=lambda c: (c.cost, c.name))
