@@ -811,6 +811,15 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   margin: 10px 0 2px; }
 .guide-body dd { margin: 0; font-size: 13px; line-height: 1.8;
   color: var(--ink); }
+/* 用語（§7.111）: 手引きの後半。語数が多いので見出しで段を割り、
+   dt を少し詰めて一覧性を上げる。**探す**ための段であって読み物ではない。 */
+.guide-sub { font-family: var(--font-min); color: var(--gold-hi);
+  font-size: 15px; margin: 22px 0 4px;
+  border-top: 1px solid #2b2214; padding-top: 14px; }
+.guide-note { font-size: 12px; color: var(--sub); margin: 0 0 4px;
+  line-height: 1.7; }
+.guide-body.terms dt { margin: 9px 0 1px; font-size: 13px; }
+.guide-body.terms dd { font-size: 12.5px; line-height: 1.75; }
 .prep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
   margin-bottom: 18px; align-items: start; }
 .foe-panel h2 .sub, .mine-panel h2 .sub { font-size: 12px; color: var(--sub);
