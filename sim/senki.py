@@ -186,6 +186,21 @@ def board_gate(cx, player_id: str) -> Dict[str, bool]:
 
 # ------------------------------------------------------- 持ち込み（§7.62）
 def enemy_cost(cards, b: Dict) -> float:
+    """敵デッキの重さ。**名目のコストの合計**。
+
+    【測って却下】床調整（`design.Design.floor_adj`）は**名目のコストを変えずに
+    総合値を ±10% 動かす**ので、敵デッキに床調整の札が集まる戦だけ「同じ重さの
+    はずなのに実力だけ上がった」形になる。実際に踏んだ — 徐晃と張郃へ +0.10 を
+    入れたら、**その2枚が揃って出る「長駆の斧」だけが 67% → 0%** に落ちた。
+
+    そこで実効の重さを `cost + adj × 能力値コスト` にして上限を +1 したが、
+    **全52戦では悪化した**（難所 14戦 → 16戦）。`suggest_deck` の組み方が上限に
+    対して単調ではなく、上限を上げると別の（弱い）草案を引くことがあるため。
+    効かないうえに小数の上限を持ち込む（下の但し書き）ので、名目に戻した。
+
+    床調整の札が敵に集まる戦が難しくなるのは残った課題（§7.114）。直すなら
+    上限ではなく**その戦の敵デッキ**を見ること。
+    """
     return enemy_army(cards, b).total_cost()
 
 
@@ -201,10 +216,13 @@ def player_cap(cards, b: Dict) -> float:
     # **整数で持つ。** 小数の上限を返すと、草案（`play.draft_deck`）が上限を
     # 丸めて組んでから丸めない値と突き合わせるので、**組めた編成を自分で弾く**
     # （実際に踏んだ: 52戦中22戦が「草案が組めない」になった）。
+    # **差し引きのあとで整数へ丸める。** `enemy_cost` に小数を返させた回
+    # （§7.114・却下済み）に丸め忘れて、9戦が「草案が組めない」になった。
+    # この但し書きを書いた本人が同じ回に踏み直しているので、丸めは残す。
     ec = enemy_cost(cards, b)
     cap = ec - round(ec * SENKI_EDGE_FRAC) - (BOSS_EXTRA if b["boss"] else 0.0)
     board_cap = dict(M.REGULATIONS)[b["board"]]
-    return max(float(M.UNIT_SIZE), min(cap, board_cap))
+    return float(max(M.UNIT_SIZE, min(int(round(cap)), board_cap)))
 
 
 def battle_hint(cards, unlocked, b: Dict) -> str:
