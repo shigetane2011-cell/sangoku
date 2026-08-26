@@ -493,21 +493,30 @@ def _combo_army(cards, form_name, front, rear, cap, rng, used):
                 k + 1, F.TYPE_JP.get(t, t), target)
         c = D._draw(rng, ok, lambda x: x.cost, D.META_POW)
         picks.append(c); used.add(M.person_of(c)); left_f -= c.cost
-    # 後衛: 残り予算で、盤面と同じ攻撃の重みで引く
+    # 後衛: **前衛と同じく「残り予算 ÷ 残り枠」を狙う。**
+    #
+    # 初版は残り予算いっぱいまで許して攻撃の重みで引いたので、最初の2枠が
+    # 高い弓を独占して**最後の枠に1点札の穴**が空いた。槍を混ぜた側だけは
+    # 槍の最安を取り置くので均等に配られ、結果として「槍 対 弓」ではなく
+    # 「均等に配った陣 対 穴の空いた陣」を測ってしまった（⑦が①に 100%）。
+    # §7.85 が前衛について記録している負け筋を、後衛で再現していた。
     left_r = cap - sum(c.cost for c in picks)
     for k, t in enumerate(rear):
-        # 残りの枠を**その枠の兵種の最安**で見積もって取り置く。1点ずつだと
-        # 槍（最安2点）の枠が埋まらない（実際に踏んだ）。
+        rest = rear[k + 1:]
         floor = 0.0
-        for t2 in rear[k + 1:]:
+        for t2 in rest:
             av = [c.cost for c in pool[t2] if M.person_of(c) not in used]
             floor += min(av) if av else 99.0
-        room = left_r - floor
+        target = left_r / (len(rear) - k)      # 均等割りの狙い額
+        room = min(left_r - floor, target)
         ok = [c for c in pool[t]
               if M.person_of(c) not in used and c.cost <= room + 1e-9]
+        if not ok:      # 狙い額で埋まらなければ取り置きぶんだけ緩める
+            ok = [c for c in pool[t] if M.person_of(c) not in used
+                  and c.cost <= left_r - floor + 1e-9]
         if not ok:
             return None, "後衛{}枠目（{}）が残り{:.1f}で埋まらない".format(
-                k + 1, t, room)
+                k + 1, t, left_r - floor)
         c = D._draw(rng, ok, D._hitting, D.META_POW)
         picks.append(c); used.add(M.person_of(c)); left_r -= c.cost
     army = F.Army(tuple(picks), form)
