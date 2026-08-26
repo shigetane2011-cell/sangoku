@@ -142,6 +142,17 @@ def _draw(rng, cands, weight, pow_, bias=None):
 # （赤壁40点）ほど手練れのデッキに一方的に負けていた（実測: 24人中24人に敗北）。
 
 
+def _hitting(c: F.Card) -> float:
+    """その札の攻撃の重み。**盤面と同じ混ぜ方を使う**（§7.106）。
+
+    盤面は `武力×(1-w) + 知力×w`（w は兵種の知力ウェイト。弓は 0.35）で撃つ。
+    器が武力だけで選ぶのは近似で、知力寄りの弓を過小評価する。同じ量で
+    判断しないと、**器が盤面と違うものを最適化する**。
+    """
+    w = F.INT_WEIGHT[c.typ]
+    return max(c.might * (1.0 - w) + c.wits * w, 1e-6)
+
+
 def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
                 caps=None) -> M.Entry:
     """壁＋主砲で組む。配分は性格の rear_share（後衛へ回す予算の割合）。
@@ -162,7 +173,7 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
     for _label, cap in (caps if caps is not None else M.REGULATIONS):
         pick_r, pick_f = [], []
         budget_r = cap * rear_share
-        # 後衛: **予算内で武力の総和が大きくなるように**選ぶ。武/点で選ぶと
+        # 後衛: **予算内で攻撃の総和が大きくなるように**選ぶ。武/点で選ぶと
         # 1点の伝令（武77/1点＝77）が満寵（183/3点＝61）より上に来てしまい、
         # 兵力の薄い札ばかりの後衛になる（コスト曲線が下に凸なため）。
         # 武力を重みに**引く**（決め打ちにしない理由は META_POW の項）。
@@ -172,7 +183,7 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
                   and c.cost + (n_rear - len(pick_r) - 1) <= budget_r]
             if not ok:
                 break
-            c = _draw(rng, ok, lambda x: x.might, META_POW)
+            c = _draw(rng, ok, _hitting, META_POW)
             pick_r.append(c); used.add(M.person_of(c)); budget_r -= c.cost
         while len(pick_r) < n_rear:      # 予算が足りなければ安い弓で埋める
             c = next(x for x in sorted(arcs, key=lambda x: x.cost)
