@@ -146,10 +146,20 @@ def _skill_display(g, sk_row) -> str:
             _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
     m = _re.search(r"混乱\s*(\d+)%（(\d+)秒）", raw)
     if m:
-        parts.append("混乱 {}%（{:.0f}分間）".format(m.group(1), F.mins(float(m.group(2)))))
+        # 「20%」が**何の20%か**が読めない（テストプレイの指摘: 部隊の20%？
+        # 成功確率？）。混乱は成功判定ではなく状態の**濃さ**で、結果は2つ —
+        # 出力が落ちることと、与ダメージの一部が味方へ向くこと。**式から
+        # 実数を出して括弧へ入れる**（§7.47: 読めない内部の数字を見せない）。
+        c = float(m.group(1)) / 100.0
+        parts.append("混乱 {}%（出力 -{:.0f}%・同士討ち {:.0f}%／{:.0f}分間）".format(
+            m.group(1), 100.0 * (1.0 - 1.0 / (1.0 + c)),
+            100.0 * F.CHAOS_FF * c / (1.0 + c), F.mins(float(m.group(2)))))
     m = _re.search(r"行動阻害\s*(\d+)秒", raw)
     if m:
-        parts.append("足止め {:.0f}分間".format(F.mins(float(m.group(1)))))
+        # 混乱と並ぶと「足止めにも%があるのか」と読まれる（テストプレイの
+        # 指摘）。**止まるのは攻撃と移動の両方**だと言い切る。
+        parts.append("足止め {:.0f}分間（攻撃も前進も止まる）".format(
+            F.mins(float(m.group(1)))))
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
         parts.append("代償 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
