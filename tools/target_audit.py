@@ -252,7 +252,7 @@ def positive_control():
 # 見出しは**丸ごと一致**で照らす。部分一致にすると「残兵力が最少」の中に
 # 「兵力が最少」が入っていて別の検査が誤って走る（この道具が実際に踏んだ）。
 KNOWN_DESC = {"兵力が最多", "兵力が最少", "残兵力が最少", "攻撃力が最高",
-              "知力が最高", "知力が最低", "損害が最大", "正面"}
+              "知略が最高", "知略が最低", "損害が最大", "正面"}
 
 
 def _label_claims(target, u, picked, foes, own):
@@ -292,10 +292,10 @@ def _label_claims(target, u, picked, foes, own):
     if desc == "兵力が最少":
         best = min(pool, key=lambda x: x.men)
         checks.append((picked[0].men <= best.men + 1e-6, "兵力が最も少ない隊"))
-    if desc == "知力が最高":
+    if desc == "知略が最高":
         best = max(pool, key=lambda x: x.wits)
         checks.append((picked[0].wits >= best.wits - 1e-6, "知力が最も高い隊"))
-    if desc == "知力が最低":
+    if desc == "知略が最低":
         best = min(pool, key=lambda x: x.wits)
         checks.append((picked[0].wits <= best.wits + 1e-6, "知力が最も低い隊"))
     if desc == "残兵力が最少":

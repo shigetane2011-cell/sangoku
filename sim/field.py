@@ -1293,6 +1293,12 @@ class Card:
     # 決めゼリフ（generals.csv「台詞」）。技の初回発動時に実況へ出す。**飾りで
     # あり測定に影響しない**（events を渡したときだけ読まれる）。
     quote: str = ""
+    # カード表記の 知略（1〜100・§7.106）。**狙い撃ちの「知略が最高/最低」は
+    # これで引く。** 内部の wits（知力）はコストと兵種で膨らむ隠し帳簿なので、
+    # あれで選ぶと画面に知略60の弓兵が「最も知略が高い敵」として撃たれる
+    # （実測: 6体から選ぶとき、知略で選んだ的と一致するのは 42.2% だけ）。
+    # 0 なら未設定（合成カード）で、そのときだけ wits へ落とす。
+    fame_wits: float = 0.0
     # 兵力の乗数（§7.60 戦記番付の周回スケーリング。PvE専用）。ダメージは
     # men×atk に比例するので、**兵力だけ掛ければ耐久と火力が同率で上がる**
     # （atk まで掛けると二乗で効く）。必殺技は兵力に比例しない設計（§7.5）の
@@ -1398,7 +1404,7 @@ class Unit:
         "total_len", "progress", "is_front", "x0", "detour",
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
-        "taken", "stun_time", "sup_lost", "pair",
+        "taken", "stun_time", "sup_lost", "pair", "fame_wits",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1494,6 +1500,7 @@ class Unit:
         self.detour = 0.0   # 0 = 正面から取り付く / 1 = 敵を回り込む
         self.name = card.name
         self.quote = card.quote
+        self.fame_wits = card.fame_wits
         self.faction = card.faction
         self.atk_mult = 1.0
         self.def_mult = 1.0
@@ -1921,6 +1928,15 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  power_hi=float(hi.group(1)) / 100.0 if hi else 0.0)
 
 
+def _fame_wits(u: "Unit") -> float:
+    """狙い撃ちが見る「知略」（§7.106）。**画面に出ている量で選ぶ。**
+
+    合成カード（値段の測定）は知略を持たないので、そのときだけ内部の知力へ
+    落とす。実カードでは必ず知略が入っているので、この分岐は測定専用である。
+    """
+    return u.fame_wits if u.fame_wits > 0.0 else u.wits
+
+
 def _skill_targets(target: str, u, foe, own):
     """技の対象を返す。味方対象なら own の側から選ぶ。
 
@@ -1985,10 +2001,10 @@ def _skill_targets(target: str, u, foe, own):
     # 狙い撃ちの選択子（§7.98）。**同じ見出しの札を重ねると同じ敵へ集まる**ので、
     # 「散らばる範囲技」ではなく「特定の敵将を狙う編成」が組める。
     # 位置ではなく相手の中身で選ぶため、相手の編成が対策になるのが利点。
-    if "知力が最高" in target:
-        return [max(alive, key=lambda x: x.wits)]
-    if "知力が最低" in target:
-        return [min(alive, key=lambda x: x.wits)]
+    if "知略が最高" in target:
+        return [max(alive, key=_fame_wits)]
+    if "知略が最低" in target:
+        return [min(alive, key=_fame_wits)]
     if "兵力が最少" in target:           # 残兵力（割合）ではなく**頭数**が少ない隊
         return [min(alive, key=lambda x: x.men)]
     if "正面" in target:                 # 敵1体（正面）: いちばん近い敵
@@ -4364,7 +4380,7 @@ def cmd_targets(args) -> None:
     print()
     print("  {:<22}{:>10}{:>10}{:>12}".format("対象", "打撃500%", "回復150%", "攻+10%30秒"))
     foe_targets = ["敵1体（兵力が最多）", "敵1体（兵力が最少）", "敵1体（正面）",
-                   "敵1体（知力が最高）", "敵1体（知力が最低）",
+                   "敵1体（知略が最高）", "敵1体（知略が最低）",
                    "敵1列", "敵前衛", "敵後衛", "敵正面2体", "敵全体"]
     own_targets = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
                    "味方1列", "味方前衛", "味方後衛", "味方全体"]
