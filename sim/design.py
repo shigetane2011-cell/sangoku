@@ -71,7 +71,7 @@ from __future__ import annotations
 import math
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Any, Dict
 
 from . import field as F
 
@@ -80,7 +80,20 @@ POWER_BASE = 1.440
 POWER_SLOPE = 0.2039
 
 # 知力の傾き k = 知力 / 武力。**設計者が選ぶ軸**であり、コストや役割から導かない。
+#
+# 実カードでは名前ではなく**数**で持つ（§7.106）。5段階だと呂布と張飛が同じ
+# 「勇将」に潰れ、しかも大半の札は必殺技の種別から自動で決まっていたので、
+# **人物のイメージが内部値に入っていなかった**。いまは カード表記の
+# 武勇・知略から `rosterdata.tilt_of` が連続値を出す。ここの名前は設計の
+# 検算や合成カード用に残す（早見表としても読める）。
 WITS_TILT = {"智将": 1.90, "才幹": 1.35, "中庸": 1.00, "武辺": 0.75, "勇将": 0.55}
+
+
+def tilt_k(tilt) -> float:
+    """傾きを数へ。名前でも数でも受ける（**呼び側で分岐させない**）。"""
+    if isinstance(tilt, str):
+        return WITS_TILT[tilt]
+    return float(tilt)
 
 # 役割は総合値を変えず、兵力 ↔ 攻撃力 の配分だけを変える（§4.6）。
 # **field.ROLE_MEN の写しである。** 片方だけ触ると実カードが曲線から外れる。
@@ -102,7 +115,7 @@ class Design:
     cost: float
     typ: str                    # inf / cav / arc
     role: str = "均衡"
-    tilt: str = "中庸"          # 知力の傾き
+    tilt: Any = "中庸"          # 知力の傾き（名前 or 数）
     kisei: str = "標準"         # 気勢（ゲージの溜まる速さ）
     gauge_cost: float = 100.0   # 消費ゲージ（技の格）
     gauge_init: float = 0.0
@@ -200,7 +213,7 @@ def derive(d: Design) -> Dict[str, float]:
     # を満たすように武力を決める。こうすると武力・知力を一次値として持ちながら、
     # 導出された攻撃力がコスト曲線の上に乗る。
     w = F.INT_WEIGHT[d.typ]
-    k = WITS_TILT[d.tilt]
+    k = tilt_k(d.tilt)
     might = atk / (1.0 - w + k * w)
     wits = k * might
 
@@ -734,7 +747,7 @@ def tilt_coef(skill_kind: str, typ: str, tilt: str) -> float:
     """
     v = F.SKILL_WITS[skill_kind]
     w = F.INT_WEIGHT[typ]
-    k = WITS_TILT[tilt]
+    k = tilt_k(tilt)
     return (1.0 - v + k * v) / (1.0 - w + k * w)
 
 
@@ -821,7 +834,7 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     # 知力比の弱体（§7.67）: 素の弱体の値段 × (知力傾き)^WITS_MOD。
     # 相手の知力はプールの平均（≒中庸）と見なす — 智将が使えば効き、
     # 脳筋が使えば効かれにくい、という差を撃ち手側の傾きで払わせる。
-    wk = WITS_TILT[tilt] ** F.WITS_MOD
+    wk = tilt_k(tilt) ** F.WITS_MOD
     for key, amt, secs in getattr(skill, "wits_mods", ()):
         if key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx * wk
