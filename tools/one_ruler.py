@@ -67,7 +67,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV = os.path.join(ROOT, "sim", "data", "generals.csv")
-SKIP_TRAITS = {"command", "vs_wei", "vs_shu", "vs_go"}   # 計器の癖で測れない
+SKIP_TRAITS = {"command"}          # 計器の癖で測れない（陣頭指揮）
+# 対勢力（vs_wei / vs_shu / vs_go）は §7.111 まで SKIP_TRAITS に入っていた。
+# 合成カードが勢力を持たないので**絶対に発火せず**、測ると「払っているのに
+# 何も返らない札」に見えるため。結果、これを持つ13枚は帯調整の点検にも
+# 一度も乗っていなかった（関羽・司馬懿・周瑜を含む）。
+#
+# **相手に勢力を持たせて測る。** 敵が全員その勢力なら必ず当たり、別の勢力なら
+# 当たらない。プールの勢力比で重みを付けて平均すれば、**実戦での期待値**になる。
+# 群雄にはどの対勢力も当たる（field._vs_hits・CSV の備考）。
+FACTION_MIX = (("魏", 33), ("蜀", 33), ("呉", 31), ("群雄", 23))   # プールの実数
 FORMS = ("鶴翼", "魚鱗", "雁行")
 NF = {"鶴翼": 4, "魚鱗": 3, "雁行": 2}
 
@@ -98,6 +107,17 @@ def _cost(A_rows, B_rows, form, slope, dt=0.5):
     return (tot / n) / slope
 
 
+VS_KEYS = ("vs_wei", "vs_shu", "vs_go")
+
+
+def _tint(rows, faction):
+    """行の札に勢力を塗る。**対勢力が当たるかどうかは相手の勢力で決まる。**"""
+    import dataclasses
+    front, rear = rows
+    f = lambda xs: [dataclasses.replace(x, faction=faction) for x in xs]
+    return f(front), f(rear)
+
+
 def measure(job):
     name, form_name = job
     from sim import field as G
@@ -116,7 +136,18 @@ def measure(job):
         ruler = G._synth(c.cost, G.INF, G.TANK)     # 前衛の物差し
         A = _rows(form_name, c, None, ff, rf)
         B = _rows(form_name, ruler, None, ff, rf)
-    return name, form_name, _cost(A, B, form, G.cost_yardstick(0.5))
+    slope = G.cost_yardstick(0.5)
+    if not (set(G.trait_keys(c.trait)) & set(VS_KEYS)):
+        return name, form_name, _cost(A, B, form, slope)
+    # 対勢力を持つ札は**相手の勢力を振って重み付き平均**（§7.111）。
+    # 物差しの側（B）も同じ勢力に塗る — 塗らないと「勢力を持つ軍 対 持たない軍」
+    # を測ることになり、測りたいもの以外が差に混ざる。
+    tot = wsum = 0.0
+    for fac, w in FACTION_MIX:
+        v = _cost(_tint(A, fac), _tint(B, fac), form, slope)
+        tot += v * w
+        wsum += w
+    return name, form_name, tot / wsum
 
 
 def targets(rows):
