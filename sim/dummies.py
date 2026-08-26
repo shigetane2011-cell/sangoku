@@ -50,6 +50,7 @@ class Persona:
     # --- 手練れ（§7.85・§7.103）。rear_share > 0 なら _meta_entry で組む ---
     rear_share: float = 0.0     # 後衛へ回す予算の割合
     wall_tank: float = 1.35     # 前衛で耐久役を選ぶ強さ（1.0 = こだわらない）
+    rear_spear: int = 0         # 後衛のうち何枠を槍歩兵にするか（§7.107）
 
 
 PERSONAS: Tuple[Persona, ...] = (
@@ -62,7 +63,7 @@ PERSONAS: Tuple[Persona, ...] = (
     #   鶴翼（弓2） … 近接が主役
     Persona("鉄壁", {F.INF: 1.8, F.CAV: 0.9, F.ARC: 0.9},
             {F.TANK: 2.5, F.SUP: 1.5, F.BAL: 1.0, F.DPS: 0.6, F.BURST: 0.4},
-            "魚鱗", 0.3),
+            "魚鱗", 0.3, rear_spear=1),
     Persona("疾風", {F.CAV: 1.8, F.INF: 1.0, F.ARC: 0.7},
             {F.BURST: 2.5, F.DPS: 2.0, F.BAL: 1.0, F.TANK: 0.6, F.SUP: 0.4},
             "鶴翼", 0.7),
@@ -86,7 +87,7 @@ PERSONAS: Tuple[Persona, ...] = (
             "魚鱗", 0.6, rear_share=0.50),   # 壁3＋強弓3。§7.72 で最も強い形
     Persona("重装", {F.INF: 2.0, F.CAV: 1.2, F.ARC: 0.6},
             {F.TANK: 2.6, F.BAL: 1.4, F.SUP: 1.0, F.DPS: 0.7, F.BURST: 0.4},
-            "鶴翼", 0.4, rear_share=0.38),
+            "鶴翼", 0.4, rear_share=0.38, rear_spear=1),
 )
 
 # 手練れかどうかは**持ち物で決める**（§7.103）。名前の一覧を別に持つと、
@@ -212,7 +213,10 @@ def _meta_entry(cards: Sequence[F.Card], p: Persona, seed: int,
             pick_f.append(c); used.add(M.person_of(c))
         pick = _spend_rest(pick_f + pick_r, list(cards), used, p, cap)
         pick = _spend_last(pick, list(cards), used, cap)
-        units.append(F.Army(tuple(_order(pick, nf)), form))
+        pick = _order(pick, nf)
+        pick = _swap_rear_spear(pick, nf, list(cards), used, cap, rng,
+                                p.rear_spear)
+        units.append(F.Army(tuple(pick), form))
     return M.Entry(tuple(units), name=p.name)
 
 
@@ -270,7 +274,9 @@ def make_entry(cards: Sequence[F.Card], p: Persona, seed: int,
             used.add(M.person_of(c))
         pick = _spend_rest(pick, pool, used, p, cap)
         pick = _spend_last(pick, pool, used, cap)
-        units.append(F.Army(tuple(_order(pick, nf)), FORM_BY_NAME[p.form]))
+        pick = _order(pick, nf)
+        pick = _swap_rear_spear(pick, nf, pool, used, cap, rng, p.rear_spear)
+        units.append(F.Army(tuple(pick), FORM_BY_NAME[p.form]))
     return M.Entry(tuple(units), name=p.name)
 
 
@@ -304,6 +310,39 @@ def _spend_last(pick: List[F.Card], pool: Sequence[F.Card], used: set,
             left = cap - sum(x.cost for x in pick)
             if left < 1.0:
                 break
+    return pick
+
+
+def _swap_rear_spear(pick: List[F.Card], n_front: int, cards: Sequence[F.Card],
+                     used: set, cap: float, rng, n: int) -> List[F.Card]:
+    """後衛の n 枠を槍歩兵へ差し替える（§7.107）。**組めなければ何もしない。**
+
+    規則は槍歩兵を後衛に許しているのに、器は「後衛はちょうど 6-前衛枚数 の
+    弓兵」と決め打ちで組むので、**在野72部隊のうち0部隊**しか使っていなかった。
+    強い型が稽古台に居ないのはラダーとして片手落ちなので、道を作る。
+
+    **制約を解き直さず、出来上がりを1枚ずつ差し替える。** 槍は9枚しか無く、
+    3陣地で18人が別人物なので、生成の制約に3つ目の兵種を足すと詰みやすい
+    （計器を書いたときに実際に踏んだ）。差し替えなら失敗しても元の編成が残る。
+    """
+    if n <= 0:
+        return pick
+    spears = [c for c in cards if c.typ == F.INF and c.spear
+              and M.person_of(c) not in used]
+    if not spears:
+        return pick
+    rear = [i for i in range(n_front, len(pick)) if pick[i].typ == F.ARC]
+    for i in rear[:n]:
+        room = pick[i].cost + (cap - sum(c.cost for c in pick))
+        ok = [c for c in spears if c.cost <= room + 1e-9]
+        if not ok:
+            continue
+        # 抜ける弓と**同じくらいの重さ**を選ぶ（穴も余りも作らない）
+        c = min(ok, key=lambda x: abs(x.cost - pick[i].cost))
+        used.discard(M.person_of(pick[i]))
+        used.add(M.person_of(c))
+        spears.remove(c)
+        pick[i] = c
     return pick
 
 
