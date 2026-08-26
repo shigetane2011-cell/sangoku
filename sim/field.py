@@ -893,6 +893,11 @@ WITS_MOD = CHAOS_WITS   # 知力比の状態効果（§7.67）も同じ傾きを
 # 実測: 0.6 でも行動面の係数は 騎1.058 / 弓1.021 と 1.0 付近に留まる。
 # **素の公平さを壊さずに個性だけ足せる。** 3兵種の時間プロファイルが揃った。
 CHARGE_BONUS = 0.6      # 突撃時の上乗せ（0 で無効）
+# 迂回の判定（§7.108）。敵の毎秒の削りのうち後衛が出す割合がこれを超えると
+# 回り込み始め、GAIN の傾きで 0..1 へ伸びる。0.5 が「前後で半々」。
+# **上げるほど回り込まなくなる。** 崖を作らないよう連続量のまま扱う。
+DETOUR_MID = 0.5
+DETOUR_GAIN = 2.0
 CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
 # 馬上回避（§7.73 試作）: 駆けている騎兵には矢が当たりにくい。射程持ちからの
 # 被害を、乱戦に入るまで減らす。勢い（CHARGE_TAU）と同じ時定数で滑らかに
@@ -1669,6 +1674,11 @@ def _softness(units: Sequence[Unit]) -> float:
     return 1.0 / max(sum(u.effective_hp() for u in units) / len(units), 1e-9)
 
 
+def _row_output(units: Sequence[Unit]) -> float:
+    """その行が出している毎秒の削り。**迂回の判定はここで決める**（§7.108）。"""
+    return sum(u.men * u.atk / max(u.interval, 1e-9) for u in units)
+
+
 def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
                 foe_form: Formation) -> None:
     """開戦時に各札の経路を決める。
@@ -1687,11 +1697,22 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
     if not foe_rear:
         foe_rear = foe_front
 
-    s_front = _softness(foe_front)
-    s_rear = _softness(foe_rear)
-    w = s_rear / (s_front + s_rear) if (s_front + s_rear) > 0 else 0.5
-    # w は 0.5 を中心に動く。0.5 を「差がない」に写して 0..1 へ伸ばす。
-    w = min(max((w - 0.5) * 2.0, 0.0), 1.0)
+    # **回り込む価値は「柔らかさ」ではなく「出どころ」で決める**（§7.108）。
+    #
+    # 旧実装は敵後衛の柔らかさ（実効耐久の逆数）を見ていた。ところが弓兵は
+    # ACT_COEF の補正で兵力が 1.55倍あり、防御が低くても**実効耐久では歩兵を
+    # 上回る**（同コスト6で 弓 22498 対 歩 16958）。後衛が硬い限り w は
+    # 永久に 0 を割り、**騎兵は一度も回り込まなかった**（実測: 雁行の後衛に
+    # 諸葛亮・司馬懿・周瑜・陸遜を並べても迂回度は4枚とも 0.00）。
+    #
+    # 回り込む理屈は「後衛は柔らかいから」ではなく「**敵の削りの出どころが
+    # 後ろにあるから**」である。前衛を挽いても盾を減らすだけで、痛みは止まらない。
+    # 行ごとの毎秒の削りで比べる。
+    o_front = _row_output(foe_front)
+    o_rear = _row_output(foe_rear)
+    w = o_rear / (o_front + o_rear) if (o_front + o_rear) > 0 else 0.5
+    # w は DETOUR_MID を中心に動く。そこを「差がない」に写して 0..1 へ伸ばす。
+    w = min(max((w - DETOUR_MID) * DETOUR_GAIN, 0.0), 1.0)
 
     foe_edge = foe_form.frontage / 2.0 + FLANK_MARGIN
 
