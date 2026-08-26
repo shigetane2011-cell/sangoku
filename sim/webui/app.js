@@ -522,12 +522,33 @@ function shell(state) {
       <nav>${nav}</nav>${chip}
     </header>`);
   const sw = $("#switch");
-  if (sw) sw.onclick = (e) => { e.preventDefault(); renderLogin(state, true); };
+  if (sw) sw.onclick = (e) => {
+    e.preventDefault();
+    if (state.auth && state.auth.mode === "oidc") location.href = "/auth/logout";
+    else renderLogin(state, true);
+  };
 }
 
 /* ── ログイン ─────────────────────── */
 function renderLogin(state, force) {
   const app = $("#app");
+  if (state.auth && state.auth.mode === "oidc") {
+    // 公開モード（§7.118）: 外部ログインだけ。名乗りやpid選択の口は出さない。
+    app.innerHTML = `
+      <div class="login-hero fade-in">
+        ${logoHTML(true)}
+        <div class="logo-sub">六将軍略オートバトル</div>
+        <div class="logo-tag">知略を布き、乱世を制せ</div>
+      </div>
+      <div class="login-panel panel fade-in">
+        <h2>参陣せよ、主公</h2>
+        <div class="login-row">
+          <a class="btn primary" href="/auth/login">Google で参陣</a>
+        </div>
+        <p class="muted">合言葉（パスワード）は預からない。Google の扉から入る。</p>
+      </div>`;
+    return;
+  }
   const opts = state.humans.map((h) =>
     `<option value="${h.id}">${esc(h.name)}</option>`).join("");
   app.innerHTML = `

@@ -126,7 +126,13 @@ python3 tools/senki_check.py        # 戦記52戦の坂（約9分）
   根拠に表を下げないこと
 - **騎兵の一撃離脱** … `docs/design/cavalry-hit-and-run.md` に案A/B/Cと歯止め。
   「実装するときに決めましょう」で止めてある
-- **④公開準備**（外部認証・管理されたDB・裏口の撤去）
+- **④公開準備 — 実装は済み・残りは人手の登録作業**（§7.118・`docs/deploy.md`）。
+  Google OIDC + 署名つきセッションを実装し、受け入れ試験2本（`tools/test_auth.py`
+  18項目・`tools/test_local.py` 7項目）が通っている。DB は SQLite + Litestream
+  常時複製で確定（WAL 化済み）。公開モード（SANGOKU_PUBLIC=1）で名乗りログイン・
+  pid配布・dev の口が全部閉まり、設定が欠けていれば起動しない。残り: Google Cloud
+  の OAuth クライアント登録・ホスティング契約・複製先バケットと復旧演習・
+  公開コミットでの裏口の物理削除（deploy.md 末尾のチェックリスト）・規約1枚
 
 ---
 

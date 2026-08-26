@@ -301,6 +301,14 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     cx = sqlite3.connect(path)
     cx.row_factory = sqlite3.Row
     cx.execute("PRAGMA foreign_keys = ON")
+    # WAL（§7.118）。理由は2つ: (1) Web はスレッドごとに接続を開くので、
+    # 読みと書きが重なる。既定の rollback journal は書き込み中に読みが
+    # SQLITE_BUSY で弾かれるが、WAL なら並走できる。(2) 公開時の常時
+    # バックアップ（Litestream）は WAL の複製で動くので、WAL が前提。
+    # busy_timeout は残った競合（書き×書き）を数秒待ちに変える。
+    cx.execute("PRAGMA journal_mode = WAL")
+    cx.execute("PRAGMA busy_timeout = 5000")
+    cx.execute("PRAGMA synchronous = NORMAL")   # WAL での定石（電源断でも壊れない）
     cx.executescript(SCHEMA)
     _migrate_names(cx)
     # 勝敗の刻み（§7.81）。リプレイは種から再計算する設計なので、一覧で
@@ -373,6 +381,19 @@ def entitlement(cx: sqlite3.Connection, player_id: str) -> Dict[str, int]:
     r = cx.execute("SELECT plan FROM billing WHERE player_id=?",
                    (player_id,)).fetchone()
     return dict(PLANS.get(r["plan"] if r else "free", PLANS["free"]))
+
+
+def find_by_identity(cx: sqlite3.Connection, provider: str,
+                     subject: str) -> Optional[Player]:
+    """外部IdPの (provider, subject) から登録者を引く（§7.118）。
+
+    **メールでは引かない。** メールは変わりうるし、IdP をまたいで同じメールが
+    来たとき自動で結び付けると乗っ取りの口になる。結び付けの鍵は subject だけ。
+    """
+    r = cx.execute(
+        "SELECT player_id FROM identities WHERE provider=? AND subject=?",
+        (provider, subject)).fetchone()
+    return get(cx, r["player_id"]) if r else None
 
 
 def get(cx: sqlite3.Connection, player_id: str) -> Optional[Player]:

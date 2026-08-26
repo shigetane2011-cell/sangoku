@@ -21,6 +21,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import auth as A
 from . import field as F
 from . import ladder as L
 from . import match as M
@@ -32,9 +33,14 @@ from . import senki as SK
 PORT = int(os.environ.get("SANGOKU_PORT", "8035"))
 # 既定は自分の機械の中だけ。スマホから触るときは SANGOKU_HOST=0.0.0.0。
 HOST = os.environ.get("SANGOKU_HOST", "127.0.0.1")
+# 公開モード（§7.118）。立てると (1) 名乗りログインを止めて OIDC だけにする
+# (2) dev の口を環境変数に関係なく閉じる (3) クッキーへ Secure を付ける
+# (4) /api/state から他人の pid を配らない。必須の環境変数は main() が検査。
+PUBLIC = os.environ.get("SANGOKU_PUBLIC", "0") == "1"
 # 試験用の口（/api/dev_*）は、外に出した瞬間に閉じる。
 # 手元に閉じているときだけ既定で開き、SANGOKU_DEV で明示的に上書きできる。
-DEV_DOORS = os.environ.get(
+# **公開モードでは環境変数に関係なく閉じる**（うっかりの余地を残さない）。
+DEV_DOORS = (not PUBLIC) and os.environ.get(
     "SANGOKU_DEV", "1" if HOST in ("127.0.0.1", "localhost") else "0") == "1"
 # 攻勢の表示（§7.56）が仮定する「標準的な鎧」= 3兵種の平均。
 _DEF_MEAN = sum(F.DEF_BY_TYPE.values()) / len(F.DEF_BY_TYPE)
@@ -343,11 +349,21 @@ class App(BaseHTTPRequestHandler):
         return P.connect()
 
     def _me(self, cx):
-        for part in self.headers.get("Cookie", "").split(";"):
-            k, _, v = part.strip().partition("=")
-            if k == "pid":
-                return P.get(cx, v)
+        cookie = self.headers.get("Cookie", "")
+        pid = A.session_pid(cookie)          # 署名つき sid（§7.118）
+        if pid:
+            return P.get(cx, pid)
+        if not PUBLIC:
+            # 手元の互換: 旧実装のベタ pid クッキー。公開モードでは受けない —
+            # /api/state が全員の pid を配っていた時代のクッキーは資格にならない。
+            for part in cookie.split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == "pid":
+                    return P.get(cx, v)
         return None
+
+    def _client_ip(self) -> str:
+        return self.client_address[0] if self.client_address else "?"
 
     def log_message(self, *a):
         pass
@@ -357,6 +373,8 @@ class App(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         q = dict(urllib.parse.parse_qsl(url.query))
         try:
+            if url.path.startswith("/auth/"):
+                return self._auth(url.path, q)
             if url.path == "/favicon.ico":
                 svg = ("<svg xmlns='http://www.w3.org/2000/svg' "
                        "viewBox='0 0 16 16'><text y='13' font-size='13'>"
@@ -402,6 +420,13 @@ class App(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 500)
 
     def do_POST(self):
+        # CSRF の腰壁: Origin が付いていて自分のホストと違えば断る。
+        # SameSite=Lax のクッキーと合わせた二重化（§7.118）。
+        origin = self.headers.get("Origin", "")
+        if origin:
+            host = self.headers.get("Host", "")
+            if urllib.parse.urlparse(origin).netloc not in ("", host):
+                return self._json({"error": "origin"}, 403)
         n = int(self.headers.get("Content-Length", 0))
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -710,9 +735,13 @@ class App(BaseHTTPRequestHandler):
                 tenka["battle_id"] = last[0]["id"] if last else None
         self._json({
             "stale_server": _server_stale(),
+            "auth": {"mode": "oidc" if PUBLIC else "local"},
             "me": {"id": me.id, "name": me.display_name} if me else None,
-            "humans": [{"id": p.id, "name": p.display_name}
-                       for p in players if p.kind == P.HUMAN],
+            # 公開モードでは他人の pid を配らない（§7.118）。名乗りログインの
+            # 選択肢リストは手元専用の道具である。
+            "humans": [] if PUBLIC else [
+                {"id": p.id, "name": p.display_name}
+                for p in players if p.kind == P.HUMAN],
             "dummies": [{"id": p.id, "name": p.display_name}
                         for p in players if p.kind == P.DUMMY],
             "season": P.ledger_get(cx, "season"),
@@ -728,10 +757,62 @@ class App(BaseHTTPRequestHandler):
                         for r in SK.banzuke(cx, 10)],
         })
 
+    _AUTH_RATE = A.RateLimit(20, 60)     # 認証の口: IPごと 20回/分
+
+    def _auth(self, path, q):
+        """OIDC のログイン往復（§7.118）。/auth/login → IdP → /auth/callback。"""
+        if not self._AUTH_RATE.allow(self._client_ip()):
+            return self._send(b"too many requests", 429, "text/plain")
+        if path == "/auth/logout":
+            self.send_response(303)
+            self.send_header("Set-Cookie", A.clear_cookie(secure=PUBLIC))
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        if not A.configured():
+            return self._send("外部ログインは未設定（SANGOKU_OIDC_* を見よ）"
+                              .encode(), 503, "text/plain; charset=utf-8")
+        if path == "/auth/login":
+            to, cookie = A.begin_login()
+            self.send_response(303)
+            self.send_header("Set-Cookie", cookie)
+            self.send_header("Location", to)
+            self.end_headers()
+            return
+        if path == "/auth/callback":
+            try:
+                who = A.finish_login(q, self.headers.get("Cookie", ""))
+            except (ValueError, OSError) as e:
+                return self._send("ログインに失敗した: {}".format(e).encode(),
+                                  400, "text/plain; charset=utf-8")
+            cx = self._cx()
+            me = P.find_by_identity(cx, A.PROVIDER, who["sub"])
+            if me is None:
+                # 初回。表示名は IdP の名前 → メールの手前、の順で借りる。
+                # 24文字で切る（順位表の列が壊れない長さ）。
+                name = (who["name"] or who["email"].partition("@")[0]
+                        or "主公")[:24]
+                me = P.register(cx, name, kind=P.HUMAN, email=who["email"],
+                                provider=A.PROVIDER, subject=who["sub"])
+                P.unlock(cx, me.id, R.senki_start(), "start")
+            self.send_response(303)
+            self.send_header("Set-Cookie",
+                             A.session_cookie(me.id, secure=PUBLIC))
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        return self._send(b"not found", 404, "text/plain")
+
     def _api_login(self, body):
+        if PUBLIC:
+            # 公開では名乗るだけのログインを受けない（§7.118）。pid は公開情報
+            # ではないが、推測や漏れの一撃でなりすませる口を外へ出さない。
+            return self._json({"error": "oidc", "login": "/auth/login"}, 403)
+        if not self._AUTH_RATE.allow(self._client_ip()):
+            return self._json({"error": "rate"}, 429)
         cx = self._cx()
         pid = body.get("pid", "")
-        new = (body.get("new") or "").strip()
+        new = (body.get("new") or "").strip()[:24]
         if new:
             pl = P.register(cx, new, kind=P.HUMAN,
                             email="local+{}@example.invalid".format(P.new_id()[:8]))
@@ -740,7 +821,8 @@ class App(BaseHTTPRequestHandler):
             P.unlock(cx, pid, R.senki_start(), "start")
         if P.get(cx, pid) is None:
             return self._json({"ok": False}, 400)
-        self._json({"ok": True}, cookie="pid={}; Path=/; SameSite=Lax".format(pid))
+        # 手元でも署名つき sid を配る（経路を1本にして公開と同じ道を通す）
+        self._json({"ok": True}, cookie=A.session_cookie(pid, secure=False))
 
     def _api_deckdata(self):
         cx = self._cx()
@@ -1312,9 +1394,28 @@ def _lan_address() -> str:
 
 
 def main() -> None:
+    if PUBLIC:
+        # **公開モードは設定が欠けたまま起動しない。** 途中まで動いて認証だけ
+        # 無い、が一番危ない形なので、欠けを列挙して落ちる。
+        missing = [k for k, v in (
+            ("SANGOKU_SECRET", os.environ.get("SANGOKU_SECRET", "")),
+            ("SANGOKU_BASE_URL", A.BASE_URL),
+            ("SANGOKU_OIDC_CLIENT_ID", A.CLIENT_ID),
+            ("SANGOKU_OIDC_CLIENT_SECRET", A.CLIENT_SECRET)) if not v]
+        if missing:
+            raise SystemExit("公開モード（SANGOKU_PUBLIC=1）に必要な環境変数が"
+                             "無い: " + ", ".join(missing)
+                             + "\n手順は docs/deploy.md を見よ。")
+        if len(os.environ.get("SANGOKU_SECRET", "")) < 32:
+            raise SystemExit("SANGOKU_SECRET が短すぎる（32文字以上の乱文字列に"
+                             "すること。例: python3 -c \"import secrets;"
+                             " print(secrets.token_urlsafe(48))\"）")
     srv = ThreadingHTTPServer((HOST, PORT), App)
     print("http://localhost:{}  （Ctrl+C で終了）".format(PORT))
-    if HOST not in ("127.0.0.1", "localhost"):
+    if PUBLIC:
+        print("公開モード: 名乗りログイン停止・OIDCのみ・試験用の口は封鎖。")
+        print("外向きURL: {}".format(A.BASE_URL))
+    elif HOST not in ("127.0.0.1", "localhost"):
         ip = _lan_address()
         if ip:
             print("同じ Wi-Fi のスマホから: http://{}:{}".format(ip, PORT))
