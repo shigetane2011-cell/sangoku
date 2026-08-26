@@ -155,7 +155,7 @@ def cmd_field(args):
     return 0
 
 
-def archetype_matrix(results, names):
+def archetype_matrix(results, names, key=lambda n: n[:2]):
     """**型どうしの総当たり。** 順位表ではなく相性の表を出す。
 
     ラダーの勝率だけ見ていると「上位が同じ型で埋まる」を、稽古台の人選の
@@ -163,11 +163,11 @@ def archetype_matrix(results, names):
     それは稽古台ではなく値付けの問題である**（型を足しても最強が1つなのは
     変わらない）。三すくみが有るか無いかを、ここで直接見る。
     """
-    kinds = sorted({n[:2] for n in names})
+    kinds = sorted({key(n) for n in names})
     win = defaultdict(Counter)      # win[A][B] = A が B に勝った数
     tot = defaultdict(Counter)
     for na, nb, diff in results:
-        a, b = na[:2], nb[:2]
+        a, b = key(na), key(nb)
         if a == b:
             continue
         tot[a][b] += 1
@@ -443,6 +443,120 @@ def cmd_formpair(args):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# 組み合わせの三すくみ（§7.107）。**陣形だけでなく前衛の兵種と後衛の中身まで
+# 決め打ちで組む。**
+#
+# 形の総当たり（cmd_shape）は兵種の好みを 1.0 に平らへ揃えていたので、
+# 「鶴翼・騎兵4」と「鶴翼・歩兵4」を混ぜて平均していた。テストプレイの
+# 見立て「①魚鱗歩3弓3 は ②雁行歩2弓4 に負け、②は ③鶴翼騎4弓2 に負け、
+# ③は ④鶴翼歩4弓2 に負ける」の辺は、**あの計器では原理的に見えない。**
+#
+# 後衛の槍（§7.57）も入れる。規則は槍歩兵を後衛に許しているのに、在野の器は
+# 「後衛はちょうど 6-前衛枚数 の弓兵」と決め打ちで組むので、**72部隊中0部隊**
+# しか使っていなかった。組める道をここで作って、値打ちがあるのかを測る。
+# ---------------------------------------------------------------------------
+COMBOS = (
+    ("①魚3弓3",   "魚鱗", (F.INF, F.INF, F.INF),          ("arc", "arc", "arc")),
+    ("②雁2弓4",   "雁行", (F.INF, F.INF),                 ("arc",) * 4),
+    ("③鶴騎4弓2", "鶴翼", (F.CAV,) * 4,                    ("arc", "arc")),
+    ("④鶴歩4弓2", "鶴翼", (F.INF,) * 4,                    ("arc", "arc")),
+    ("⑤鶴騎3歩1", "鶴翼", (F.CAV, F.CAV, F.CAV, F.INF),    ("arc", "arc")),
+    ("⑥雁2弓3槍", "雁行", (F.INF, F.INF),                 ("arc", "arc", "arc", "spear")),
+    ("⑦魚3弓2槍", "魚鱗", (F.INF, F.INF, F.INF),          ("arc", "arc", "spear")),
+)
+FRONT_SHARE_COMBO = 0.55     # 前衛へ回す予算（残りが後衛）
+
+
+def _combo_army(cards, form_name, front, rear, cap, rng, used):
+    """指定どおりの兵種で1部隊を組む。**規則を破る布陣は返さない。**"""
+    form = D.FORM_BY_NAME[form_name]
+    # **後衛に槍が要るなら、前衛は槍持ちを取らない。** 槍は9枚しか無く、
+    # 3陣地ぶん（18人が別人物）取るので、前衛が食うと後衛が組めなくなる。
+    keep_spear = "spear" in rear
+    pool = {
+        F.INF: [c for c in cards if c.typ == F.INF
+                and not (keep_spear and c.spear)],
+        F.CAV: [c for c in cards if c.typ == F.CAV],
+        "arc": [c for c in cards if c.typ == F.ARC and c.might > 0],
+        "spear": [c for c in cards if c.typ == F.INF and c.spear],
+    }
+    picks = []
+    # 前衛: 枠ごとに「残り予算 ÷ 残り枠」を狙って引く（穴を空けない）
+    left_f = cap * FRONT_SHARE_COMBO
+    for k, t in enumerate(front):
+        target = left_f / (len(front) - k)
+        ok = [c for c in pool[t]
+              if M.person_of(c) not in used and c.cost <= target + 1e-9]
+        if not ok:
+            return None, "前衛{}枠目（{}）が予算{:.1f}で埋まらない".format(
+                k + 1, F.TYPE_JP.get(t, t), target)
+        c = D._draw(rng, ok, lambda x: x.cost, D.META_POW)
+        picks.append(c); used.add(M.person_of(c)); left_f -= c.cost
+    # 後衛: 残り予算で、盤面と同じ攻撃の重みで引く
+    left_r = cap - sum(c.cost for c in picks)
+    for k, t in enumerate(rear):
+        # 残りの枠を**その枠の兵種の最安**で見積もって取り置く。1点ずつだと
+        # 槍（最安2点）の枠が埋まらない（実際に踏んだ）。
+        floor = 0.0
+        for t2 in rear[k + 1:]:
+            av = [c.cost for c in pool[t2] if M.person_of(c) not in used]
+            floor += min(av) if av else 99.0
+        room = left_r - floor
+        ok = [c for c in pool[t]
+              if M.person_of(c) not in used and c.cost <= room + 1e-9]
+        if not ok:
+            return None, "後衛{}枠目（{}）が残り{:.1f}で埋まらない".format(
+                k + 1, t, room)
+        c = D._draw(rng, ok, D._hitting, D.META_POW)
+        picks.append(c); used.add(M.person_of(c)); left_r -= c.cost
+    army = F.Army(tuple(picks), form)
+    errs = M.placement_errors(army)
+    return (army, "") if not errs else (None, "／".join(errs))
+
+
+def cmd_combo(args):
+    import random
+    cards = _cards()
+    ents = []
+    for name, form_name, front, rear in COMBOS:
+        for num in range(args.members):
+            rng = random.Random("combo/{}/{}".format(name, num))
+            units, used = [], set()
+            for _lab, cap in M.REGULATIONS:
+                a, why = _combo_army(cards, form_name, front, rear,
+                                     cap, rng, used)
+                if a is None:
+                    print("組めない: {} 番{} {} — {}".format(name, num, _lab, why))
+                    return 1
+                units.append(a)
+            ents.append(("{}-{}".format(name, num),
+                         M.Entry(tuple(units), name=name)))
+    for n, e in ents:
+        errs = M.validate(e)
+        if errs:
+            print("規則違反:", n, errs)
+            return 1
+    names = [n for n, _ in ents]
+    jobs = [(a, b, reg, sd)
+            for a, b in itertools.combinations(ents, 2)
+            for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
+    print("測る: 組み合わせ{}種 × {}人 = {}人の総当たり {}局".format(
+        len(COMBOS), args.members, len(ents), len(jobs)))
+    print("陣形の相殺 {} / 雁行の深さ {}\n".format(dict(F.FORM_PAIR), F.FORM_DEPTH[2]))
+    res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
+    rate = _tally(res, names)
+    per = defaultdict(list)
+    for n in names:
+        per[n.split("-")[0]].append(rate[n])
+    print("── 組み合わせごとの勝率 ──")
+    for k, v in sorted(per.items(), key=lambda kv: -statistics.mean(kv[1])):
+        print("  {:10s} {:5.1f}%".format(k, statistics.mean(v)))
+    archetype_matrix([(a.split("-")[0], b.split("-")[0], d) for a, b, d in res],
+                     list(per), key=lambda n: n)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="在野ラダーの上位を測る")
     ap.add_argument("-j", "--jobs", type=int, default=4)
@@ -450,6 +564,9 @@ def main():
     s = sub.add_parser("field", help="24人の総当たり")
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_field)
+    s = sub.add_parser("combo", help="陣形×前衛の兵種×後衛の中身で三すくみを測る")
+    s.add_argument("--members", type=int, default=2)
+    s.set_defaults(fn=cmd_combo)
     s = sub.add_parser("depth", help="雁行の深さを振って素の偏りを測る")
     s.add_argument("--mult", type=float, action="append", default=[])
     s.add_argument("--members", type=int, default=2)
