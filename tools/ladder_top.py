@@ -518,6 +518,8 @@ def _combo_army(cards, form_name, front, rear, cap, rng, used):
 def cmd_combo(args):
     import random
     cards = _cards()
+    if args.spear is not None:
+        F.SPEAR_REAR = args.spear
     ents = []
     for name, form_name, front, rear in COMBOS:
         for num in range(args.members):
@@ -543,7 +545,8 @@ def cmd_combo(args):
             for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
     print("測る: 組み合わせ{}種 × {}人 = {}人の総当たり {}局".format(
         len(COMBOS), args.members, len(ents), len(jobs)))
-    print("陣形の相殺 {} / 雁行の深さ {}\n".format(dict(F.FORM_PAIR), F.FORM_DEPTH[2]))
+    print("陣形の相殺 {} / 雁行の深さ {} / 後衛の槍の威力 {}\n".format(
+        dict(F.FORM_PAIR), F.FORM_DEPTH[2], F.SPEAR_REAR))
     res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
     rate = _tally(res, names)
     per = defaultdict(list)
@@ -566,6 +569,8 @@ def main():
     s.set_defaults(fn=cmd_field)
     s = sub.add_parser("combo", help="陣形×前衛の兵種×後衛の中身で三すくみを測る")
     s.add_argument("--members", type=int, default=2)
+    s.add_argument("--spear", type=float,
+                   help="後衛からの槍の威力（既定は field.SPEAR_REAR）")
     s.set_defaults(fn=cmd_combo)
     s = sub.add_parser("depth", help="雁行の深さを振って素の偏りを測る")
     s.add_argument("--mult", type=float, action="append", default=[])
