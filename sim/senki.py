@@ -279,16 +279,23 @@ def battle_hint(cards, unlocked, b: Dict) -> str:
     return "".join(out)
 
 
+DRAFT_FORMS = ("魚鱗", "鶴翼", "雁行")
+
+
 def suggest_deck(cards, unlocked, b: Dict, seed: int = 0, form: str = None):
     """軍師の草案。その戦の上限ちょうどで、**手持ちだけ**から組む。
 
     毎回ゼロから組ませると準備が苦行になるので、押せば出陣できる案を必ず
     用意する。強さは保証しない（それを直すのがプレイヤーの仕事）。
 
-    `form` は草案が使う陣形。省くと `b["form"]` — **つまり敵と同じ陣形**を使う。
-    これは意図した鏡写しではなく、`draft_deck` の第3引数が「こちらが使う陣形」
-    であるところへ敵の陣形を渡していたためである（§7.116）。診断のために
-    差し替えられるようにしてある。
+    **陣形は引き直しごとに巡回する**（seed % 3）。以前は `draft_deck` の
+    第3引数（こちらが使う陣形）へ `b["form"]`（敵の陣形）を渡していて、草案が
+    **常に敵と鏡写し**だった。三すくみが立っている盤面では鏡写しは体系的に
+    不利で、戦記の難所14戦のうち11戦がこの自滅だった（§7.116）。
+
+    **敵の裏を返しはしない。** 裏を返すと陣形の答えを軍師が渡してしまう
+    （battle_hint の「答えは出さない」と同じ理由）。巡回なら3回の引き直しで
+    3陣形が必ず出て、どれで行くかはプレイヤーが選ぶ。`form` 指定は診断用。
     """
     from . import play as PL
     # 敵に出ている人物は草案から外す（同じ顔が両軍に並ぶと締まらない。
@@ -296,7 +303,8 @@ def suggest_deck(cards, unlocked, b: Dict, seed: int = 0, form: str = None):
     foes = {M.person_of(c) for c in enemy_army(cards, b).cards}
     pool = [c for c in cards if M.person_of(c) in unlocked]
     names, _note, form = PL.draft_deck(
-        pool, b["board"], form or b["form"], "おまかせ", "おまかせ", "おまかせ",
+        pool, b["board"], form or DRAFT_FORMS[seed % 3],
+        "おまかせ", "おまかせ", "おまかせ",
         seed, foes, cap=player_cap(cards, b), ratio=1.0)
     return names, form
 
