@@ -265,6 +265,71 @@ def do_spear():
     return 0
 
 
+TRAIT_TRIALS = 400
+
+
+def trait_one(job):
+    """実デッキの総当たりで、特性を1枚に載せた差を測る（§7.113）。
+
+    **`sim/field.py traits` では測れない特性がある。** あちらは釣り合った合成軍
+    なので**誰も全滅しない**。`self_dead` を条件に持つ特性はそこで必ず 0.0000 と
+    出るが、実デッキでは隊の全滅は普通に起きる（92%の戦で・平均21%の隊が・
+    戦の22%地点で）。条件が現実に起きる場ででしか値段は付かない。
+    """
+    import random, dataclasses
+    key, row, trial = job
+    from sim import field as G
+    from sim import match as MM
+    G.TRAITS_ON = G.SKILLS_ON = True
+    cards = MM._roster_cards()
+    by = {}
+    for c in cards:
+        by.setdefault(c.typ, []).append(c)
+    rng = random.Random(9000 + trial)
+    fn = rng.choice(list(NF))
+    nf, nr = NF[fn], 6 - NF[fn]
+    form = G.Formation(n_front=nf, frontage=G.BASE_FRONTAGE)
+
+    # **デッキは1組だけ引いて、有り/無しの2つへ写す。** 引き直すと有り側と
+    # 無し側で中身が変わり、特性の差が編成のばらつきに埋もれる（初版はこれで
+    # 標準誤差 0.37 に対し値 0.42 と、測っていないに等しかった）。
+    front = [rng.choice(by[G.INF] + by[G.CAV]) for _ in range(nf)]
+    rear = [rng.choice(by[G.ARC]) for _ in range(nr)]
+
+    def army(mark):
+        f, r = list(front), list(rear)
+        if mark:
+            xs = f if row == "前衛" else r
+            # **上へ重ねる。** `trait=key` と書くと元の特性を消してしまい、
+            # 測っているのは「新しい特性 − 消した特性」になる（初版はこれで
+            # 陣頭持ちを引き当て、値段が -0.20 と負に出た）。
+            old = xs[0].trait
+            xs[0] = dataclasses.replace(
+                xs[0], trait=(old + G.TRAIT_SEP + key) if old else key)
+        return G.Army(tuple(f + r), form)
+
+    A, B = army(True), army(False)
+    # 反対称化。同じ種で左右を入れ替え、席の有利不利を打ち消す。
+    d = (G.simulate(A, B, 0.5, seed=100 + trial)["diff"]
+         - G.simulate(B, A, 0.5, seed=100 + trial)["diff"]) / 2.0
+    return d / G.cost_yardstick(0.5)
+
+
+def do_trait():
+    key = sys.argv[sys.argv.index("--trait") + 1]
+    print("特性 {} の値段を実デッキで測る（{}戦 × 前衛/後衛）".format(
+        key, TRAIT_TRIALS), flush=True)
+    print("※ `python3 -m sim.field traits` は釣り合った合成軍なので誰も全滅せず、")
+    print("   self_dead を条件に持つ特性は必ず 0.0000 と出る。ここは実デッキで測る。\n")
+    for row in ("前衛", "後衛"):
+        res = Pool(4).map(trait_one, [(key, row, i) for i in range(TRAIT_TRIALS)],
+                          chunksize=8)
+        print("  {} に載せた場合  値段 {:+.4f} コスト点   （n={}・標準誤差 {:.4f}）"
+              .format(row, statistics.mean(res), len(res),
+                      statistics.pstdev(res) / len(res) ** 0.5), flush=True)
+    return 0
+
+
 def _interp(table, x):
     if x <= table[0][0]:
         return table[0][1]
@@ -282,6 +347,8 @@ def main():
         return do_sweep()
     if "--spear" in sys.argv:
         return do_spear()
+    if "--trait" in sys.argv:
+        return do_trait()
     rows = {g["名前"]: g for g in csv.DictReader(open(CSV, encoding="utf-8-sig"))}
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     names = list(rows) if "--all" in sys.argv else args

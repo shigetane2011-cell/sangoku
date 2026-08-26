@@ -129,6 +129,13 @@ def _skill_display(g, sk_row) -> str:
         elif sk.dur > 0.0:
             parts.append("延焼 毎分約{:,.0f}人（{:.0f}分間）".format(
                 F.per_min(F.SKILL_SCALE * sk.power * coef), F.mins(sk.dur)))
+        elif sk.power_hi > sk.power:
+            # 威力の幅（§7.67）。**幅を隠さない** — `sk.power` だけを見せると
+            # 低いほうの数字が確定値のように読める。振れ幅そのものが札の性格
+            # （張飛の一喝・王允の誅董の密詔）なので、両端を出す（§7.113）。
+            parts.append("損害 約{:,.0f}〜{:,.0f}人（放つたびに振れる）".format(
+                F.SKILL_SCALE * sk.power * coef,
+                F.SKILL_SCALE * sk.power_hi * coef))
         else:
             # 「守りで目減り」の注記は毎行に付けず、凡例に1回書く（冗長の指摘）
             parts.append("損害 約{:,.0f}人".format(
@@ -176,7 +183,11 @@ def _skill_display(g, sk_row) -> str:
 _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
                 "enemy_retreat": "敵の隊が崩れた時",
                 "self_low_hp": "自身の兵が減った時",
-                "ally_skill": "味方が必殺技を放った時"}
+                "ally_skill": "味方が必殺技を放った時",
+                # 自身の**全滅**（§7.113）。「崩れた」（残存30%割れ）とは別で、
+                # 兵が一人も残らなかった時。書き分けないと self_low_hp と
+                # 同じ条件に読める。
+                "self_dead": "自身の隊が全滅した時"}
 
 
 def _trait_brief(g, key, t):

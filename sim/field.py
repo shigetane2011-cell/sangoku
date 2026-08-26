@@ -1043,7 +1043,9 @@ TRAIT_TRIGGER = 0.30
 #
 #   キー: (発動条件, 対象文, 1戦の回数上限, Skill, 表示名)
 #
-# 発動条件は4つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill。
+# 発動条件は5つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill /
+# self_dead（§7.113。**自分が全滅したそのティック**に1回だけ撃つ。潰走
+# （TRAIT_TRIGGER 割れ）ではなく兵力 0 で、self_low_hp とは別の瞬間である）。
 # 常在型（陣頭・対勢力）はここに入らない。CONSTANT_TRAITS を参照。
 TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
 
@@ -1834,7 +1836,11 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
         newly_own = [x for x in own if x in retired["new"]]
         newly_foe = [x for x in foe if x in retired["new"]]
         for u in own:
-            if u.men <= 0.0:
+            # **倒れた隊も一度だけ通す**（§7.113 の `self_dead`）。全滅した
+            # ティックにかぎり、`self_dead` の特性だけを撃たせる。他の条件は
+            # 下で弾くので、死んだ隊が鼓舞を配ることはない。
+            just_dead = u in retired["dead"]
+            if u.men <= 0.0 and not just_dead:
                 continue
             for key in u.traits:
                 spec = TRAITS.get(key)
@@ -1843,12 +1849,18 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
                 cond, target, cap, sk, jp = spec
                 if u.fired.get(key, 0) >= cap:
                     continue        # 回数上限は**特性ごと**（§7.37）
-                hit = ((cond == "ally_retreat"
-                        and any(x is not u for x in newly_own))
-                       or (cond == "enemy_retreat" and bool(newly_foe))
-                       or (cond == "self_low_hp" and u.ratio() < LOW_HP)
-                       or (cond == "ally_skill"
-                           and any(x in fired_skill for x in own if x is not u)))
+                if cond == "self_dead":
+                    hit = just_dead
+                elif u.men <= 0.0:
+                    continue        # 倒れた隊は self_dead 以外を撃たない
+                else:
+                    hit = ((cond == "ally_retreat"
+                            and any(x is not u for x in newly_own))
+                           or (cond == "enemy_retreat" and bool(newly_foe))
+                           or (cond == "self_low_hp" and u.ratio() < LOW_HP)
+                           or (cond == "ally_skill"
+                               and any(x in fired_skill
+                                       for x in own if x is not u)))
                 if not hit:
                     continue
                 u.fired[key] = u.fired.get(key, 0) + 1
@@ -2808,7 +2820,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     _plan_paths(ub, ua, b.form, a.form)
 
     seen = set()
-    retired = {"all": set(), "new": set()}
+    # all/new は**潰走**（残存が TRAIT_TRIGGER を割った隊）。dead_all/dead は
+    # **全滅**（兵力が 0 になった隊）で、`self_dead` の誘発だけが読む（§7.113）。
+    retired = {"all": set(), "new": set(), "dead_all": set(), "dead": set()}
     y0a = sum(u.y for u in ua) / len(ua)
     y0b = sum(u.y for u in ub) / len(ub)
     if events is not None:
@@ -3009,6 +3023,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 retired["all"] |= newly
             else:
                 retired["new"] = set()
+            # 全滅（§7.113 の `self_dead`）。潰走の閾値とは別の集合である —
+            # 潰走は残存30%割れで、隊はまだ戦っている。**兵力が 0 になった隊**を
+            # 拾う。`_men_add` の遅延窓は前のティックで流し込み済みなので、
+            # ここで見る `men` は確定値。
+            dead = {u for u in ua + ub
+                    if u.men <= 0.0 and u not in retired["dead_all"]}
+            retired["dead"] = dead
+            retired["dead_all"] |= dead
             _fire_traits(ua, ub, t + dt, retired, events, seen, fired)
 
         # **技と特性を撃ち終えてから、まとめて兵力へ反映する。**

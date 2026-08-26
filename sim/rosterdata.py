@@ -110,14 +110,14 @@ def check() -> int:
     sk = {s["技名"]: s for s in S}
     tk = {t["キー"]: t for t in T}
     miss_s = [g["名前"] for g in G if g["必殺技"] not in sk]
-    # 特性なし（空欄）は正常。空文字を「未定義」に数えると検算が常に NG 1 になる
-    miss_t = sorted({g["固有特性"] for g in G
-                     if g["固有特性"] and g["固有特性"] not in tk})
+    # 特性なし（空欄）は正常。空文字を「未定義」に数えると検算が常に NG 1 になる。
+    # **1枚が複数持てる**（「、」区切り・§7.113）ので、キーごとにばらして見る。
+    miss_t = sorted({k for g in G for k in traits_of(g) if k not in tk})
     unused = [s["技名"] for s in S if s["技名"] not in {g["必殺技"] for g in G}]
     cost_ng = [(g["名前"], g["コスト"], sk[g["必殺技"]]["コスト"])
                for g in G if g["必殺技"] in sk
                and g["コスト"] != sk[g["必殺技"]]["コスト"]]
-    cnt = Counter(g["固有特性"] for g in G)
+    cnt = Counter(k for g in G for k in traits_of(g))
     cnt_ng = [(k, tk[k]["採用枚数"], cnt.get(k, 0)) for k in tk
               if int(tk[k]["採用枚数"]) != cnt.get(k, 0)]
     for label, v in (("必殺技が未定義", miss_s), ("固有特性が未定義", miss_t),
@@ -596,11 +596,11 @@ def sync() -> Dict[str, int]:
     # --- traits.csv: 採用枚数・持つ武将 は武将側から数える -------------------
     G = generals()
     T = traits()
-    cnt = Counter(g.get("固有特性", "") for g in G)
+    # **1枚が複数持てる**（「、」区切り・§7.113）ので、キーごとにばらして数える。
+    cnt = Counter(k for g in G for k in traits_of(g))
     who: Dict[str, List[str]] = {}
     for g in G:
-        k = g.get("固有特性", "")
-        if k:
+        for k in traits_of(g):
             who.setdefault(k, []).append(g["名前"])
     for r in T:
         k = r["キー"]
