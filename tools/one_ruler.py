@@ -118,6 +118,21 @@ def _tint(rows, faction):
     return f(front), f(rear)
 
 
+def _value(c, A, B, form, slope):
+    """A（測る札を含む軍）と B（物差し）の差をコスト点で返す。"""
+    from sim import field as G
+    if not (set(G.trait_keys(c.trait)) & set(VS_KEYS)):
+        return _cost(A, B, form, slope)
+    # 対勢力を持つ札は**相手の勢力を振って重み付き平均**（§7.111）。
+    # 物差しの側（B）も同じ勢力に塗る — 塗らないと「勢力を持つ軍 対 持たない軍」
+    # を測ることになり、測りたいもの以外が差に混ざる。
+    tot = wsum = 0.0
+    for fac, w in FACTION_MIX:
+        tot += _cost(_tint(A, fac), _tint(B, fac), form, slope) * w
+        wsum += w
+    return tot / wsum
+
+
 def measure(job):
     name, form_name = job
     from sim import field as G
@@ -127,27 +142,21 @@ def measure(job):
     form = G.Formation(n_front=NF[form_name], frontage=G.BASE_FRONTAGE)
     ff = G._synth(4.0, G.INF, G.BAL)       # 前衛の詰め物
     rf = G._synth(4.0, G.ARC, G.DPS)       # 後衛の詰め物
-    rear_only = c.typ == G.ARC
-    if rear_only:
-        ruler = G._synth(c.cost, G.ARC, G.BAL)      # 後衛の物差し
-        A = _rows(form_name, None, c, ff, rf)
-        B = _rows(form_name, None, ruler, ff, rf)
-    else:
-        ruler = G._synth(c.cost, G.INF, G.TANK)     # 前衛の物差し
-        A = _rows(form_name, c, None, ff, rf)
-        B = _rows(form_name, ruler, None, ff, rf)
     slope = G.cost_yardstick(0.5)
-    if not (set(G.trait_keys(c.trait)) & set(VS_KEYS)):
-        return name, form_name, _cost(A, B, form, slope)
-    # 対勢力を持つ札は**相手の勢力を振って重み付き平均**（§7.111）。
-    # 物差しの側（B）も同じ勢力に塗る — 塗らないと「勢力を持つ軍 対 持たない軍」
-    # を測ることになり、測りたいもの以外が差に混ざる。
-    tot = wsum = 0.0
-    for fac, w in FACTION_MIX:
-        v = _cost(_tint(A, fac), _tint(B, fac), form, slope)
-        tot += v * w
-        wsum += w
-    return name, form_name, tot / wsum
+    vals = []
+    if c.typ != G.ARC:                     # 前衛に置ける（歩兵・騎兵）
+        ruler = G._synth(c.cost, G.INF, G.TANK)     # 前衛の物差し
+        vals.append(_value(c, _rows(form_name, c, None, ff, rf),
+                           _rows(form_name, ruler, None, ff, rf), form, slope))
+    if c.typ == G.ARC or c.spear:          # 後衛に置ける（弓兵・槍持ち歩兵）
+        ruler = G._synth(c.cost, G.ARC, G.BAL)      # 後衛の物差し
+        vals.append(_value(c, _rows(form_name, None, c, ff, rf),
+                           _rows(form_name, None, ruler, ff, rf), form, slope))
+    # **槍持ちは両方の行で測って良いほうを採る**（§7.112）。槍は
+    # `field.Unit.__init__` の `if card.spear and not is_front:` でしか効かない
+    # ので、前衛でだけ測ると **0.75コスト点（SPEAR_PRICE）を払って何も返らない札**
+    # に見える。置き場所を選ぶのはプレイヤーなので、良いほうがその札の値打ち。
+    return name, form_name, max(vals)
 
 
 def targets(rows):
