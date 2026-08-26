@@ -529,6 +529,8 @@ def cmd_combo(args):
     cards = _cards()
     if args.spear is not None:
         F.SPEAR_REAR = args.spear
+    if args.spear_dfn is not None:
+        F.SPEAR_REAR_DFN = args.spear_dfn
     ents = []
     for name, form_name, front, rear in COMBOS:
         for num in range(args.members):
@@ -554,8 +556,8 @@ def cmd_combo(args):
             for reg in range(len(M.REGULATIONS)) for sd in range(SEEDS)]
     print("測る: 組み合わせ{}種 × {}人 = {}人の総当たり {}局".format(
         len(COMBOS), args.members, len(ents), len(jobs)))
-    print("陣形の相殺 {} / 雁行の深さ {} / 後衛の槍の威力 {}\n".format(
-        dict(F.FORM_PAIR), F.FORM_DEPTH[2], F.SPEAR_REAR))
+    print("陣形の相殺 {} / 雁行の深さ {} / 後衛の槍 威力{} 守り寄せ{}\n".format(
+        dict(F.FORM_PAIR), F.FORM_DEPTH[2], F.SPEAR_REAR, F.SPEAR_REAR_DFN))
     res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
     rate = _tally(res, names)
     per = defaultdict(list)
@@ -580,6 +582,8 @@ def main():
     s.add_argument("--members", type=int, default=2)
     s.add_argument("--spear", type=float,
                    help="後衛からの槍の威力（既定は field.SPEAR_REAR）")
+    s.add_argument("--spear-dfn", type=float,
+                   help="後衛の槍の守りを弓兵側へ寄せる度合い 0〜1")
     s.set_defaults(fn=cmd_combo)
     s = sub.add_parser("depth", help="雁行の深さを振って素の偏りを測る")
     s.add_argument("--mult", type=float, action="append", default=[])
