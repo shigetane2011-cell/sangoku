@@ -544,6 +544,18 @@ SPEAR_RANGE = BOW_RANGE_EDGE
 # **居残りは残し、値札のほうを 0 にした。** 後衛へ置くのは得ではないが、
 # 雁行の後衛4枠を弓だけで埋められないときの**ただの逃げ道**として残る。
 SPEAR_GUARD = True
+
+# 床調整の頭打ち（§7.68 / §7.77 / §7.115）。**2つの意味が同居している。**
+#
+#   |調整| ≦ 0.10 … 釣り合いの補正。計器（tools/one_ruler.py の
+#                   「帯 × 兵種の中央から見た外れ値」）が測って決める
+#   |調整| >  0.10 … **作り手の選択。** 看板の札を同輩より上へ置く、という
+#                   意思表示であって、測定の結果ではない。入れるなら
+#                   §7.115 のように「誰を・どれだけ・なぜ」を残すこと
+#
+# 広げるとラダーと戦記の両方が動く。**必ず tools/ladder_top.py combo と
+# tools/senki_check.py を回してから確定すること。**
+FLOOR_ADJ_CAP = 0.30
 # 貫通（§7.76 試作・トランプル）: 必殺技の一撃が隊を消してなお余った分を、
 # 最も近い別の敵へこの割合で通す（1段のみ）。捨て札（§7.73 ③）が超過分を
 # 蒸発させて避雷針になる旨味を消すのが狙い。既定 0 で不使用。
@@ -1404,6 +1416,11 @@ class Card:
     # 兵力の補正（0 以上）。**帳簿の外**の量なので、シートの列で目に見える
     # 形に置き、単価の再較正（task #20）が進んだら剥がす。tools/floor_patch.py
     # が測って書く — 手では書かない。
+    #
+    # 頭打ちは FLOOR_ADJ_CAP。**±0.10 までが釣り合いの補正、それを超えたぶんは
+    # 作り手の選択**である（§7.115）。定義は1箇所に置くこと — design.derive と
+    # Unit.__init__ の両方が同じ値で切るので、片方だけ直すと
+    # 「シートの数字どおりに動かない札」ができる。
     floor_adj: float = 0.0
 
     def label(self) -> str:
@@ -1522,7 +1539,7 @@ class Unit:
         rm = role_men(card.role, card.lean, card.cost, card.typ)
         self.men0 = CARD_MEN * (s ** SPLIT_EXP) * rm \
             * lean_men_comp(card.typ, card.def_lean, card.spd_lean) \
-            * (1.0 + min(max(card.floor_adj, -0.10), 0.10))
+            * (1.0 + min(max(card.floor_adj, -FLOOR_ADJ_CAP), FLOOR_ADJ_CAP))
         self.men = self.men0
         # **武力と知力が一次、攻撃力は導出値。** 逆向きにすると、カードが持つ
         # 武力・知力と実際の攻撃力が食い違いうる（別々に保持されるため）。
