@@ -279,11 +279,16 @@ def battle_hint(cards, unlocked, b: Dict) -> str:
     return "".join(out)
 
 
-def suggest_deck(cards, unlocked, b: Dict, seed: int = 0):
+def suggest_deck(cards, unlocked, b: Dict, seed: int = 0, form: str = None):
     """軍師の草案。その戦の上限ちょうどで、**手持ちだけ**から組む。
 
     毎回ゼロから組ませると準備が苦行になるので、押せば出陣できる案を必ず
     用意する。強さは保証しない（それを直すのがプレイヤーの仕事）。
+
+    `form` は草案が使う陣形。省くと `b["form"]` — **つまり敵と同じ陣形**を使う。
+    これは意図した鏡写しではなく、`draft_deck` の第3引数が「こちらが使う陣形」
+    であるところへ敵の陣形を渡していたためである（§7.116）。診断のために
+    差し替えられるようにしてある。
     """
     from . import play as PL
     # 敵に出ている人物は草案から外す（同じ顔が両軍に並ぶと締まらない。
@@ -291,7 +296,7 @@ def suggest_deck(cards, unlocked, b: Dict, seed: int = 0):
     foes = {M.person_of(c) for c in enemy_army(cards, b).cards}
     pool = [c for c in cards if M.person_of(c) in unlocked]
     names, _note, form = PL.draft_deck(
-        pool, b["board"], b["form"], "おまかせ", "おまかせ", "おまかせ",
+        pool, b["board"], form or b["form"], "おまかせ", "おまかせ", "おまかせ",
         seed, foes, cap=player_cap(cards, b), ratio=1.0)
     return names, form
 

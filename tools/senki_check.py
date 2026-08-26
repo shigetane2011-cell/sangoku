@@ -47,14 +47,15 @@ def _one(job):
     return 1.0 if r["winner"] == "A" else (0.5 if r["winner"] == "引き分け" else 0.0)
 
 
-def run(jobs_n, drafts):
+def run(jobs_n, drafts, draft_form=None):
     cards = M._roster_cards()
     unlocked = set(R.senki_start())
     out = []
     for b in SK.battles():
         rates = []
         for d in range(drafts):
-            names, form = SK.suggest_deck(cards, unlocked, b, seed=b["i"] * 10 + d)
+            names, form = SK.suggest_deck(cards, unlocked, b, seed=b["i"] * 10 + d,
+                                          form=draft_form)
             if not names:
                 continue
             ua, _ = PL.parse_deck(cards, F.TRAIT_SEP.join(names), form)
@@ -78,6 +79,8 @@ def main():
     ap.add_argument("--pair", help="(3,4),(4,2),(2,3) をカンマ区切り")
     ap.add_argument("--drafts", type=int, default=5,
                     help="草案を何通り引き直すか（既定5）")
+    ap.add_argument("--draft-form", choices=["魚鱗", "鶴翼", "雁行"],
+                    help="草案の陣形を固定する（省略時は敵と同じ陣形＝現状）")
     a = ap.parse_args()
     if a.depth is not None:
         F.FORM_DEPTH[2] = a.depth
@@ -89,7 +92,8 @@ def main():
     print("軍師の草案で全戦に挑む（草案{}通り × 1通り{}局・進行どおりに登用）\n"
           .format(a.drafts, SEEDS))
 
-    rows = run(a.jobs, a.drafts)
+    print("草案の陣形: {}\n".format(a.draft_form or "敵と同じ（現状）"))
+    rows = run(a.jobs, a.drafts, a.draft_form)
     print("{:>3s} {:<16s} {:<5s} {:<5s} {:>7s} {:>7s}  {}".format(
         "戦", "戦名", "帯", "陣形", "最良", "平均", "草案ごと"))
     by_form, hard = {}, []
