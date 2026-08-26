@@ -43,7 +43,8 @@ def _rows(form_name, card, in_front, ff, rf):
     return [ff] * nf, [card] + [rf] * (nr - 1)
 
 
-def _cost(A_rows, B_rows, form, slope, dt=0.5):
+def _cost_raw(A_rows, B_rows, form, dt=0.5):
+    """A と B の margin 差そのもの（換算前）。"""
     from sim import field as G
     from sim import match as MM
     (af, ar), (bf, br) = A_rows, B_rows
@@ -56,7 +57,34 @@ def _cost(A_rows, B_rows, form, slope, dt=0.5):
             assert not MM.placement_errors(B)
             tot += (G.margin(A, B, dt) - G.margin(B, A, dt)) / 2.0
             n += 1
-    return (tot / n) / slope
+    return tot / n
+
+
+def _cost(A_rows, B_rows, form, slope, dt=0.5):
+    return _cost_raw(A_rows, B_rows, form, dt) / slope
+
+
+def local_slope(chassis_card, form_name, ff, rf, in_front=True, delta=2.0):
+    """**その盤面・その車台**で、能力値1コスト点が margin をいくら動かすか。
+
+    §7.117 の要点。`cost_yardstick` は一様なコスト5の盤で、しかも6枚全員に
+    薄く配って測った勾配である。1枚に集中して足すと同じ盤でも 0.6 倍しか
+    現金化されず、総コストが倍の盤では相対量（残存率）の分母が倍になるので
+    さらに半分になる（実測: 総30で 0.60、総60で 0.36）。**global な物差しで
+    1枚の差を割ると、この2つの縮みがそのまま誤差になる。**
+
+    値札の通貨は「この札の能力値」（効果予算は能力値コストから引かれる）
+    なので、換算もこの札への ±Δ で取るのが定義どおり。同じ盤・同じ枠で
+    測るから、盤面の総コストも集中の縮みも分子分母で相殺する。
+    """
+    import dataclasses
+    base = chassis_card
+    plus = dataclasses.replace(base, stat_cost=(base.stat_cost or base.cost) + delta)
+    from sim import field as G
+    form = G.Formation(n_front=NF[form_name], frontage=G.BASE_FRONTAGE)
+    diff = _cost_raw(_rows(form_name, plus, in_front, ff, rf),
+                     _rows(form_name, base, in_front, ff, rf), form)
+    return diff / delta
 
 
 def _refund(g, want):
@@ -98,10 +126,19 @@ def measure(job):
     g = {r["名前"]: r for r in csv.DictReader(
         open(CSV, encoding="utf-8-sig"))}[name]
     form = G.Formation(n_front=NF[form_name], frontage=G.BASE_FRONTAGE)
-    ff = G._synth(4.0, G.INF, G.BAL)
-    rf = G._synth(4.0, G.ARC, G.DPS)
+    # **詰め物は車台（測る札）と同じコストにする（§7.117）。** コスト4の詰め物に
+    # 囲まれた高コスト札は、能力値を足しても伸びない（囲いが先に溶けて盤面が
+    # 決まる）ため、値札ぶんを能力値へ戻す検算が一様に正へ寄る＝零点が汚れる。
+    # §7.112 で11枚すべてが +0.15〜+2.27 に寄ったのはこれ。旧挙動は --filler 4。
+    ff = G._synth(FILLER_COST or c.cost, G.INF, G.BAL)
+    rf = G._synth(FILLER_COST or c.cost, G.ARC, G.DPS)
     in_front = c.typ != G.ARC              # 槍持ちも物差しは前衛側で当てる
-    slope = G.cost_yardstick(0.5)
+    # **換算は局所勾配（§7.117）。** cost_yardstick で割ると、1枚への集中と
+    # 盤面の総コストの2つの縮みがそのまま誤差になる（実測 0.36〜0.64 倍）。
+    # 車台の代わりに同コスト・同兵種・同役割の合成カードで勾配を取る
+    # （実カードの能力値には ±Δ のつまみが無いため）。
+    probe = G._synth(c.cost, c.typ, c.role)
+    slope = local_slope(probe, form_name, ff, rf, in_front)
     bare = dataclasses.replace(c, skill="")          # 能力値そのまま
     back = _refund(g, charged(g))                    # 値札ぶんを能力値へ戻す
     A = _rows(form_name, c, in_front, ff, rf)
@@ -123,8 +160,13 @@ def charged(g):
                           tilt=R.tilt_of(g))
 
 
+# 詰め物のコスト。None なら車台と同じコストへ揃える（既定・§7.117）。
+# 旧計器の再現は --filler 4。
+FILLER_COST = None
+
 SWEEP_POWERS = (500, 800, 1100, 1500, 2000, 2600, 3300)
 SWEEP_TARGETS = ("敵1体（兵力が最多）", "敵1列", "敵前衛", "敵後列")
+SWEEP_CHASSIS = (5.0, 10.0)   # 車台のコスト。実カードの大技持ちは 7〜10 に居る
 
 
 def sweep_one(job):
@@ -135,25 +177,24 @@ def sweep_one(job):
     払い過ぎているかは main() 側の比較で見る。
     """
     import dataclasses
-    power, target, form_name = job
+    power, target, form_name, chassis = job[:4]
     from sim import field as G
     from sim import match as MM
     G.TRAITS_ON = G.SKILLS_ON = True
     n = "＿掃引{}".format(power)
     G.SKILL_INFO[n] = G.Skill(power / 100.0, G._skill_kind("ダメージ", target))
     G.SKILL_TARGET[n] = target
-    base = G._synth(SWEEP_COST, G.INF, G.BAL)
+    base = G._synth(chassis, G.INF, G.BAL)
     form = G.Formation(n_front=NF[form_name], frontage=G.BASE_FRONTAGE)
-    ff = G._synth(4.0, G.INF, G.BAL)
-    rf = G._synth(4.0, G.ARC, G.DPS)
+    # 詰め物は車台と同じコスト（§7.117）。旧計器（詰め物4固定）は --filler 4
+    ff = G._synth(FILLER_COST or chassis, G.INF, G.BAL)
+    rf = G._synth(FILLER_COST or chassis, G.ARC, G.DPS)
     hot = dataclasses.replace(base, skill=n, gauge_cost=300.0, gauge_init=140.0)
     cold = dataclasses.replace(base, skill="", gauge_cost=300.0, gauge_init=140.0)
-    slope = G.cost_yardstick(0.5)
-    return power, target, _cost(_rows(form_name, hot, True, ff, rf),
-                               _rows(form_name, cold, True, ff, rf), form, slope)
-
-
-SWEEP_COST = 5.0
+    slope = job[4]                          # 局所勾配（親が測って配る・§7.117）
+    return power, target, chassis, _cost(_rows(form_name, hot, True, ff, rf),
+                                         _rows(form_name, cold, True, ff, rf),
+                                         form, slope)
 
 
 def do_sweep():
@@ -169,33 +210,100 @@ def do_sweep():
     比例で伸ばした残りを割増と読む）。
     """
     from sim import design as D
-    jobs = [(p, t, f) for p in SWEEP_POWERS for t in SWEEP_TARGETS for f in FORMS]
-    print("討ち取りの割増を測り直す（車台コスト{:.0f}・歩兵均衡・大技300/140）"
-          .format(SWEEP_COST))
-    print("  威力 {} × 対象 {} × 陣形 {} = {}局\n".format(
-        len(SWEEP_POWERS), len(SWEEP_TARGETS), len(FORMS), len(jobs)), flush=True)
+    from sim import field as G
+    G.TRAITS_ON = G.SKILLS_ON = True
+    print("討ち取りの割増を測り直す（歩兵均衡・大技300/140・詰め物={}）"
+          .format(FILLER_COST or "車台と同コスト"))
+    # 局所勾配を先に測る（車台 × 陣形ごとに1回。§7.117）
+    slopes = {}
+    for c in SWEEP_CHASSIS:
+        ff = G._synth(FILLER_COST or c, G.INF, G.BAL)
+        rf = G._synth(FILLER_COST or c, G.ARC, G.DPS)
+        for f in FORMS:
+            slopes[(c, f)] = local_slope(G._synth(c, G.INF, G.BAL), f, ff, rf)
+        print("  局所勾配 車台{:.0f}: {}".format(c, " ".join(
+            "{}={:.4f}".format(f, slopes[(c, f)]) for f in FORMS)), flush=True)
+    jobs = [(p, t, f, c, slopes[(c, f)]) for p in SWEEP_POWERS
+            for t in SWEEP_TARGETS for f in FORMS for c in SWEEP_CHASSIS]
+    print("  威力 {} × 対象 {} × 陣形 {} × 車台 {} = {}局\n".format(
+        len(SWEEP_POWERS), len(SWEEP_TARGETS), len(FORMS),
+        len(SWEEP_CHASSIS), len(jobs)), flush=True)
     res = Pool(4).map(sweep_one, jobs, chunksize=1)
-    agg = {}
-    for p, t, v in res:
-        agg.setdefault((p, t), []).append(v)
-    mean = {k: statistics.mean(v) for k, v in agg.items()}
-    by_p = {p: statistics.mean([mean[(p, t)] for t in SWEEP_TARGETS])
-            for p in SWEEP_POWERS}
+    for chassis in SWEEP_CHASSIS:
+        agg = {}
+        for p, t, c, v in res:
+            if c == chassis:
+                agg.setdefault((p, t), []).append(v)
+        mean = {k: statistics.mean(v) for k, v in agg.items()}
+        by_p = {p: statistics.mean([mean[(p, t)] for t in SWEEP_TARGETS])
+                for p in SWEEP_POWERS}
 
-    floor = by_p[500]
-    d500 = D.damage_price(5.0)
-    print("{:>6s}{:>9s}{:>9s}{:>9s}{:>9s}   {}".format(
-        "威力%", "実測", "基礎ぶん", "割増(実測)", "割増(表)", "対象ごと"))
-    for p in SWEEP_POWERS:
-        base = floor * D.damage_price(p / 100.0) / d500
-        got = by_p[p] - base
-        want = D._interp1(D.KILL_PREMIUM, float(p)) if hasattr(D, "_interp1") \
-            else _interp(D.KILL_PREMIUM, float(p))
-        print("{:>6d}{:>9.3f}{:>9.3f}{:>9.3f}{:>9.3f}   {}".format(
-            p, by_p[p], base, got, want,
-            " ".join("{:.2f}".format(mean[(p, t)]) for t in SWEEP_TARGETS)))
-    print("\n※ 割増(実測) は**この車台での1枚のコスト点**。表と符号・大小の向きが")
+        floor = by_p[500]
+        d500 = D.damage_price(5.0)
+        print("[車台コスト{:.0f}]".format(chassis))
+        print("{:>6s}{:>9s}{:>9s}{:>9s}{:>9s}   {}".format(
+            "威力%", "実測", "基礎ぶん", "割増(実測)", "割増(表)", "対象ごと"))
+        for p in SWEEP_POWERS:
+            base = floor * D.damage_price(p / 100.0) / d500
+            got = by_p[p] - base
+            want = D._interp1(D.KILL_PREMIUM, float(p)) if hasattr(D, "_interp1") \
+                else _interp(D.KILL_PREMIUM, float(p))
+            print("{:>6d}{:>9.3f}{:>9.3f}{:>9.3f}{:>9.3f}   {}".format(
+                p, by_p[p], base, got, want,
+                " ".join("{:.2f}".format(mean[(p, t)]) for t in SWEEP_TARGETS)))
+        print()
+    print("※ 割増(実測) は**この車台での1枚のコスト点**。表と符号・大小の向きが")
     print("   合っているかを見る。合っていなければ design.KILL_PREMIUM を書き替える。")
+    return 0
+
+
+def zero_one(job):
+    """能力値Δコスト点の現金化率を1点測る（--zero・§7.117）。"""
+    import dataclasses
+    chassis, filler, delta, form_name = job
+    from sim import field as G
+    G.TRAITS_ON = G.SKILLS_ON = True       # 実計器と同じ環境で測る
+    base = G._synth(chassis, G.INF, G.BAL)
+    plus = dataclasses.replace(base, stat_cost=base.stat_cost + delta)
+    form = G.Formation(n_front=NF[form_name], frontage=G.BASE_FRONTAGE)
+    ff = G._synth(filler, G.INF, G.BAL)
+    rf = G._synth(filler, G.ARC, G.DPS)
+    slope = G.cost_yardstick(0.5)
+    got = _cost(_rows(form_name, plus, True, ff, rf),
+                _rows(form_name, base, True, ff, rf), form, slope)
+    return chassis, filler, delta, got / delta
+
+
+def do_zero():
+    """計器の零点検査: 能力値の現金化率（§7.117）。
+
+    車台の能力値へ Δ コスト点を足したとき、盤面の差が物差しで Δ 点ぶん動くなら
+    現金化率は 1.0 である。§7.112 の検算で11枚すべてが一様に正へ寄ったのは、
+    コスト4の詰め物に囲まれた高コスト車台では**この率が 1 を大きく割る**ため —
+    足した能力値が現金化されず、（能力値と突き合わせる）技側が相対的に得に
+    見える。車台と詰め物を揃えれば 1.0 へ戻るはず、が検査の中身。
+    戻らなければ計器はまだ使えないので、表を書き替えてはならない。
+    """
+    jobs = [(c, f, d, fn)
+            for c in (5.0, 10.0)
+            for f in (None, 4.0)           # None = 車台と同コスト（揃え）
+            for d in (1.0, 2.0)
+            for fn in FORMS]
+    jobs = [(c, (f or c), d, fn) for c, f, d, fn in jobs]
+    print("能力値の現金化率＝局所勾配 ÷ cost_yardstick（§7.117）\n"
+          "  1.0 なら global な物差しで割ってよい。1 を割るぶんが、集中と\n"
+          "  盤面の総コストによる縮み。計器はこの縮みを局所勾配で消す。\n",
+          flush=True)
+    res = Pool(4).map(zero_one, jobs, chunksize=1)
+    agg = {}
+    for c, f, d, r in res:
+        agg.setdefault((c, f), []).append(r)
+    print("{:>8s}{:>8s}{:>8s}{:>10s}".format("車台", "詰め物", "総コスト", "現金化率"))
+    for (c, f), v in sorted(agg.items()):
+        rate = statistics.mean(v)
+        tag = "  （揃え）" if abs(c - f) < 1e-9 else ""
+        print("{:>8.0f}{:>8.0f}{:>8.0f}{:>10.3f}{}".format(
+            c, f, c + 5 * f, rate, tag))
     return 0
 
 
@@ -343,6 +451,11 @@ def main():
     from sim import rosterdata as R
     R.load_skills_into_field()
     R.load_traits_into_field()
+    global FILLER_COST
+    if "--filler" in sys.argv:
+        FILLER_COST = float(sys.argv[sys.argv.index("--filler") + 1])
+    if "--zero" in sys.argv:
+        return do_zero()
     if "--sweep" in sys.argv:
         return do_sweep()
     if "--spear" in sys.argv:
