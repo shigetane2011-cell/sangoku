@@ -2146,6 +2146,14 @@ def _skill_targets(target: str, u, foe, own):
         if rr:
             out.append(min(rr, key=lambda x: _d2(u, x)))
         return out or alive[:1]
+    if "前衛の兵力が最多" in target:
+        # §7.123。「兵力が最多」は弓の兵力補正（耐久役の約2倍）のせいで
+        # **後衛の主砲＝海綿**を選び続けていた。単体バーストが最大の兵力へ
+        # 吸われて前線が割れない。前衛の中から選べば、文の意図（最大の敵を
+        # 打ち崩す）と挙動が一致する。値付けの対象係数も 0.645（≒敵後衛の
+        # 0.647）だった — 計器は海綿吸いをずっと知っていた。
+        pool = [x for x in alive if x.is_front] or alive
+        return [max(pool, key=lambda x: x.men)]
     if "前衛" in target:
         r = [x for x in alive if x.is_front]
         return r or alive
@@ -3717,7 +3725,7 @@ SYNTH_SKILL_POWER = 3.0
 SYNTH_SKILL_PAY = {"inf": (0.63, 0.195), "cav": (0.52, 0.207),
                    "arc": (0.38, 0.122)}
 SYNTH_SKILL_KIND = "melee"
-SYNTH_SKILL_TARGET = "敵1体（兵力が最多）"
+SYNTH_SKILL_TARGET = "敵1体（前衛の兵力が最多）"
 
 
 def _synth(cost: float, typ: str, role: str = BAL) -> Card:
@@ -4357,7 +4365,7 @@ def cmd_heal(args) -> None:
     def army(power, heal, typ=INF, gc=100.0):
         n = "＿測" + repr((power, heal, typ, gc))
         SKILL_INFO[n] = Skill(power, "melee", 0.0, heal)
-        SKILL_TARGET[n] = "敵1体（兵力が最多）" if power > 0 else "味方1体（残兵力が最少）"
+        SKILL_TARGET[n] = "敵1体（前衛の兵力が最多）" if power > 0 else "味方1体（残兵力が最少）"
         return Army(tuple(Card(BASE_COST, typ, r, skill=n, gauge_cost=gc)
                           for r in MIXED_ROLES), FORM_STANDARD)
 
@@ -4559,7 +4567,7 @@ def cmd_targets(args) -> None:
     print("対象範囲の値段（コスト点・効果は固定で対象だけ変える・前衛が撃つ）")
     print()
     print("  {:<22}{:>10}{:>10}{:>12}".format("対象", "打撃500%", "回復150%", "攻+10%30秒"))
-    foe_targets = ["敵1体（兵力が最多）", "敵1体（兵力が最少）", "敵1体（正面）",
+    foe_targets = ["敵1体（前衛の兵力が最多）", "敵1体（兵力が最少）", "敵1体（正面）",
                    "敵1体（知略が最高）", "敵1体（知略が最低）",
                    "敵1列", "敵前衛", "敵後衛", "敵正面2体", "敵全体"]
     own_targets = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
