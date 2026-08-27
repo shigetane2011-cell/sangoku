@@ -613,6 +613,12 @@ ACT_COEF = {INF: 1.0000, CAV: 1.1238, ARC: 0.6450}
 # 廃止されたのは「射程で長く撃てる側ほど同じ%で得をして推移成分が混ざる」
 # ためだが、この向き（騎→弓の白兵）は接敵が門になっており、その形にならない。
 CAV_VS_ARC = 0.0
+# 弓の矢が歩兵に入るときの貫き（§7.123・テストプレイの提案）。盾を持たない
+# 密集歩兵は矢の的、の向き。CAV_VS_ARC と同じく攻撃ごとの局所効果で、既定0。
+# 攻撃ごとの兵種%を廃した警告（射程で長く撃てる側が得）に**こちらは半分当たる**
+# — 弓は射程で先に撃ち始めるため、同じ%でも接敵前の総量が伸びる。採用するなら
+# 弓の値札（ACT_COEF）の再点検とセット。
+ARC_VS_INF = 0.0
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
@@ -2969,6 +2975,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
+                        hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
@@ -3013,6 +3021,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
+                        hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
