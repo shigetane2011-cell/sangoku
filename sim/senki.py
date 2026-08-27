@@ -424,9 +424,12 @@ def fight(cx, cards, me, idx: int, now: int, deck=None) -> Dict:
                 recruits.append({"person": p, "name": g["名前"],
                                  "cost": float(g["コスト"]), "typ": g["兵種"],
                                  "quote": g.get("台詞", "")})
+    # 最初の敗北だけ、リプレイの読みどころへ誘導する（§7.121）。ここが
+    # このゲームの本質（負ける→見立てを読む→1つ変える）への入口になる。
+    first_defeat = r["winner"] == "B" and P.flag_once(cx, me.id, "first_defeat")
     return {"battle_id": bid, "title": b["title"],
             "win": "勝ち" if won else ("負け" if r["winner"] == "B" else "引き分け"),
-            "recruits": recruits,
+            "recruits": recruits, "first_defeat": first_defeat,
             "cleared": cleared(cx, me.id), "total": len(bs)}
 
 

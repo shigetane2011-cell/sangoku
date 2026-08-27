@@ -470,6 +470,18 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
    触れることが分かる程度の光だけ足し、沈めない。 */
 .card.indeck { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .lib-rec { font-size: 11px; color: var(--sub); margin-left: auto; white-space: nowrap; }
+
+/* ── 初回の導入（§7.121） ─────────────────── */
+.onboard { max-width: 560px; margin: 8vh auto 0; padding: 26px 30px; }
+.onboard h2 { font-family: var(--font-min); margin: 0 0 14px; }
+.onboard-steps { margin: 0 0 14px; padding-left: 1.4em; line-height: 1.9; }
+.onboard-steps li { margin-bottom: 4px; }
+.onboard-creed { color: var(--sub); border-top: 1px solid var(--line);
+  padding-top: 12px; margin: 12px 0 16px; }
+.onboard-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.fa-guide { flex-basis: 100%; background: var(--panel2);
+  border: 1px solid var(--line2); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; }
 /* ダブルタップ判定を使うので、ブラウザ既定のダブルタップ拡大を切る
    （切らないと2回目のタップが拡大に食われる。スクロールは妨げない）。 */
 .card { touch-action: manipulation; }

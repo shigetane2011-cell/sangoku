@@ -540,6 +540,16 @@ class App(BaseHTTPRequestHandler):
                 return self._json({"ok": ok} if ok else
                                   {"ok": False,
                                    "errors": ["本日の恩賞はもう受け取っている"]})
+            if url.path == "/api/seen":
+                # 1回きりの案内を「見た」印。鍵は許可制 — 任意の旗を書かせない
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                if body.get("key") not in ("onboard",):
+                    return self._json({"ok": False}, 400)
+                P.flag_set(cx, me.id, body["key"])
+                return self._json({"ok": True})
             if url.path == "/api/savedeck":
                 return self._api_savedeck(body)
             if url.path == "/api/deldeck":
@@ -789,6 +799,11 @@ class App(BaseHTTPRequestHandler):
         self._json({
             "stale_server": _server_stale(),
             "auth": {"mode": "oidc" if PUBLIC else "local"},
+            # 初回の案内（§7.121）。人間・戦記が手つかず・まだ出していない、の
+            # 3条件が揃ったときだけ。進行が動けば旗が無くても二度と出ない。
+            "onboard": bool(me and me.kind == P.HUMAN
+                            and SK.cleared(cx, me.id) == 0
+                            and not P.flag_has(cx, me.id, "onboard")),
             "me": {"id": me.id, "name": me.display_name} if me else None,
             # 公開モードでは他人の pid を配らない（§7.118）。名乗りログインの
             # 選択肢リストは手元専用の道具である。

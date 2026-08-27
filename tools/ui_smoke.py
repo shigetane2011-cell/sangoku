@@ -337,6 +337,35 @@ def _touch_checks(page, rep, tag, board):
 
 
 # ── 読み取り専用の盤面（戦記の敵陣・リプレイ）─────────────
+def onboard_check(page, rep):
+    """初回の導入（§7.121）: 新規プレイヤーはホームでこの1枚だけを見る。"""
+    page.goto(BASE + "/", wait_until="domcontentloaded")
+    page.wait_for_timeout(800)
+    ob = page.query_selector(".onboard")
+    if not rep.check(ob is not None, "新規プレイヤーに初回の導入が出る"):
+        return
+    txt = ob.text_content() or ""
+    rep.check("まずは戦記の初戦へ" in txt and "負けながら自分の布陣を作る" in txt,
+              "導入の文言が出ている")
+    page.click("#ob-guide"); page.wait_for_timeout(300)
+    gd = page.query_selector("#guide")
+    rep.check(gd is not None and not gd.get_attribute("hidden"),
+              "導入から軍略の手引きが開く")
+    page.click("#guide-close"); page.wait_for_timeout(200)
+    rep.check(page.query_selector(".onboard") is not None,
+              "手引きを閉じても導入は残る")
+    page.click("#ob-go")
+    try:
+        page.wait_for_selector("#foe-board .fb-piece", timeout=60000)
+        rep.check(True, "「初陣へ」で初戦の戦前の間に着く")
+    except Exception:
+        rep.check(False, "「初陣へ」で初戦の戦前の間に着く")
+    page.goto(BASE + "/", wait_until="domcontentloaded")
+    page.wait_for_timeout(800)
+    rep.check(page.query_selector(".onboard") is None,
+              "一度出発したら導入は出ない")
+
+
 def readonly_checks(page, rep):
     page.goto(BASE + "/senki", wait_until="domcontentloaded")
     page.wait_for_timeout(1200)
@@ -465,6 +494,8 @@ def run():
                 errs = []
                 page.on("pageerror", lambda e: errs.append(str(e)))
                 _login(page, "煙検査" + label)
+                if not mob:
+                    onboard_check(page, rep)
                 exercise(page, rep, label, mob)
                 if not mob:
                     readonly_checks(page, rep)

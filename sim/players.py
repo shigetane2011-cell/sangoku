@@ -234,6 +234,14 @@ CREATE TABLE IF NOT EXISTS rooms (
 );
 -- 定刻処理の台帳（天下の開催・月次リセット。**全部遅延評価** — cron が要らず、
 -- 手元でもクラウドでも同じ動きになる。兵符の回復と同じ考え方）。
+-- 1回きりの案内を出したかの旗（§7.121）。端末ではなくプレイヤーに紐づける —
+-- 買い替えやブラウザ替えで初心者向けの案内が再演されない。
+CREATE TABLE IF NOT EXISTS player_flags (
+  player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  key       TEXT NOT NULL,
+  set_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, key)
+);
 CREATE TABLE IF NOT EXISTS ledger (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -791,6 +799,27 @@ def fought_recently(cx: sqlite3.Connection, board: str, a: str, b: str,
         " OR (pid_a = ? AND pid_b = ?)) LIMIT 1",
         (board, now - window, a, b, b, a)).fetchone()
     return r is not None
+
+
+def flag_has(cx: sqlite3.Connection, player_id: str, key: str) -> bool:
+    return cx.execute("SELECT 1 FROM player_flags WHERE player_id=? AND key=?",
+                      (player_id, key)).fetchone() is not None
+
+
+def flag_set(cx: sqlite3.Connection, player_id: str, key: str) -> None:
+    with cx:
+        cx.execute("INSERT INTO player_flags (player_id, key) VALUES (?, ?)"
+                   " ON CONFLICT(player_id, key) DO NOTHING", (player_id, key))
+
+
+def flag_once(cx: sqlite3.Connection, player_id: str, key: str) -> bool:
+    """初回だけ True。立てるのと読むのを1文で行う — 2窓で同時に起きても
+    1回きりの案内は1回しか出ない。"""
+    with cx:
+        cur = cx.execute(
+            "INSERT INTO player_flags (player_id, key) VALUES (?, ?)"
+            " ON CONFLICT(player_id, key) DO NOTHING", (player_id, key))
+    return cur.rowcount > 0
 
 
 def ledger_get(cx: sqlite3.Connection, key: str, default: str = "") -> str:
