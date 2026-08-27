@@ -1547,6 +1547,8 @@ class Unit:
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
+        "null_blocked", "null_names", "scut_saved",
+        "guard_casts", "guard_idle", "guard_watch",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1692,6 +1694,13 @@ class Unit:
         self.gauge_rate = card.gauge_rate
         self.skill = card.skill
         self.fires = 0      # 必殺技の発動回数
+        # 構えの帳簿（§7.126・表示専用）
+        self.null_blocked = 0    # この隊の構えが打ち消した敵技の数
+        self.null_names = []     # 打ち消した技名
+        self.scut_saved = 0.0    # 必殺技防御で減らした被害（cut_saved の技ぶんだけ）
+        self.guard_casts = 0     # 構えの技を張った回数（撃ち手側）
+        self.guard_idle = 0      # 窓の中で一度も仕事をしなかった構えの数
+        self.guard_watch = []    # 判定待ちの構えの窓 (終了時刻, 対象, 基準値)
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2352,11 +2361,15 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if kind_jp == "必殺技":
         # 必殺技打消し（§7.51 機構5）。対象に「構え」持ちの敵が1体でも
         # いれば発動ごと霧散する（ゲージは戻らない・代償も払わない）。
-        # 構えはティック頭の snapshot（_expire）なので同時解決を破らない。
+        # 構えは§7.126の二段化で**同じティックの先行段**にも立つ — 両軍の
+        # 構えを反映してから攻め技を解くので、同期した斉射にも噛み合う。
         # 味方対象の技は敵を含まず、素通しになる — 打消しは攻め技への備え。
         blocker = next((f for f in tgts
                         if f.side != u.side and f.nullify), None)
         if blocker is not None:
+            blocker.null_blocked += 1          # 帳簿（§7.126・表示専用）
+            if name and name not in blocker.null_names:
+                blocker.null_names.append(name)
             if ev is not None and name:
                 ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp],
                                 "{}の【{}】！　だが{}の構えに阻まれ、"
@@ -2507,6 +2520,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             take = min(eff, f.men)
             if f.scut_mult < 1.0:          # 表示専用（§7.88）
                 f.cut_saved += min(pre, f.men) - take
+                f.scut_saved += min(pre, f.men) - take   # 技ぶんだけの帳簿（§7.126）
             _men_add(f, -take)
             u.dealt += take
             u.dealt_skill += take
@@ -2546,12 +2560,28 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         return
 
 
-def _fire_skills(own, foe, t: float, ev, seen) -> set:
+GUARD_KINDS = ("scut", "refl", "null")
+
+
+def _is_guard(sk) -> bool:
+    """構えの技（必殺技防御・反射・打消し）か。§7.126 の先行段で立てる対象。
+
+    威力も回復も持たない純粋な備えだけ。攻めと構えを兼ねる技を先行段に
+    入れると、その攻め部分が先手になってしまう。"""
+    if sk is None or sk.power > 0.0 or sk.heal > 0.0:
+        return False
+    return any(k in GUARD_KINDS for k, _, _ in sk.mods)
+
+
+def _fire_skills(own, foe, t: float, ev, seen, guard=None) -> set:
     """ゲージが消費量に達した札の必殺技を発動する（§7.2）。
 
     閾値は 100 ではなく**その札の消費ゲージ%**。だから消費50の札は何度も撃ち、
     消費175の札は1戦に1回あるかどうかになる。
     戻り値は**このティックで撃った札の集合**（固有特性の ally_skill 条件が使う）。
+
+    guard（§7.126）: True なら構えの技だけ、False なら攻めの技だけを撃つ。
+    段に合わない札はゲージも減らさず素通し（自分の段で撃つ）。None は全部。
     """
     fired = set()
     for u in own:
@@ -2559,12 +2589,14 @@ def _fire_skills(own, foe, t: float, ev, seen) -> set:
             continue
         need = _skill_threshold(u)
         if u.gauge >= need:
+            sk = SKILL_INFO.get(u.skill)
+            if guard is not None and _is_guard(sk) != guard:
+                continue
             u.gauge -= need
             u.fires += 1
             fired.add(u)
             if SKILL_SCALE <= 0.0:
                 continue
-            sk = SKILL_INFO.get(u.skill)
             if not sk:
                 continue
             # 同じ技は1戦に1回だけ実況へ出す（3回撃つと同じ行が3本並ぶ）
@@ -2574,6 +2606,16 @@ def _fire_skills(own, foe, t: float, ev, seen) -> set:
             _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
                          src=u.skill, ev=ev if show else None, seen=seen,
                          name=u.skill)
+            if _is_guard(sk):
+                # 構えの帳簿（§7.126・表示専用）。窓が閉じるまでに一度も
+                # 仕事をしなかった構えを「空振り」として数える。
+                tg = _skill_targets(SKILL_TARGET.get(u.skill, ""), u, foe, own)
+                dur = max((d for _, _, d in sk.mods), default=0.0)
+                if tg and dur > 0.0:
+                    base = sum(x.null_blocked + x.scut_saved + x.refl_back
+                               for x in tg)
+                    u.guard_casts += 1
+                    u.guard_watch.append((t + dur, tuple(tg), base))
     return fired
 
 
@@ -2605,6 +2647,7 @@ def _overtime(units, t: float, dt: float) -> None:
                 took = before - u.men
                 if u.scut_mult < 1.0:
                     u.cut_saved += took / max(u.scut_mult, 1e-9) - took
+                    u.scut_saved += took / max(u.scut_mult, 1e-9) - took
                 if src is not None:
                     # **延焼も撃ち手の戦果**（§7.89）。これを数えていなかった
                     src.dealt += took
@@ -2620,45 +2663,62 @@ def _expire(units, t: float) -> None:
     掛けっぱなしにすると、短い効果と長い効果の区別が消えて価格付けが狂う。
     """
     for u in units:
+        # 構えの帳簿（§7.126・表示専用）。窓の閉じた構えを空振りかどうか判定。
+        if u.guard_watch:
+            live = []
+            for t_end, tg, base in u.guard_watch:
+                if t_end > t:
+                    live.append((t_end, tg, base))
+                elif (sum(x.null_blocked + x.scut_saved + x.refl_back
+                          for x in tg) - base) <= 1e-9:
+                    u.guard_idle += 1
+            u.guard_watch = live
         if not u.effects:
             continue
         u.effects = [e for e in u.effects if e[0] > t]
-        # §6.5 の重複規則。**素朴に足すと壊れる。** 6枚が同じ技を3回ずつ撃つと
-        # -10% が18回積まれて -180% になり、相手が完全に無力化される
-        # （実測で 攻撃力-10%全体 の値段が 威力200%ダメージ の2.3倍になった）。
-        #   同名 … 効果量の大きい方だけを採る（重ねない）
-        #   異名 … 同じ能力への補正は加算
-        #   上限 … 1つの能力への合計を ±50% に丸める
-        best: Dict[Tuple[str, str], float] = {}
-        stun = False
-        for _, kind, amt, src in u.effects:
-            if kind == "stun":
-                stun = True
-                continue
-            k = (kind, src)
-            if abs(amt) > abs(best.get(k, 0.0)):
-                best[k] = amt
-        tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0,
-               "refl": 0.0, "ncut": 0.0, "null": 0.0}
-        for (kind, _), amt in best.items():
-            tot[kind] += amt
-        for k in tot:
-            tot[k] = min(MOD_CAP, max(-MOD_CAP, tot[k]))
-        # 行動阻害は能力補正ではないので ±50% の丸めを受けない（§6.5 は別項）。
-        u.atk_mult = 0.0 if stun else 1.0 + tot["atk"]
-        u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
-        u.def_mult = 1.0 + tot["def"]
-        u.rate_mult = 1.0 + tot["rate"]
-        # 必殺技防御（§7.51・コンセプトカード「必殺技メタ」）。必殺技と延焼の
-        # 被害だけを減らす。通常攻撃には効かない。
-        u.scut_mult = max(0.0, 1.0 - tot["scut"])
-        # 必殺技反射（§7.51 機構2）。受けた必殺技直撃の一部を撃ち手へ返す。
-        u.refl = max(0.0, tot["refl"])
-        # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
-        u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
-        # 必殺技打消し（§7.51 機構5）。構えの有無だけ（±50%の丸めは通るが
-        # 符号しか見ないので影響しない）。
-        u.nullify = tot["null"] > 0.0
+        _recalc_mods(u)
+
+
+def _recalc_mods(u: Unit) -> None:
+    """効果の山から倍率と構えを組み直す。_expire と §7.126 の構え段が呼ぶ。
+
+    §6.5 の重複規則。**素朴に足すと壊れる。** 6枚が同じ技を3回ずつ撃つと
+    -10% が18回積まれて -180% になり、相手が完全に無力化される
+    （実測で 攻撃力-10%全体 の値段が 威力200%ダメージ の2.3倍になった）。
+      同名 … 効果量の大きい方だけを採る（重ねない）
+      異名 … 同じ能力への補正は加算
+      上限 … 1つの能力への合計を ±50% に丸める
+    """
+    best: Dict[Tuple[str, str], float] = {}
+    stun = False
+    for _, kind, amt, src in u.effects:
+        if kind == "stun":
+            stun = True
+            continue
+        k = (kind, src)
+        if abs(amt) > abs(best.get(k, 0.0)):
+            best[k] = amt
+    tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0,
+           "refl": 0.0, "ncut": 0.0, "null": 0.0}
+    for (kind, _), amt in best.items():
+        tot[kind] += amt
+    for k in tot:
+        tot[k] = min(MOD_CAP, max(-MOD_CAP, tot[k]))
+    # 行動阻害は能力補正ではないので ±50% の丸めを受けない（§6.5 は別項）。
+    u.atk_mult = 0.0 if stun else 1.0 + tot["atk"]
+    u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
+    u.def_mult = 1.0 + tot["def"]
+    u.rate_mult = 1.0 + tot["rate"]
+    # 必殺技防御（§7.51・コンセプトカード「必殺技メタ」）。必殺技と延焼の
+    # 被害だけを減らす。通常攻撃には効かない。
+    u.scut_mult = max(0.0, 1.0 - tot["scut"])
+    # 必殺技反射（§7.51 機構2）。受けた必殺技直撃の一部を撃ち手へ返す。
+    u.refl = max(0.0, tot["refl"])
+    # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
+    u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
+    # 必殺技打消し（§7.51 機構5）。構えの有無だけ（±50%の丸めは通るが
+    # 符号しか見ないので影響しない）。
+    u.nullify = tot["null"] > 0.0
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
@@ -3077,9 +3137,21 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
+            # §7.126 技フェーズの二段化。まず**両軍の**構え（必殺技防御・反射・
+            # 打消し）を立てて反映し、それから両軍の攻め技を同時解決する。
+            # 従来は構えも遅延窓経由＝次ティックから有効で、同時刻の斉射に
+            # 絶対に間に合わなかった（12〜15秒の短い構えがほぼ空振り）。
+            # 片軍ずつ先に処理すると先手有利になるので、段の区切りは両軍まとめて。
             _open_men_window()
-            fired = _fire_skills(ua, ub, t + dt, events, seen)
-            fired |= _fire_skills(ub, ua, t + dt, events, seen)
+            fired = _fire_skills(ua, ub, t + dt, events, seen, guard=True)
+            fired |= _fire_skills(ub, ua, t + dt, events, seen, guard=True)
+            _flush_men()
+            if fired:
+                for x in ua + ub:
+                    _recalc_mods(x)
+            _open_men_window()
+            fired |= _fire_skills(ua, ub, t + dt, events, seen, guard=False)
+            fired |= _fire_skills(ub, ua, t + dt, events, seen, guard=False)
 
         if TRAITS_ON:
             newly = {u for u in ua + ub
@@ -3173,18 +3245,26 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # 戦果表（sim/play.py）もここを読む。
             # 末尾3つは §7.88 の「見えにくい効き」（同士討ち・反射・軽減）。
             # **足すのは末尾**（既存の添字を動かすと戦果表と画面が同時に壊れる）
+            # 末尾4つは §7.126 の構えの帳簿（打消し数と技名・技だけの軽減・
+            # 構えの空振り「張った/空振り」）
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
                          u.healed, u.atk_lost,
                          u.taken, u.fires, u.stun_time, u.sup_lost,
-                         dict(u.pair), _detour_pct(u)) for u in ua],
+                         dict(u.pair), _detour_pct(u),
+                         u.null_blocked, list(u.null_names),
+                         u.scut_saved, (u.guard_casts, u.guard_idle))
+                        for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
                          u.healed, u.atk_lost,
                          u.taken, u.fires, u.stun_time, u.sup_lost,
-                         dict(u.pair), _detour_pct(u)) for u in ub],
+                         dict(u.pair), _detour_pct(u),
+                         u.null_blocked, list(u.null_names),
+                         u.scut_saved, (u.guard_casts, u.guard_idle))
+                        for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
             # どんな特性も 0.0000 になる（実測で7種が該当した）。

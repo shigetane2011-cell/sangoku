@@ -2372,6 +2372,13 @@ async function viewReplay(state) {
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技を跳ね返し ${k(u.refl)}千</div>`);
       if ((u.lost || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　弱体で ${k(u.lost)}千ぶんの火力を封じられる</div>`);
+      /* 構えの帳簿（§7.126）: 打ち消した数と技名・必殺技防御の軽減・空振り */
+      if ((u.null_blocked || 0) > 0)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えで敵の必殺技を ${u.null_blocked}回 打ち消す（${(u.null_names || []).map(esc).join("・")}）</div>`);
+      if ((u.scut_saved || 0) >= 300)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技防御で ${k(u.scut_saved)}千を軽減</div>`);
+      if ((u.guard_idle || 0) > 0)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回張ったが、${u.guard_idle}回は敵の技が来なかった</div>`);
       return out;
     }).join("");
     box.innerHTML = `<details class="battle-detail">

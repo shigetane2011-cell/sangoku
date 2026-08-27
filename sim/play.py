@@ -1261,7 +1261,7 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         # §7.88 の「見えにくい効き」＋ §7.94 の合戦詳録。列は末尾に足す
         out = []
         for (n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al,
-             tk, fi, st, sp, pair, det) in xs:
+             tk, fi, st, sp, pair, det, nb, nn, ss, gw) in xs:
             out.append({
                 "name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
                 "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
@@ -1278,6 +1278,11 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                             sorted(pair.items(), key=lambda kv: -kv[1])
                             if v >= 0.02 * max(d, 1.0)],
                 "detour": round(det) if det is not None else None,
+                # 構えの帳簿（§7.126）: 打消し回数と技名・必殺技防御の軽減
+                # （cut は通常攻撃防御と混みなので技ぶんを別に）・張り/空振り
+                "null_blocked": nb, "null_names": list(nn),
+                "scut_saved": round(ss),
+                "guard_casts": gw[0], "guard_idle": gw[1],
             })
         return out
     sc = r["score"] if me_first else 1.0 - r["score"]
@@ -1318,6 +1323,8 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
             when = "・{}崩".format(F.clock(fa)) if fa is not None else ""
             # 見えにくい効き（§7.88）は**出た時だけ**添える
             extra = ""
+            if len(_detail) >= 10 and _detail[6] > 0:   # 打消し（§7.126）
+                extra += " 消{}回".format(_detail[6])
             if cs >= 300.0:
                 extra += " 軽{:.1f}".format(cs / 1000.0)
             if rf >= 300.0:
