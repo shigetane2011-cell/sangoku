@@ -607,6 +607,13 @@ ACT_COEF = {INF: 1.0000, CAV: 1.1238, ARC: 0.6450}
 # 手作りで1編成だけ合わせたときは 弓 1.4427 という値が出て、別の噛み合わせでは
 # 3.09 コスト点ずれていた。単一の編成で係数を決めない。
 
+# 騎兵の白兵が弓兵に入るときの貫き（§7.123）。弓は馬を受ける得物を持たない。
+# **局所効果である** — 騎兵が弓に取り付いた瞬間にだけ現金化され、壁が守って
+# いる限り一銭も入らない。攻撃ごとの兵種%補正（TYPE_BONUS・死んだつまみ）が
+# 廃止されたのは「射程で長く撃てる側ほど同じ%で得をして推移成分が混ざる」
+# ためだが、この向き（騎→弓の白兵）は接敵が門になっており、その形にならない。
+CAV_VS_ARC = 0.0
+
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
 
@@ -2960,6 +2967,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
                         * f.ncut_mult * _cav_cover(u, f)
+                    if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
+                        hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
@@ -3002,6 +3011,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
                         * f.ncut_mult * _cav_cover(u, f)
+                    if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
+                        hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
