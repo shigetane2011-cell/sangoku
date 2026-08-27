@@ -376,6 +376,10 @@ class FormationBoard {
 
   tapSlot(index) {
     const slots = normalizeSlots(this.props.slots);
+    // 触れた駒を親へ知らせる（§7.119）。タッチではボタンに focus が来ない
+    // 端末があり（iOS）、focus 頼みだと駒の詳細が出ない。選択や入れ替えの
+    // 挙動はそのまま — 詳細表示は載せるだけで、何も奪わない。
+    if (slots[index] && this.props.onPieceTap) this.props.onPieceTap(slots[index]);
     if (this.selectedIndex === null) {
       if (!slots[index]) return;
       this.selectedIndex = index;
@@ -1042,7 +1046,7 @@ async function viewSenkiPrep(i) {
       </select>
       <input id="search" placeholder="名で探す">
     </div>
-    <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
+    <div id="cardinfo" class="cardinfo muted">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</div>
     <div class="cards" id="roster" data-keep-selection></div>`;
   drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
@@ -1100,7 +1104,7 @@ function drawPrep(msg) {
               + `（盤面の武将を選び、一覧から軽い武将へ交代する）`
     : (n !== 6 ? `あと${6 - n}人（6人で出陣）`
        : (bad ? "置けない兵がいる（⚠の武将を交換または交代する）"
-          : "6人そろった。駒を2回タップで入れ替え、選んでから一覧の札で交代、✕か「枠から外す」で外す"));
+          : "6人そろった。駒は2回タップで入れ替え。一覧の札は1回で詳細・素早く2回で配置と解除"));
 }
 
 /* ── 編成 ──────────────────────── */
@@ -1214,7 +1218,7 @@ async function viewDeck(state) {
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
           <button class="mini ghost" id="guide-open" title="相性と布陣の勘どころ">軍略の手引き</button>
         </div>
-        <div id="cardinfo" class="cardinfo muted">カードに触れると詳細が出る。</div>
+        <div id="cardinfo" class="cardinfo muted">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</div>
         <div class="cards" id="roster" data-keep-selection></div>
       </div>
       <div class="panel mine-panel side-panel">
@@ -1606,6 +1610,12 @@ function drawOnsho() {
   if (dv) dv.onclick = async () => { await api("/api/dev_onsho", {}); refresh(); };
 }
 
+/* 一覧の札のシングル／ダブル判定（§7.119）。350ms は iOS のダブルタップ
+   判定と同じ帯。シングルの動作（詳細表示）は無害なので**遅延させずに即発火**
+   する — 2回目が来たら配置へ昇格するだけで、待ちのもたつきが無い。 */
+const DOUBLE_TAP_MS = 350;
+let rosterTap = { name: null, at: 0 };
+
 function drawRoster() {
   const q = $("#search").value.trim();
   const used = usedPersons(cur.reg);
@@ -1622,9 +1632,14 @@ function drawRoster() {
       || b.cost - a.cost || a.name.localeCompare(b.name, "ja"));
   $("#roster").innerHTML = list.map((c) => {
     const u = used.get(c.person);
-    const dup = inDeck.has(c.name) ||
-      occupiedSlotIds().some((n) => { const x = D.roster.find((r) => r.name === n);
-                              return x && x.person === c.person && x.name !== c.name; });
+    const selfInDeck = inDeck.has(c.name);
+    // 同じ人物の別バージョンが盤面に居る札は従来どおり無効。**盤面に居る
+    // その札自身は無効にしない**（§7.119）— 触れば詳細が出て、素早く2回で
+    // 枠から外せる。無効のままだと「編成中の札の詳細が見られない」うえ、
+    // 外す手段が盤面側の ✕ だけになる。
+    const dup = occupiedSlotIds().some((n) => {
+      const x = D.roster.find((r) => r.name === n);
+      return x && x.person === c.person && x.name !== c.name; });
     // 戦前の間では、いまの残り予算で買えない札を沈める（詰将棋の可読性）。
     // ただし**枠が埋まっているときは沈めない** — 誰かを外せば買えるので、
     // 値段だけで沈めると「その武将は使えない」という嘘になる。
@@ -1632,14 +1647,14 @@ function drawRoster() {
     const pricey = PREP && occupiedSlotIds().length < 6
       && !inDeck.has(c.name) && c.cost > rest + 1e-9;
     const off = u || dup;
-    return `<button type="button" class="card f${c.faction} ${off ? "used" : ""} ${pricey ? "pricey" : ""}"
-         data-n="${esc(c.name)}" ${off ? "disabled" : ""} aria-label="${esc(c.name)} ${esc(c.typ)} コスト${c.cost}">
+    return `<button type="button" class="card f${c.faction} ${off ? "used" : ""} ${selfInDeck ? "indeck" : ""} ${pricey ? "pricey" : ""}"
+         data-n="${esc(c.name)}" ${off ? "disabled" : ""} aria-label="${esc(c.name)} ${esc(c.typ)} コスト${c.cost}${selfInDeck ? "（編成中・素早く2回押すと外す）" : ""}">
       <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
         loading="lazy" alt="">
         ${icoCost(c.cost)}
         <span class="typ">${icoTyp(c.typ, c.spear)}</span>
         ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
-            : (inDeck.has(c.name) ? `<span class="usedby">編成中</span>` : "")}
+            : (selfInDeck ? `<span class="usedby">編成中</span>` : "")}
       </div>
       <div class="name">${esc(c.name)}<span class="role">${esc(c.role)}</span></div>
       <div class="stats num">武勇${c.might}　知略${c.wits}</div>
@@ -1647,23 +1662,49 @@ function drawRoster() {
       <div class="skill">【${esc(c.skill)}】</div>
     </button>`;
   }).join("");
-  $$("#roster .card:not(.used)").forEach((el) => el.onclick = () => {
+  $$("#roster .card:not([disabled])").forEach((el) => el.onclick = () => {
+    const name = el.dataset.n;
     const board = FORMATION_BOARDS.get($("#slots"));
-    const selected = board && board.selectedIndex;
+    const selected = board ? board.selectedIndex : null;
     const next = normalizeSlots(cur.slots);
-    const empty = next.findIndex((x) => !x);
-    if (selected !== null && selected !== undefined) {
+    const inDeckNow = next.includes(name);
+    // 盤面で駒を選択中の交代は従来どおり**シングルで確定**（§7.119）。
+    // 「選択中○○」の帯が出ている状態の操作なので、誤爆の恐れが小さい。
+    if (selected !== null && selected !== undefined && !inDeckNow) {
       const old = next[selected];
-      next[selected] = el.dataset.n;
-      board.announcement = `${old || "空き枠"}を${el.dataset.n}へ交代しました`;
+      next[selected] = name;
+      board.announcement = `${old || "空き枠"}を${name}へ交代しました`;
       board.selectedIndex = null;
       board.keyboardTargetIndex = null;
-    } else if (empty >= 0) {
-      next[empty] = el.dataset.n;
-    } else {
+      cur.slots = next;
+      showCardInfo(name);
+      drawAll();
+      return;
+    }
+    // シングル＝詳細／素早く2回＝配置（編成中の札なら解除）（§7.119）。
+    // 以前はシングルで即配置しており、「詳細を見たいだけなのに選ばれる」が
+    // タッチ端末で避けられなかった（ホバーが無い）。
+    const now = Date.now();
+    const twice = rosterTap.name === name && now - rosterTap.at <= DOUBLE_TAP_MS;
+    rosterTap = twice ? { name: null, at: 0 } : { name, at: now };
+    if (!twice) { showCardInfo(name); return; }
+    if (inDeckNow) {
+      next[next.indexOf(name)] = null;
+      if (board) {
+        board.selectedIndex = null;
+        board.keyboardTargetIndex = null;
+        board.announcement = `${name}を枠から外しました`;
+      }
+      cur.slots = next;
+      drawAll();
+      return;
+    }
+    const empty = next.findIndex((x) => !x);
+    if (empty < 0) {
       flashMsg("枠が埋まっている。交代する武将を盤面で選んでから、この札を押す（✕で外してもよい）。", true);
       return;
     }
+    next[empty] = name;
     cur.slots = next;
     drawAll();
   });
@@ -1718,6 +1759,7 @@ function drawSlots() {
     slots: normalizeSlots(cur.slots),
     units: unitsForBoard(D.roster),
     interactive: true,
+    onPieceTap: (name) => showCardInfo(name),
     onSlotsChange: (next) => {
       cur.slots = normalizeSlots(next);
       drawAll();

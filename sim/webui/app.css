@@ -466,6 +466,12 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
 .card:hover { transform: translateY(-3px); border-color: var(--gold);
   box-shadow: 0 8px 20px #00000066; }
 .card.used { opacity: .35; cursor: default; }
+/* 編成中の札（§7.119）。無効ではない — 1回で詳細、素早く2回で枠から外す。
+   触れることが分かる程度の光だけ足し、沈めない。 */
+.card.indeck { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* ダブルタップ判定を使うので、ブラウザ既定のダブルタップ拡大を切る
+   （切らないと2回目のタップが拡大に食われる。スクロールは妨げない）。 */
+.card { touch-action: manipulation; }
 .card.used:hover { transform: none; border-color: var(--line); box-shadow: none; }
 .card .face { position: relative; aspect-ratio: 4 / 3.4; overflow: hidden;
   background: var(--panel2); border-bottom: 1px solid var(--line); }

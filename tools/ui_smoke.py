@@ -85,14 +85,16 @@ def _open_deck(page):
 
 
 def _fill_board(page):
-    """一覧の札で6枠を埋める。"""
+    """一覧の札で6枠を埋める。配置は**素早く2回**（§7.119。1回は詳細だけ）。
+
+    .indeck（既に盤面に居る札）を掴むと2回押しが「外す」になるので除く。"""
     for _ in range(8):
         if all(page.evaluate(NAMES)):
             break
-        c = page.query_selector("#roster .card:not([disabled])")
+        c = page.query_selector("#roster .card:not([disabled]):not(.indeck)")
         if not c:
             break
-        c.click()
+        c.dblclick()
         page.wait_for_timeout(180)
 
 
@@ -121,7 +123,7 @@ def exercise(page, rep, label, touch):
     before = board()
     page.query_selector_all("#slots .fb-piece")[1].click(); page.wait_for_timeout(250)
     cand = None
-    for c in page.query_selector_all("#roster .card:not([disabled])"):
+    for c in page.query_selector_all("#roster .card:not([disabled]):not(.indeck)"):
         if c.get_attribute("data-n") not in before:
             cand = c
             break
@@ -150,6 +152,42 @@ def exercise(page, rep, label, touch):
         rm[0].click(); page.wait_for_timeout(400)
         rep.check(board()[0] is None, tag("✕ で枠から外せる"))
         _fill_board(page)
+
+    # シングル＝詳細／素早く2回＝配置・解除（§7.119）
+    rm = page.query_selector_all(".fb-remove")
+    if rm:
+        rm[0].click(); page.wait_for_timeout(300)          # 1枠空けて試す
+    stay = board()
+    cand = None
+    for c in page.query_selector_all("#roster .card:not([disabled]):not(.indeck)"):
+        if c.get_attribute("data-n") not in stay:
+            cand = c
+            break
+    if rep.check(cand is not None, tag("単押しの検査に使える札がある")):
+        nm = cand.get_attribute("data-n")
+        cand.click(); page.wait_for_timeout(500)           # 2回目の窓が閉じるまで待つ
+        rep.check(board() == stay, tag("一覧の札は1回では配置されない"))
+        info = page.text_content("#cardinfo") or ""
+        rep.check(nm in info, tag("1回押すと詳細欄がその武将になる"))
+        cand.dblclick(); page.wait_for_timeout(400)
+        rep.check(nm in board(), tag("素早く2回で配置される"))
+        indeck = page.query_selector('#roster .card.indeck[data-n="{}"]'.format(nm))
+        if rep.check(indeck is not None, tag("編成中の札が一覧で押せる")):
+            indeck.click(); page.wait_for_timeout(500)
+            rep.check(nm in board(), tag("編成中の札は1回では外れない"))
+            indeck.dblclick(); page.wait_for_timeout(400)
+            rep.check(nm not in board(), tag("編成中の札は素早く2回で外れる"))
+        _fill_board(page)
+
+    # 駒に触れると詳細欄がその武将になる（§7.119）
+    first = board()[0]
+    if rep.check(bool(first), tag("詳細の検査に使える駒がある")):
+        page.query_selector_all("#slots .fb-piece")[0].click(); page.wait_for_timeout(300)
+        info = page.text_content("#cardinfo") or ""
+        rep.check(first in info, tag("駒に触れると詳細欄がその武将になる"))
+        bar = page.query_selector(".fb-bar-btn[data-bar='cancel']")
+        if bar:
+            bar.click(); page.wait_for_timeout(200)        # 選択を残さない
 
     # キーボードだけで入れ替え（Enter で選ぶ→矢印で移す→Enter で確定）
     before = board()

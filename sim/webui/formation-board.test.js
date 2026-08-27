@@ -100,4 +100,23 @@ assert.match(html, /fb-remove/, "✕ で外せる");
 assert.doesNotMatch(b.slotHTML(2, "c"), /fb-empty-mark[^>]*>＋/, "空き枠として描かない");
 assert.match(b.slotHTML(3, null), /fb-empty-mark/, "本当の空き枠は空き枠");
 
+// ── 駒に触れたら onPieceTap が鳴る（詳細欄への接続・§7.119）─────
+b = stubBoard(["a", null, "c", null, null, null]);
+b.render = () => {};
+b.taps = [];
+b.props.onPieceTap = (id) => b.taps.push(id);
+b.tapSlot(0);
+assert.deepEqual(b.taps, ["a"], "駒に触れたら知らせる");
+assert.equal(b.selectedIndex, 0, "選択の挙動はそのまま");
+b.tapSlot(1);
+assert.deepEqual(b.taps, ["a"], "空き枠では鳴らない");
+b.selectedIndex = null;
+b.tapSlot(2);
+assert.deepEqual(b.taps, ["a", "c"]);
+// onPieceTap を渡していない盤面（リプレイ等）は今までどおり
+b = stubBoard(["a", null, null, null, null, null]);
+b.render = () => {};
+b.tapSlot(0);
+assert.equal(b.selectedIndex, 0);
+
 console.log("FormationBoard logic: ok");
