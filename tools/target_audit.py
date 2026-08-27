@@ -251,7 +251,7 @@ def positive_control():
 # それを検める術もここへ足すこと。
 # 見出しは**丸ごと一致**で照らす。部分一致にすると「残兵力が最少」の中に
 # 「兵力が最少」が入っていて別の検査が誤って走る（この道具が実際に踏んだ）。
-KNOWN_DESC = {"前衛の兵力が最多", "兵力が最多", "兵力が最少", "残兵力が最少", "攻撃力が最高",
+KNOWN_DESC = {"前衛の主力", "兵力が最多", "兵力が最少", "残兵力が最少", "攻撃力が最高",
               "知略が最高", "知略が最低", "損害が最大", "正面"}
 
 
@@ -283,13 +283,13 @@ def _label_claims(target, u, picked, foes, own):
     if "自分" in target and "と" not in target:
         checks.append((picked == [u], "自分だけ"))
     if ("前衛" in target and "自分と" not in target and "1列" not in target
-            and desc != "前衛の兵力が最多"):
-        # 「前衛の兵力が最多」は前衛全滅時に全体へ落ちる仕様（field._skill_targets）
+            and desc != "前衛の主力"):
+        # 「前衛の主力」は前衛全滅時に全体へ落ちる仕様（field._skill_targets）
         # なので、この一律検査からは外して下の専用検査で見る。
         checks.append((all(x.is_front for x in picked), "前衛だけ"))
     if ("後衛" in target or "後列" in target) and "自分と" not in target:
         checks.append((all(not x.is_front for x in picked), "後衛だけ"))
-    if desc == "前衛の兵力が最多":
+    if desc == "前衛の主力":
         # 候補は前衛だけ（全滅していれば全体）。敵全体の最大兵力と比べると、
         # 正しい実装を誤って落とす（テストプレイの指摘・§7.124）。
         front = [x for x in pool if x.is_front]
