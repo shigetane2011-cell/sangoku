@@ -103,6 +103,59 @@ def _my_rating(cx, me):
     return out
 
 
+def _deck_records(cx, pid):
+    """保存デッキの戦績（§7.120）。**中身一致で自動集計** — 対戦の記録
+    （battles・§7.58）は編成の魚拓と勝敗の刻みを持っているので、新しい表を
+    足さずに (レギュレーション, 札の並び, 陣形) で突き合わせれば、過去の
+    対戦ぶんまで遡って出る。編成を1枚でも変えると別デッキ扱いになる（戦績は
+    その編成のものとして残る）。
+
+    数えるのは**レート対象だけ**（ranked / tenka）。稽古（free / room）を
+    混ぜると「試しに10連敗」が看板の数字を汚す。恩賞（trait）は無視して
+    札の並びと陣形だけで一致を取る — 恩賞替えは同じデッキの調整と見なす。
+
+    戻り: {(レギュ名, 札名タプル, 陣形名): {"n":出陣, "w":勝, "l":負}}
+    """
+    import json as _json
+    regs = [n for n, _ in M.REGULATIONS]
+    out = {}
+
+    def bump(reg, snap, mark):
+        try:
+            names = tuple(c["n"] for c in snap["cards"])
+            form = F.FORM_ALIAS.get(snap["form"], snap["form"])
+        except (KeyError, TypeError):
+            return
+        cell = out.setdefault((reg, names, form), {"n": 0, "w": 0, "l": 0})
+        cell["n"] += 1
+        if mark == "○":
+            cell["w"] += 1
+        elif mark == "●":
+            cell["l"] += 1
+
+    for r in cx.execute(
+            "SELECT board, pid_a, pid_b, snap_a, snap_b, result FROM battles"
+            " WHERE (pid_a = ? OR pid_b = ?) AND result <> ''"
+            " AND mode IN ('ranked', 'tenka')", (pid, pid)):
+        mine = r["snap_a"] if r["pid_a"] == pid else r["snap_b"]
+        if not mine:
+            continue
+        marks = r["result"]
+        if r["pid_b"] == pid:
+            marks = marks.translate(str.maketrans("○●", "●○"))
+        try:
+            d = _json.loads(mine)
+        except ValueError:
+            continue
+        if "units" in d:                      # 天下（3レギュぶんの魚拓）
+            for i, snap in enumerate(d["units"]):
+                if i < len(regs) and i < len(marks):
+                    bump(regs[i], snap, marks[i])
+        elif r["board"] in regs:              # BO1（そのレギュの魚拓1つ）
+            bump(r["board"], d, marks[0] if marks else "")
+    return out
+
+
 def _trait_names():
     """特性キー → 表示名。**traits.csv の 名前 列が一次**（旧実装はここに
     別の対応表を持っていて、同じ量の定義が2箇所になっていた）。"""
@@ -864,20 +917,25 @@ class App(BaseHTTPRequestHandler):
             else:
                 g2["unset"].append(r["id"])
         onsho = sorted(groups.values(), key=lambda g2: -g2["kou"])
+        recs = _deck_records(cx, me.id)
         saved = []
         for r in P.saved_decks(cx, me.id):
             army, _ = PL.parse_deck(cards, r["cards"], r["formation"])
+            names = ([c.name for c in army.cards] if army
+                     else [x.strip() for x in r["cards"].split(F.TRAIT_SEP)
+                           if x.strip()])
+            form = F.FORM_ALIAS.get(r["formation"], r["formation"])
             saved.append({
                 "id": r["id"], "name": r["name"], "reg": r["regulation"],
-                "form": F.FORM_ALIAS.get(r["formation"], r["formation"]),
-                "cards": [c.name for c in army.cards] if army
-                         else [x.strip() for x in r["cards"].split(F.TRAIT_SEP)
-                               if x.strip()],
+                "form": form,
+                "cards": names,
                 "cost": army.total_cost() if army else None,
+                "rec": recs.get((r["regulation"], tuple(names), form)),
             })
         unl = PL.ensure_unlocks(cx, me.id)
         self._json({
             "regs": [{"name": n, "cap": c} for n, c in M.REGULATIONS],
+            "deck_slots": P.entitlement(cx, me.id).get("deck_slots", 10),
             "roster": _roster_json(only=unl),
             "pool": {"unlocked": sum(1 for g in R.generals()
                                      if g["人物"] in unl),
@@ -1076,6 +1134,14 @@ class App(BaseHTTPRequestHandler):
         if reg not in dict(M.REGULATIONS):
             return self._json({"ok": False, "errors": ["そのレギュレーションは無い"]})
         cards = [str(x) for x in body.get("cards", [])]
+        # 保存庫の枠数はプランの権利（§7.120）。**同じ名前への上書きは枠を
+        # 消費しない** — 「満杯だから調整もできない」を作らないため。
+        cap = P.entitlement(cx, me.id).get("deck_slots", 10)
+        if (not P.saved_deck_exists(cx, me.id, reg, name)
+                and P.saved_deck_count(cx, me.id, reg) >= cap):
+            return self._json({"ok": False, "errors": [
+                "この戦場の保存庫は{}枠まで。どれかを消すか、同じ名前で上書きする"
+                .format(cap)]})
         P.save_deck_as(cx, me.id, name, reg, F.TRAIT_SEP.join(cards),
                        body.get("form", "魚鱗"))
         self._json({"ok": True})

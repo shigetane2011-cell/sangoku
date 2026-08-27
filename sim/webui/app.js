@@ -1511,10 +1511,16 @@ function drawLibrary() {
     const isActive = active && active.cards.join("、") === s.cards.join("、")
       && active.form === s.form;
     const over = s.cost !== null && s.cost > cap;
+    // 戦績（§7.120）: レート対象で同じ編成（札の並び＋陣形）で戦った記録。
+    // 編成を1枚でも変えると別デッキ扱い（数字はその編成のものとして残る）。
+    const rec = s.rec && s.rec.n
+      ? `<span class="lib-rec num" title="レート対象戦のこの編成の戦績">出陣${s.rec.n}・${s.rec.w}勝${s.rec.l}敗（${Math.round(100 * s.rec.w / Math.max(1, s.rec.w + s.rec.l))}%）</span>`
+      : '<span class="lib-rec muted">未出陣</span>';
     return `<div class="lib-row ${isActive ? "active" : ""}">
       <div class="lib-line1">
         <span class="lname">${esc(s.name)}</span>
         ${isActive ? '<span class="active-tag">登録中</span>' : ""}
+        ${rec}
       </div>
       <div class="lib-line2">
         <span class="form-tag">${esc(s.form)}</span>
@@ -1527,12 +1533,13 @@ function drawLibrary() {
       </div>
     </div>`;
   }).join("");
-  el.innerHTML = `<div class="side-label">─ デッキ保存庫（${esc(cur.reg)}） ─</div>
+  const slots = D.deck_slots || 10;
+  el.innerHTML = `<div class="side-label">─ デッキ保存庫（${esc(cur.reg)}・${mine.length}/${slots}枠） ─</div>
     <div class="lib-save">
       <input id="savename" placeholder="この編成に名前を付けて保存" maxlength="24">
       <button class="mini" id="dosave">保存</button>
     </div>
-    ${rows || "<p class='muted' style='font-size:12px'>まだ保存が無い。</p>"}`;
+    ${rows || "<p class='muted' style='font-size:12px'>まだ保存が無い。保存しておけば「登録」で一発で切り替えられる。</p>"}`;
   $("#dosave").onclick = async () => {
     const name = $("#savename").value.trim();
     if (!name) { flashMsg("名前を付ける", true); return; }

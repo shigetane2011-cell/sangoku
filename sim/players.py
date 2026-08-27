@@ -73,9 +73,20 @@ TRAIT_SLOTS = 3
 # プランごとの権利。`rated_per_day` は §3.1 の「レート変動上限」に当たる。
 # 有料で増えるが、**増えるのは挑戦できる回数であって点数ではない**（上の注記）。
 PLANS: Dict[str, Dict[str, int]] = {
-    "free":    {"rated_per_day": 12, "practice_per_day": 6,  "entry_slots": 3},
-    "monthly": {"rated_per_day": 36, "practice_per_day": 48, "entry_slots": 12},
+    "free":    {"rated_per_day": 12, "practice_per_day": 6,  "entry_slots": 3,
+                "deck_slots": 10, "heifu_min": 10},
+    "monthly": {"rated_per_day": 36, "practice_per_day": 48, "entry_slots": 12,
+                "deck_slots": 30, "heifu_min": 5},
 }
+# deck_slots … デッキ保存庫の枠数（**レギュレーションごと**・§7.120）。
+# heifu_min  … 兵符1枚の回復にかかる分数。どちらも「準備の広さ」と「挑戦の
+# 回転」を売るもので、点数は売らない（§3.1・players.py 冒頭の原則）。
+# 値は暫定 — billing を入れる時に free の値を絞るかを含めて決め直す。
+
+# 単発課金の品目（§7.120）。billing 稼働までは名前だけの器。
+# 「瞬発的な兵符回復」は挑戦権の前倒しであって点数ではない — 多く挑んでも
+# ゼロサムのレートでは期待値が上がらない（上の「課金の形」の注記と同じ理屈）。
+PRODUCTS: Dict[str, str] = {"heifu_full": "兵符を即時に全回復する"}
 # **いま提供しているプラン。** 当面は無課金で回すので free だけ。ここを見て
 # 課金導線を出すこと。PLANS に定義があることと、売っていることは別である。
 ACTIVE_PLANS: Tuple[str, ...] = ("free",)
@@ -591,6 +602,21 @@ def save_deck_as(cx: sqlite3.Connection, player_id: str, name: str,
             (player_id, name, regulation, cards, formation))
 
 
+def saved_deck_count(cx: sqlite3.Connection, player_id: str,
+                     regulation: str) -> int:
+    return cx.execute(
+        "SELECT COUNT(*) AS n FROM saved_decks"
+        " WHERE player_id = ? AND regulation = ?",
+        (player_id, regulation)).fetchone()["n"]
+
+
+def saved_deck_exists(cx: sqlite3.Connection, player_id: str,
+                      regulation: str, name: str) -> bool:
+    return cx.execute(
+        "SELECT 1 FROM saved_decks WHERE player_id = ? AND regulation = ?"
+        " AND name = ?", (player_id, regulation, name)).fetchone() is not None
+
+
 def saved_decks(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
     return [dict(r) for r in cx.execute(
         "SELECT id, name, regulation, cards, formation FROM saved_decks"
@@ -631,16 +657,23 @@ HEIFU_CAP = 10
 HEIFU_REGEN_SEC = 10 * 60   # ⑨で 30分→10分（挑戦ラダーの回転・§7.58）
 
 
+def heifu_regen_sec(cx: sqlite3.Connection, player_id: str) -> int:
+    """兵符1枚の回復秒数。**プランの権利**（§7.120）。"""
+    m = entitlement(cx, player_id).get("heifu_min", HEIFU_REGEN_SEC // 60)
+    return max(60, int(m) * 60)
+
+
 def heifu(cx: sqlite3.Connection, player_id: str, now: int) -> Tuple[int, int]:
     """兵符の残数と、次の1枚まで何秒か。読むだけ（書かない）。"""
     r = cx.execute("SELECT count, updated_at FROM tokens WHERE player_id = ?",
                    (player_id,)).fetchone()
     if r is None:
         return HEIFU_CAP, 0
-    n = r["count"] + (now - r["updated_at"]) // HEIFU_REGEN_SEC
+    regen = heifu_regen_sec(cx, player_id)
+    n = r["count"] + (now - r["updated_at"]) // regen
     if n >= HEIFU_CAP:
         return HEIFU_CAP, 0
-    return n, HEIFU_REGEN_SEC - (now - r["updated_at"]) % HEIFU_REGEN_SEC
+    return n, regen - (now - r["updated_at"]) % regen
 
 
 def spend_heifu(cx: sqlite3.Connection, player_id: str, amount: int,
@@ -652,12 +685,13 @@ def spend_heifu(cx: sqlite3.Connection, player_id: str, amount: int,
     （満タン中は回復が進まないので、使った瞬間が次の回復の起点）。"""
     r = cx.execute("SELECT count, updated_at FROM tokens WHERE player_id = ?",
                    (player_id,)).fetchone()
+    regen = heifu_regen_sec(cx, player_id)
     if r is None:
         n, anchor = HEIFU_CAP, now
     else:
-        ticks = (now - r["updated_at"]) // HEIFU_REGEN_SEC
+        ticks = (now - r["updated_at"]) // regen
         n = min(HEIFU_CAP, r["count"] + ticks)
-        anchor = now if n >= HEIFU_CAP else r["updated_at"] + ticks * HEIFU_REGEN_SEC
+        anchor = now if n >= HEIFU_CAP else r["updated_at"] + ticks * regen
     if n < amount:
         return False
     with cx:
