@@ -950,6 +950,11 @@ CHARGE_BONUS = 0.6      # 突撃時の上乗せ（0 で無効）
 # 閾値を勘で決めず、測れる基準（型どうしの幅）で選ぶ（§13）。
 DETOUR_MID = 0.6
 DETOUR_GAIN = 2.0
+# 迂回度の上限（§7.122）。0.5 を超える迂回は、ZOC を前衛だけに直した後も
+# 実測で勝てない（経路が伸び、着く頃には囲いが間に合う）。判定が「深く回れ」
+# と言うほど自殺になる崖を、度数の頭打ちで塞ぐ。外周へ回る動き自体は残る。
+#   掃引（疾風3種×城塞3種・18戦）: 迂回度 0.3〜0.5 が勝ち筋、0.67 以上は 0勝。
+DETOUR_CAP = 0.5
 CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
 # 馬上回避（§7.73 試作）: 駆けている騎兵には矢が当たりにくい。射程持ちからの
 # 被害を、乱戦に入るまで減らす。勢い（CHARGE_TAU）と同じ時定数で滑らかに
@@ -1771,7 +1776,7 @@ def _plan_paths(mine: List[Unit], foe: List[Unit], form: Formation,
     o_rear = _row_output(foe_rear)
     w = o_rear / (o_front + o_rear) if (o_front + o_rear) > 0 else 0.5
     # w は DETOUR_MID を中心に動く。そこを「差がない」に写して 0..1 へ伸ばす。
-    w = min(max((w - DETOUR_MID) * DETOUR_GAIN, 0.0), 1.0)
+    w = min(max((w - DETOUR_MID) * DETOUR_GAIN, 0.0), DETOUR_CAP)
 
     foe_edge = foe_form.frontage / 2.0 + FLANK_MARGIN
 
@@ -3185,8 +3190,14 @@ def _step_progress(u: Unit, foes: List[Unit], gaps: List[float],
     # _plan_paths が敵前衛と後衛の硬さの比から連続に決めており、分岐を含まない。
     z = 0.0
     if u.detour > 0.0:
+        # **ZOC は敵前衛からだけ**（§7.122）。全軍から取ると、半径220×6枚の
+        # 重ね掛けで z が3〜6になり、全力迂回の騎兵は速度 exp(-z)=0.5〜5% で
+        # 開戦位置に縫い付けられて射殺されていた（実測: 2分で経路0〜2%）。
+        # 課したい税は「戦列を通り過ぎる」動きへのものであり、線を張るのは
+        # 前衛である。後衛が自分の壁越しに制動を届かせる理屈は無い。
         for f, d in zip(foes, gaps):
-            z += ZOC_STR * f.ratio() * smooth_gate(d, 0.0, ZOC_R)
+            if f.is_front:
+                z += ZOC_STR * f.ratio() * smooth_gate(d, 0.0, ZOC_R)
         z *= u.detour
     v = u.speed * u.spd_mult * math.exp(-z)
     remain = u.total_len - u.progress
