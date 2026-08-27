@@ -282,11 +282,23 @@ def _label_claims(target, u, picked, foes, own):
         checks.append((len(picked) == len(pool), "全員を選ぶ"))
     if "自分" in target and "と" not in target:
         checks.append((picked == [u], "自分だけ"))
-    if "前衛" in target and "自分と" not in target and "1列" not in target:
+    if ("前衛" in target and "自分と" not in target and "1列" not in target
+            and desc != "前衛の兵力が最多"):
+        # 「前衛の兵力が最多」は前衛全滅時に全体へ落ちる仕様（field._skill_targets）
+        # なので、この一律検査からは外して下の専用検査で見る。
         checks.append((all(x.is_front for x in picked), "前衛だけ"))
     if ("後衛" in target or "後列" in target) and "自分と" not in target:
         checks.append((all(not x.is_front for x in picked), "後衛だけ"))
-    if desc in ("兵力が最多", "前衛の兵力が最多"):
+    if desc == "前衛の兵力が最多":
+        # 候補は前衛だけ（全滅していれば全体）。敵全体の最大兵力と比べると、
+        # 正しい実装を誤って落とす（テストプレイの指摘・§7.124）。
+        front = [x for x in pool if x.is_front]
+        cand = front or pool
+        if front:
+            checks.append((all(x.is_front for x in picked), "前衛だけ（生存時）"))
+        best = max(cand, key=lambda x: x.men)
+        checks.append((picked[0].men >= best.men - 1e-6, "前衛の中で兵力が最も多い隊"))
+    if desc == "兵力が最多":
         best = max(pool, key=lambda x: x.men)
         checks.append((picked[0].men >= best.men - 1e-6, "兵力が最も多い隊"))
     if desc == "兵力が最少":
