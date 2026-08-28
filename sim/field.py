@@ -1084,8 +1084,9 @@ TRAIT_TRIGGER = 0.30
 #
 #   キー: (発動条件, 対象文, 1戦の回数上限, Skill, 表示名)
 #
-# 発動条件は5つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill /
-# self_dead（§7.113。**自分が全滅したそのティック**に1回だけ撃つ。潰走
+# 発動条件は6つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill /
+# foe_skill（§7.129。**敵の攻め技が解決した**ティック。強化・回復・構えには
+# 反応せず、打ち消された技も数えない）/ self_dead（§7.113。**自分が全滅したそのティック**に1回だけ撃つ。潰走
 # （TRAIT_TRIGGER 割れ）ではなく兵力 0 で、self_low_hp とは別の瞬間である）。
 # 常在型（陣頭・対勢力）はここに入らない。CONSTANT_TRAITS を参照。
 TRAITS: Dict[str, Tuple[str, str, int, "Skill", str]] = {}
@@ -1894,7 +1895,8 @@ def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
     return out
 
 
-def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
+def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
+                 offense=None) -> None:
     """誘発型の固有特性を発火させる（§6.6）。中身は必殺技と同じ器で処理する。
 
     閾値をまたぐ判定なので**分岐**であり、時間刻みに弱い。移動の規則と違って
@@ -1902,8 +1904,11 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
     変わらないかを別途確かめること。
 
     fired_skill には、このティックで必殺技を撃った札の集合を渡す（ally_skill 用）。
+    offense には、**攻め技が実際に解決した**札の集合を渡す（foe_skill 用・
+    §7.129。打ち消された技は入っていない）。
     """
     fired_skill = fired_skill or set()
+    offense = offense or set()
     for own, foe in ((ua, ub), (ub, ua)):
         newly_own = [x for x in own if x in retired["new"]]
         newly_foe = [x for x in foe if x in retired["new"]]
@@ -1932,7 +1937,12 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None) -> None:
                            or (cond == "self_low_hp" and u.ratio() < LOW_HP)
                            or (cond == "ally_skill"
                                and any(x in fired_skill
-                                       for x in own if x is not u)))
+                                       for x in own if x is not u))
+                           # 敵の攻め技が解決した直後（§7.129・持重）。
+                           # 同じティックに何発来ても、特性は1ティック1回
+                           # なので自然に1回で収まる。
+                           or (cond == "foe_skill"
+                               and any(x in offense for x in foe)))
                 if not hit:
                     continue
                 u.fired[key] = u.fired.get(key, 0) + 1
@@ -1962,6 +1972,9 @@ class Skill:
     kind: str = "melee"     # 知力の効き方（SKILL_WITS）
     dur: float = 0.0        # 継続秒数。0 は打ち切り
     heal: float = 0.0       # 回復量（ダメージと同じ係数に掛ける）
+    heal_pct: float = 0.0   # **対象の最大兵力**に対する割合の回復（§7.129）。
+                            # 撃ち手の武力に依らないので、支援札の対策特性
+                            # （持重）が戦場の規模に応じて同じ重みで効く
     mods: Tuple[Tuple[str, float, float], ...] = ()   # (種別, 量, 秒数)
     sac: float = 0.0        # 代償: 発動ごとに**現在兵力**のこの割合を失う
     # 反動（§7.64）: 発動ごとに**撃った本人**へ載る一定時間の弱体。mods の
@@ -1998,6 +2011,17 @@ def _skill_power(effect: str) -> Tuple[float, float]:
         d = re.search(r"（(\d+)秒）", effect)
         return p, float(d.group(1)) if d else 10.0
     return p, 0.0
+
+
+def _skill_heal_pct(effect: str) -> float:
+    """「回復 最大兵力の3%」を読む（§7.129）。**撃ち手の能力に依らない。**
+
+    攻撃力比の回復（`_skill_heal`）は撃ち手が強いほど効くので、対策札として
+    配ると「強い支援札に載せるほど硬くなる」形になる。割合の回復は戦場の
+    規模（コスト上限）が変わっても同じ重みで効く。
+    """
+    m = re.search(r"回復\s*最大兵力の(\d+(?:\.\d+)?)%", effect)
+    return float(m.group(1)) / 100.0 if m else 0.0
 
 
 def _skill_heal(effect: str) -> Tuple[float, float]:
@@ -2114,7 +2138,8 @@ def _parse_skill(effect: str, target: str) -> Skill:
     m = re.search(r"代償\s*兵力(\d+)%", effect)
     hi = re.search(r"威力\d+〜(\d+)%", effect)
     return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
-                 heal=heal, mods=_skill_mods(effect),
+                 heal=heal, heal_pct=_skill_heal_pct(effect),
+                 mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
                  self_mods=_skill_self_mods(effect),
                  wits_mods=_skill_wits_mods(effect),
@@ -2319,6 +2344,32 @@ def _men_add(f: Unit, d: float) -> None:
         _SKILL_DELTA[id(f)] = (f, _SKILL_DELTA.get(id(f), (f, 0.0))[1] + d)
 
 
+def _men_now(f: Unit) -> float:
+    """**解決後の兵力**を返す（§7.129）。技のフェーズ中は遅延窓の増減を織り込む。
+
+    特性は技の後・窓を流す前に撃つので、`f.men` だけを見ると「このティックで
+    討ち取られた隊」がまだ生きて見える。持重（敵の攻め技への回復）がそれを
+    拾うと**撤退した隊を蘇生**してしまうため、窓の中身を足した値で判断する。
+    """
+    d = 0.0 if _SKILL_DELTA is None else _SKILL_DELTA.get(id(f), (f, 0.0))[1]
+    return max(min(f.men + d, f.men0), 0.0)
+
+
+def _is_offense(sk: "Skill", tstr: str) -> bool:
+    """攻め技（攻撃・妨害）か。強化・回復・構えは含まない（§7.129）。
+
+    持重の発動条件（foe_skill）が見る。味方向けの技は敵に触れないので除く。
+    """
+    if "味方" in tstr or "自分" in tstr:
+        return False
+    if sk.power > 0.0:
+        return True
+    for key, amt, _secs in sk.mods:
+        if key in ("stun", "chaos") or amt < 0.0:
+            return True
+    return bool(sk.wits_mods)
+
+
 def _fx_add(f: Unit, eff) -> None:
     """状態効果を積む。技のフェーズ中なら蓄積器へ回す。"""
     if _SKILL_FX is None:
@@ -2363,7 +2414,7 @@ def _flush_men() -> None:
 
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                  src: str = "", ev=None, seen=None, name: str = "",
-                 kind_jp: str = "必殺技") -> None:
+                 kind_jp: str = "必殺技", resolved=None) -> None:
     """必殺技1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
 
     src は §6.5 の同名判定に使う出どころ（技名または特性キー）。
@@ -2390,6 +2441,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                                                 _who(blocker)), 1.0,
                                 side=_side_of(u)))
             return
+        # 攻め技が**実際に解決した**ことを記録する（§7.129・持重が見る）。
+        # 打消しの分岐より後なので、霧散した技はここへ来ない。
+        if resolved is not None and _is_offense(sk, tstr):
+            resolved.add(u)
         # 代償（スーサイド）: 現在兵力の割合を払う。遅延窓（_men_add）を通す
         # ので同時解決は保たれる。誰の与ダメにも数えない — 自傷であって
         # 敵の戦果ではない。
@@ -2480,6 +2535,18 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if sk.mods or sk.self_mods or sk.wits_mods:
         _expire(own + foe, t)
 
+    if sk.heal_pct > 0.0:
+        # 割合回復（§7.129・持重）。**解決後の兵力**で選び直す — 特性は技の
+        # 後・遅延窓を流す前に撃つので、`men` のままだと「いま討たれた隊」を
+        # 拾って蘇生させる。撤退した隊（解決後0）は対象から外す。
+        pool = [f for f in own if _men_now(f) > 0.0]
+        if pool:
+            f = min(pool, key=lambda x: _men_now(x) / max(x.men0, 1e-9))
+            amt = min(f.men0 * sk.heal_pct, f.men0 - _men_now(f))
+            if amt > 0.0:
+                _men_add(f, amt)
+                u.healed += amt          # 表示専用（§7.88）
+                say("heal", amt, jp=kind_jp)
     if sk.power <= 0.0 and sk.heal <= 0.0:
         return
     if sk.heal > 0.0:
@@ -2606,7 +2673,8 @@ def _is_guard(sk) -> bool:
     return any(k in GUARD_KINDS for k, _, _ in sk.mods)
 
 
-def _fire_skills(own, foe, t: float, ev, seen, guard=None) -> set:
+def _fire_skills(own, foe, t: float, ev, seen, guard=None,
+                 resolved=None) -> set:
     """ゲージが消費量に達した札の必殺技を発動する（§7.2）。
 
     閾値は 100 ではなく**その札の消費ゲージ%**。だから消費50の札は何度も撃ち、
@@ -2639,7 +2707,7 @@ def _fire_skills(own, foe, t: float, ev, seen, guard=None) -> set:
                 seen.add(("技", u.skill, u.side))
             _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
                          src=u.skill, ev=ev if show else None, seen=seen,
-                         name=u.skill)
+                         name=u.skill, resolved=resolved)
             if _is_guard(sk):
                 # 構えの帳簿（§7.126・表示専用）。窓が閉じるまでに一度も
                 # 仕事をしなかった構えを「空振り」として数える。
@@ -3162,6 +3230,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         # **必殺技を先に、固有特性を後に。** 特性の ally_skill 条件は「味方が
         # 技を撃った」を見るので、順序を逆にすると1ティック遅れる。
         fired = set()
+        offense = set()      # 攻め技が解決した札（§7.129・持重が見る）
         if SKILLS_ON:
             for x, taken in ((u, d) for u, d in zip(ua, da)):
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
@@ -3184,8 +3253,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for x in ua + ub:
                     _recalc_mods(x)
             _open_men_window()
-            fired |= _fire_skills(ua, ub, t + dt, events, seen, guard=False)
-            fired |= _fire_skills(ub, ua, t + dt, events, seen, guard=False)
+            fired |= _fire_skills(ua, ub, t + dt, events, seen, guard=False,
+                                  resolved=offense)
+            fired |= _fire_skills(ub, ua, t + dt, events, seen, guard=False,
+                                  resolved=offense)
 
         if TRAITS_ON:
             newly = {u for u in ua + ub
@@ -3203,7 +3274,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if u.men <= 0.0 and u not in retired["dead_all"]}
             retired["dead"] = dead
             retired["dead_all"] |= dead
-            _fire_traits(ua, ub, t + dt, retired, events, seen, fired)
+            _fire_traits(ua, ub, t + dt, retired, events, seen, fired,
+                         offense=offense)
 
         # **技と特性を撃ち終えてから、まとめて兵力へ反映する。**
         if SKILLS_ON or TRAITS_ON:
