@@ -202,6 +202,11 @@ def _skill_display(g, sk_row) -> str:
             # 「守りで目減り」の注記は毎行に付けず、凡例に1回書く（冗長の指摘）
             parts.append("損害 約{:,.0f}人".format(
                 F.SKILL_SCALE * sk.power * coef))
+    if getattr(sk, "heal_pct", 0.0) > 0.0:
+        # 割合回復（§7.129）。**対象の最大兵力**に対する割合なので、撃ち手の
+        # 能力では実数にできない（畏怖と同じで、語彙から漏らすと生の文が
+        # そのまま出る）。何に対する割合かを言い切る。
+        parts.append("立て直し 味方1隊の最大兵力の{:g}%".format(sk.heal_pct * 100.0))
     if sk.heal > 0.0:
         if coef is None:
             parts.append("回復（量は持ち主の武将しだい）")
@@ -258,7 +263,10 @@ _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
                 # 自身の**全滅**（§7.113）。「崩れた」（残存30%割れ）とは別で、
                 # 兵が一人も残らなかった時。書き分けないと self_low_hp と
                 # 同じ条件に読める。
-                "self_dead": "自身の隊が全滅した時"}
+                "self_dead": "自身の隊が全滅した時",
+                # 敵の攻め技（§7.129）。強化・回復・構えには反応しない旨を
+                # 短く言い切る — 「必殺技を受けた時」だと構えにも見える。
+                "foe_skill": "敵が攻め技を放った時"}
 
 
 def _trait_brief(g, key, t):
@@ -275,6 +283,8 @@ def _trait_brief(g, key, t):
         m = _re.search(r"1戦(\d+)回", note)
         if m:
             cond += "・1戦{}回まで".format(m.group(1))
+        elif "上限なし" in note:
+            cond += "・回数の上限なし"
         # 効果は必殺技と**同じ器で発動する**ので、表示も同じ換算を通す:
         # 回復は実数、時間は分、命中率は攻撃力（命中）。対象が自分以外なら
         # 明示する — 書かないと全部が自分バフに読める（テストプレイの指摘）。
@@ -282,7 +292,7 @@ def _trait_brief(g, key, t):
         target = (m.group(1).strip() if m else "自分")
         desc = _skill_display(g, {"効果": desc, "対象": target})
         if target != "自分":
-            cond = "対象 {}・{}".format(target, cond)
+            cond = "・".join(x for x in ("対象 " + target, cond.lstrip("・")) if x)
     # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）
     if key == "vanguard":
         # 「兵力+4.5%」だけだと本陣（全軍+3%）と並んだとき誰の兵力か

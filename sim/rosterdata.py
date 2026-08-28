@@ -945,7 +945,10 @@ def load_traits_into_field() -> int:
         m = re.search(r"対象 ([^/]+)", note)
         target = m.group(1).strip() if m else "自分"
         m = re.search(r"1戦(\d+)回", note)
-        cap = int(m.group(1)) if m else 1
+        # 「上限なし」は回数で縛らない特性（§7.129 の持重）。回復の総量を
+        # 敵の攻め技の数に比例させる形なので、**上限を置くと density へ
+        # 効かなくなる**（上限5では手数4枚への抑制が±0だった）。
+        cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
         F.TRAITS[t["キー"]] = (cond, target, cap,
                                F._parse_skill(t["効果"], target), t["名前"])
         n += 1
