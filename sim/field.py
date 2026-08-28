@@ -1077,6 +1077,11 @@ LOW_HP = 0.40           # self_low_hp の閾値（§6.6 の背水）
 # 30% を採る。軍全体の潰走が20%なので、30%は「崩れかけているがまだ居る」である。
 # 45% のほうが値は大きいが、半分残っている札を「崩れた」と呼ぶのは無理がある。
 TRAIT_TRIGGER = 0.30
+# 持重（foe_skill）の助走（§7.129・**実験中のつまみ**）。敵の攻め技が通算で
+# これを超えてから反応する。0 は「1発目から反応」＝設計書のままの挙動。
+# 密度対策として意味があるのは「敵が技を連ねてきたときだけ働く」形なので、
+# 助走を置くと低密度（技が数発しか飛ばない編成）へは効かなくなる。
+TRAIT_FOE_SKILL_WARMUP = 0
 # 固有特性。**必殺技とまったく同じ器で持つ。** CSV の効果文が同じ文法
 # （「攻撃力 +12%（20秒）」「回復 攻撃力の130%」「ゲージ付与 自然増加の2秒ぶん」）
 # なので、専用の表を持つ理由が無い。以前は6種だけをハードコードしていて、残り13種は
@@ -1557,7 +1562,7 @@ class Unit:
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
-        "spill_over", "spill_dealt", "spill_n",
+        "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1715,6 +1720,7 @@ class Unit:
         self.spill_over = 0.0    # 討ち取りを超えた分（実効値・余勢の源）
         self.spill_dealt = 0.0   # 余勢で第二対象へ通った損害
         self.spill_n = 0         # 余勢が出た回数
+        self.foe_offense_n = 0   # 敵の攻め技を通算で何発浴びたか（§7.129）
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -1909,6 +1915,13 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
     """
     fired_skill = fired_skill or set()
     offense = offense or set()
+    if offense:
+        # 通算の被弾数は**特性の有無に関わらず**数える（助走の判定用）。
+        for own_, foe_ in ((ua, ub), (ub, ua)):
+            n_off = sum(1 for x in foe_ if x in offense)
+            if n_off:
+                for u in own_:
+                    u.foe_offense_n += n_off
     for own, foe in ((ua, ub), (ub, ua)):
         newly_own = [x for x in own if x in retired["new"]]
         newly_foe = [x for x in foe if x in retired["new"]]
@@ -1942,7 +1955,8 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
                            # 同じティックに何発来ても、特性は1ティック1回
                            # なので自然に1回で収まる。
                            or (cond == "foe_skill"
-                               and any(x in offense for x in foe)))
+                               and any(x in offense for x in foe)
+                               and u.foe_offense_n > TRAIT_FOE_SKILL_WARMUP))
                 if not hit:
                     continue
                 u.fired[key] = u.fired.get(key, 0) + 1
