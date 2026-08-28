@@ -358,7 +358,9 @@ def _cadence(g, srow) -> dict:
     目安の式: 初動 (消費−初期)÷(自然増加×上昇率)、再発 消費÷(同)。上昇率は
     100表記を1.00に直す。実際は攻撃・被弾・気勢・恩賞で早まるので
     「自然蓄積の目安」（討ち取り給は未配線 — field.GAUGE_ON_ROUT の注記）。
-    秒は5秒単位へ丸める。"""
+    **表示は戦場の分**（§7.47 の規約: 時間は実況と同じ「分」で語る。盤面の
+    秒を出すと技説明の「81分間」や実況の時刻と物差しが揃わない）。5分丸め。
+    早い/普通/遅いの敷居は内部秒のまま — 表示単位と判定を絡ませない。"""
     gc = float(g["消費ゲージ%"])
     gi = float(g["初期ゲージ"])
     rate = max(float(g["ゲージ上昇率"]) / 100.0, 1e-6)
@@ -366,12 +368,12 @@ def _cadence(g, srow) -> dict:
     first = max(gc - gi, 0.0) / per
     rep = gc / per
     tier = R.tier_for(srow, F.SKILL_INFO.get(g["必殺技"]))
-    r5 = lambda x: int(round(x / 5.0) * 5)
+    m5 = lambda x: int(round(F.mins(x) / 5.0) * 5)
     f_lbl = "早い" if first < 45.0 else ("普通" if first <= 65.0 else "遅い")
     r_lbl = "早い" if rep < 60.0 else ("遅い" if rep <= 120.0 else "かなり遅い")
     return {"tier": tier, "tier_jp": _TIER_JP.get(tier, "標準型"),
-            "first_s": r5(first), "first_label": f_lbl,
-            "repeat_s": r5(rep), "repeat_label": r_lbl}
+            "first_m": m5(first), "first_label": f_lbl,
+            "repeat_m": m5(rep), "repeat_label": r_lbl}
 
 
 _FB_FACTION = {"魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu"}
