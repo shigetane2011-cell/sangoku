@@ -1,6 +1,14 @@
-"""全120枚の盤面残差を測る（単位＝コスト点）。
+"""【廃止】旧・全120枚の盤面残差（再現専用）。
 
-    python3 tools/price_audit.py            # 全部（4分ほど・4並列）
+    python3 tools/price_audit.py                  # 理由を表示して停止
+    python3 tools/price_audit.py --legacy-invalid # 旧数値の再現だけ
+
+この計器の ``army(card)`` は測定札を魚鱗の先頭へ置き、さらに
+``field.matchup_cost`` が6枠すべてへ回す。したがって弓兵を前衛へ置くなど、
+登録不能な布陣が混ざることが判明した。出力はカード調整の根拠に使わない。
+
+合法な個札比較は ``tools/one_ruler.py``、前線維持を含む兵種・編成比較は
+``tools/balance_suite.py archetype`` を使う。
 
 帳簿（CSV）と設計式の内部整合は `python3 -m sim.rosterdata` が見る。
 こちらは**式そのものが盤面と合っているか**を見る別の計器。2026-08 の
@@ -49,6 +57,12 @@ def one(name):
 
 
 if __name__ == "__main__":
+    if "--legacy-invalid" not in sys.argv:
+        print("この計器は不合法配置を含むため廃止しました。")
+        print("個札: python3 tools/one_ruler.py --json one-ruler.json")
+        print("部隊: python3 tools/balance_suite.py archetype --profile quick")
+        print("旧結果の再現だけは --legacy-invalid を明示してください。")
+        raise SystemExit(2)
     names = list(CARDS)
     with Pool(4) as pool:
         res = dict(pool.map(one, names, chunksize=2))
