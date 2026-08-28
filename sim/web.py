@@ -297,6 +297,9 @@ def _roster_json(only=None):
     only を渡すと**解放済みの人物だけ**返す（§7.60。未登用は姿も見せない —
     戦記で出会うのが初対面になる）。
     """
+    if not F.SKILL_INFO:
+        # 技の中身（発動型の自動判定に使う）が未読込なら積む（§7.127）
+        R.load_skills_into_field()
     sk = {s["技名"]: s for s in R.skills()}
     tr = {t["キー"]: t for t in R.traits()}
     names_jp = _trait_names()
@@ -337,10 +340,37 @@ def _roster_json(only=None):
             "skill_target": s.get("対象", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
             "gauge_init": g["初期ゲージ"],
+            # 技の巡り（§7.127）: 発動型と自然蓄積の目安。秒はサーバで計算して
+            # 渡す（GAUGE_PER_SEC をフロントへ重複記載しない）。
+            "cadence": _cadence(g, s),
             "traits": traits, "trait": g["固有特性"],
             "quote": g.get("台詞", ""),
         })
     return out
+
+
+_TIER_JP = {"手数": "連発型", "標準": "標準型", "大技": "決戦型"}
+
+
+def _cadence(g, srow) -> dict:
+    """技の巡り（§7.127）。発動型と、自然蓄積だけで見た初動・再発の目安。
+
+    目安の式: 初動 (消費−初期)÷(自然増加×上昇率)、再発 消費÷(同)。上昇率は
+    100表記を1.00に直す。実際は攻撃・被弾・討ち取り・気勢・恩賞で早まるので
+    「自然蓄積の目安」。秒は5秒単位へ丸める。"""
+    gc = float(g["消費ゲージ%"])
+    gi = float(g["初期ゲージ"])
+    rate = max(float(g["ゲージ上昇率"]) / 100.0, 1e-6)
+    per = F.GAUGE_PER_SEC * rate
+    first = max(gc - gi, 0.0) / per
+    rep = gc / per
+    tier = R.tier_for(srow, F.SKILL_INFO.get(g["必殺技"]))
+    r5 = lambda x: int(round(x / 5.0) * 5)
+    f_lbl = "早い" if first < 45.0 else ("普通" if first <= 65.0 else "遅い")
+    r_lbl = "早い" if rep < 60.0 else ("遅い" if rep <= 120.0 else "かなり遅い")
+    return {"tier": tier, "tier_jp": _TIER_JP.get(tier, "標準型"),
+            "first_s": r5(first), "first_label": f_lbl,
+            "repeat_s": r5(rep), "repeat_label": r_lbl}
 
 
 _FB_FACTION = {"魏": "gi", "蜀": "shoku", "呉": "go", "群雄": "gunyu"}

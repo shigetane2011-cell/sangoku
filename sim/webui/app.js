@@ -1791,8 +1791,15 @@ function showCardInfo(name) {
       <span class="tag skill-tag">必殺技</span>
       <b>【${esc(c.skill)}】</b> <span class="muted">対象 ${esc(c.skill_target)}｜</span>${esc(c.skill_desc)}${
         /損害|延焼/.test(c.skill_desc) ? '<span class="muted">　※損害は敵の守りで目減りする</span>' : ""}
-      <span class="muted">ゲージ: 消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</span>
     </div>
+    ${c.cadence ? `<div class="ci-row">
+      <span class="tag skill-tag">技の巡り</span> <b>${esc(c.cadence.tier_jp)}</b>
+      <span class="muted">　初動：${esc(c.cadence.first_label)}（自然蓄積 約${c.cadence.first_s}秒）
+      　再発：${esc(c.cadence.repeat_label)}（自然蓄積 約${c.cadence.repeat_s}秒）</span>
+      <div class="muted" style="font-size:.85em">※自然蓄積の目安。攻撃・被弾・討ち取りにより早まります
+        <details style="display:inline-block"><summary style="display:inline;cursor:pointer">内部値</summary>
+        消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</details></div>
+    </div>` : ""}
     ${traits}
     ${c.quote ? `<div class="ci-quote">「${esc(c.quote)}」</div>` : ""}
     </div>`;
@@ -1838,7 +1845,7 @@ function showTip(e, name) {
     <b>${esc(c.name)}</b>
     <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
     <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
-    <span class="muted">【${esc(c.skill)}】　特性: ${c.traits.length
+    <span class="muted">【${esc(c.skill)}】${c.cadence ? "　技の巡り " + esc(c.cadence.tier_jp) : ""}　特性: ${c.traits.length
       ? c.traits.map((t) => t.name).join("・") : "─（持たない）"}</span><br>
     <span class="tip-hint">クリックで詳細</span>`;
   tip.style.display = "block";
@@ -2349,7 +2356,9 @@ async function viewReplay(state) {
           <td>${k(u.taken)}千</td>
           <td>${u.cut >= 50 ? k(u.cut) + "千" : "—"}</td>
           <td>${u.heal >= 50 ? k(u.heal) + "千" : "—"}</td>
-          <td>${u.fires}回</td>
+          <td>${(u.fire_times || []).length
+            ? `<span title="発動: ${u.fire_times.map(esc).join("、")}">初回${esc(u.fire_times[0])}／計${u.fires}回</span>`
+            : (u.fires ? u.fires + "回" : "—")}</td>
           <td>${u.stun ? u.stun + "分" : "—"}</td>
           <td>${u.fell ? u.fell + " 崩" : (u.men / u.men0 <= 0.005 ? "壊滅" : "残" + Math.round(100 * u.men / u.men0) + "%")}</td>
         </tr>`).join("")}</tbody>

@@ -1548,7 +1548,7 @@ class Unit:
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
-        "guard_casts", "guard_idle", "guard_watch",
+        "guard_casts", "guard_idle", "guard_watch", "fire_times",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1701,6 +1701,7 @@ class Unit:
         self.guard_casts = 0     # 構えの技を張った回数（撃ち手側）
         self.guard_idle = 0      # 窓の中で一度も仕事をしなかった構えの数
         self.guard_watch = []    # 判定待ちの構えの窓 (終了時刻, 対象, 基準値)
+        self.fire_times = []     # 必殺技の発動時刻（§7.127・表示専用）
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2594,6 +2595,7 @@ def _fire_skills(own, foe, t: float, ev, seen, guard=None) -> set:
                 continue
             u.gauge -= need
             u.fires += 1
+            u.fire_times.append(t)     # 表示専用（§7.127）
             fired.add(u)
             if SKILL_SCALE <= 0.0:
                 continue
@@ -3254,7 +3256,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.taken, u.fires, u.stun_time, u.sup_lost,
                          dict(u.pair), _detour_pct(u),
                          u.null_blocked, list(u.null_names),
-                         u.scut_saved, (u.guard_casts, u.guard_idle))
+                         u.scut_saved, (u.guard_casts, u.guard_idle),
+                         list(u.fire_times))
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
@@ -3263,7 +3266,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.taken, u.fires, u.stun_time, u.sup_lost,
                          dict(u.pair), _detour_pct(u),
                          u.null_blocked, list(u.null_names),
-                         u.scut_saved, (u.guard_casts, u.guard_idle))
+                         u.scut_saved, (u.guard_casts, u.guard_idle),
+                         list(u.fire_times))
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では

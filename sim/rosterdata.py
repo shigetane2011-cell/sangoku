@@ -571,7 +571,7 @@ def sync() -> Dict[str, int]:
         r["効果数"] = str(_effect_count(r.get("効果", "")))
         sk = _parse_for_tier(r)
         if sk is not None:
-            gc, _gi = D.GAUGE_TIER[tier_of(sk)]
+            gc, _gi = D.GAUGE_TIER[tier_for(r, sk)]
             r["消費ゲージ%"] = "{:.0f}".format(gc)
     _write("skills.csv", S)
     load_skills_into_field()
@@ -584,7 +584,7 @@ def sync() -> Dict[str, int]:
         if r is not None:
             sk = _parse_for_tier(r)
             if sk is not None:
-                gc, gi = D.GAUGE_TIER[tier_of(sk)]
+                gc, gi = D.GAUGE_TIER[tier_for(r, sk)]
                 g["消費ゲージ%"] = "{:.0f}".format(gc)
                 g["初期ゲージ"] = "{:.0f}".format(gi)
         g.setdefault("ゲージ上昇率", "100")
@@ -673,6 +673,20 @@ def tier_of(skill) -> str:
     return "標準"
 
 
+TIER_NAMES = ("手数", "標準", "大技")
+
+
+def tier_for(row, sk) -> str:
+    """段の解決（§7.127）。skills.csv の「発動型」が明示されていればそれを使い、
+    空欄なら従来どおり中身から決める（tier_of）。ダメージ技を手数へ置くのは
+    明示のときだけ — 自動判定は従来の分類を守る。消費ゲージの数値から段を
+    推測する経路（design.GAUGE_TIER_NAME）は値段側の後方互換にとどめる。"""
+    t = ((row.get("発動型") or "").strip() if row else "")
+    if t in TIER_NAMES:
+        return t
+    return tier_of(sk) if sk is not None else "標準"
+
+
 def _scale_effect(text: str, m: float) -> str:
     """効果文の量を m 倍する。**％は50で頭打ちにし、あふれた分は秒数へ回す。**
 
@@ -744,7 +758,7 @@ def retier() -> int:
         r["効果"] = _retire_gauge(r["効果"])
         sk = F._parse_skill(r["効果"], r["対象"])
         F.SKILL_INFO[r["技名"]] = sk
-        t = tier_of(sk)
+        t = tier_for(r, sk)
         gc, gi = D.GAUGE_TIER[t]
         old_w = D.tier_weight(float(r["消費ゲージ%"]))
         new_w = D.tier_weight(gc, gi)
@@ -760,8 +774,9 @@ def retier() -> int:
     # 武将側の消費ゲージ・初期ゲージも段に合わせる
     load_skills_into_field()
     gen = generals()
+    smap2 = {r["技名"]: r for r in rows}
     for g in gen:
-        t = tier_of(F.SKILL_INFO[g["必殺技"]])
+        t = tier_for(smap2.get(g["必殺技"]), F.SKILL_INFO[g["必殺技"]])
         gc, gi = D.GAUGE_TIER[t]
         g["消費ゲージ%"] = "{:.0f}".format(gc)
         g["初期ゲージ"] = "{:.0f}".format(gi)
@@ -820,7 +835,7 @@ def rebalance_big() -> int:
     for r in rows:
         name = r["技名"]
         sk = F.SKILL_INFO[name]
-        if tier_of(sk) != "大技" or name not in G:
+        if tier_for(r, sk) != "大技" or name not in G:
             continue
         cost = float(G[name]["コスト"])
         target = _skill_target_value(G[name], cost)
@@ -872,7 +887,7 @@ def rebalance_std() -> int:
     for r in rows:
         name = r["技名"]
         sk = F.SKILL_INFO[name]
-        if tier_of(sk) != "標準" or name not in G:
+        if tier_for(r, sk) != "標準" or name not in G:
             continue
         cost = float(G[name]["コスト"])
         target = _skill_target_value(G[name], cost)

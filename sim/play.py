@@ -1261,7 +1261,7 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         # §7.88 の「見えにくい効き」＋ §7.94 の合戦詳録。列は末尾に足す
         out = []
         for (n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al,
-             tk, fi, st, sp, pair, det, nb, nn, ss, gw) in xs:
+             tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft) in xs:
             out.append({
                 "name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
                 "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
@@ -1283,6 +1283,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 "null_blocked": nb, "null_names": list(nn),
                 "scut_saved": round(ss),
                 "guard_casts": gw[0], "guard_idle": gw[1],
+                # 発動実績（§7.127）: 初回と各発動の時刻（戦場の時計表示）
+                "fire_times": [F.clock(x) for x in ft],
             })
         return out
     sc = r["score"] if me_first else 1.0 - r["score"]
