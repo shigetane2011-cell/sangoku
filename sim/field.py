@@ -556,10 +556,13 @@ SPEAR_GUARD = True
 # 広げるとラダーと戦記の両方が動く。**必ず tools/ladder_top.py combo と
 # tools/senki_check.py を回してから確定すること。**
 FLOOR_ADJ_CAP = 0.30
-# 貫通（§7.76 試作・トランプル）: 必殺技の一撃が隊を消してなお余った分を、
-# 最も近い別の敵へこの割合で通す（1段のみ）。捨て札（§7.73 ③）が超過分を
-# 蒸発させて避雷針になる旨味を消すのが狙い。既定 0 で不使用。
-TRAMPLE = 0.0
+# 余勢（§7.76 試作→後記で制限・テストプレイの設計③）: 大技段×対象指定が
+# 敵1体の必殺技が、スナップショット兵力に対して**その一撃単独で致死**の
+# とき、生ダメージの余り×この割合を最寄りの敵へ通す（第二対象の防御・
+# 必殺技防御を1回適用・反射なし・連鎖なし）。捨て札（§7.73 ③）が超過分を
+# 蒸発させて避雷針になる旨味を消すのが狙い。
+TRAMPLE = 0.0            # 余勢の率。0 で不使用。採否は 0/0.4/0.5/0.6 の実測後
+TRAMPLE_TIER_COST = 300.0  # 余勢が出る段＝大技（消費300）。syncが段から書く
 # 後衛からの突きの威力（前衛に置けば通常の近接）。**居残り（SPEAR_GUARD）を
 # 入れてから測り直した値**（§7.107）。槍9枚 × 同コストの弓 = 37組で、6枚目
 # だけ差し替えて各24局:
@@ -1553,6 +1556,7 @@ class Unit:
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
+        "spill_over", "spill_dealt", "spill_n",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1706,6 +1710,10 @@ class Unit:
         self.guard_idle = 0      # 窓の中で一度も仕事をしなかった構えの数
         self.guard_watch = []    # 判定待ちの構えの窓 (終了時刻, 対象, 基準値)
         self.fire_times = []     # 必殺技の発動時刻（§7.127・表示専用）
+        # 余勢の帳簿（§7.76 後記・表示専用）。撃ち手側に積む
+        self.spill_over = 0.0    # 討ち取りを超えた分（実効値・余勢の源）
+        self.spill_dealt = 0.0   # 余勢で第二対象へ通った損害
+        self.spill_n = 0         # 余勢が出た回数
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2531,22 +2539,42 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             u.dealt_skill += take
             f.taken += take                # 表示専用（§7.94）
             _pair_add(u, f, take)
-            if TRAMPLE > 0.0 and eff > f.men:
-                # 貫通（§7.76 試作）: 隊を消してなお余る一撃は、最も近い
-                # 別の敵へ TRAMPLE 掛けで通す（1段のみ・連鎖しない）。
-                # 対象はスナップショットから選び、遅延窓で入れるので
-                # 同時解決と処理順の独立は保たれる。既定 0 で不使用。
+            if (TRAMPLE > 0.0 and eff > f.men
+                    and kind_jp == "必殺技"
+                    and u.gauge_cost >= TRAMPLE_TIER_COST
+                    and tstr.startswith("敵1体")):
+                # 余勢（§7.76 後記・テストプレイの設計③）: **大技段 ×
+                # 対象指定が敵1体 × その一撃単独で致死**のときだけ、余った
+                # 勢いが最寄りの敵へ抜ける。判定はスナップショット兵力
+                # （遅延窓の f.men）なので、同ティックの2発がそれぞれ単独
+                # 致死ならそれぞれ余勢を出し、合算でのみ致死なら出ない。
+                # 量は**生ダメージの余り**（撃破に要した生ダメを引く）の
+                # TRAMPLE 掛けを第二対象へ渡し、**第二対象自身の防御と
+                # 必殺技防御を1回だけ**通す（第一対象の防御は掛け直さない
+                # ＝二重適用なし）。反射は返らず、連鎖もしない。段の判定は
+                # 消費ゲージ（大技=300。sync が段から書くので消費が段の鏡）。
+                # 特性は段を持たないので対象外（kind_jp で絞る）。
+                u.spill_over += eff - f.men          # 帳簿（表示専用）
                 rest = [g2 for g2 in foe
                         if g2 is not f and g2.men > 0.0]
                 if rest:
-                    g2 = min(rest, key=lambda x: _d2(f, x))
-                    spill = (eff - f.men) * TRAMPLE
-                    spill = min(spill, g2.men)
+                    # 最寄り。同距離は部隊順（foe の並び）で決める（③(b)）
+                    g2 = min(enumerate(rest), key=lambda p: (_d2(f, p[1]), p[0]))[1]
+                    raw_rest = dmg * (eff - f.men) / eff
+                    pre2 = (raw_rest * TRAMPLE
+                            * (100.0 / (100.0 + g2.dfn * g2.def_mult)))
+                    eff2 = pre2 * g2.scut_mult
+                    spill = min(eff2, g2.men)
+                    if g2.scut_mult < 1.0:     # 表示専用（§7.88・§7.126）
+                        g2.cut_saved += min(pre2, g2.men) - spill
+                        g2.scut_saved += min(pre2, g2.men) - spill
                     _men_add(g2, -spill)
                     u.dealt += spill
                     u.dealt_skill += spill
                     g2.taken += spill          # 表示専用（§7.94）
                     _pair_add(u, g2, spill)
+                    u.spill_dealt += spill     # 帳簿（表示専用）
+                    u.spill_n += 1
                     done += spill
             if f.refl > 0.0:
                 # 反射は撃ち手の防御・反射・カットを通さない素の返り
@@ -3261,7 +3289,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          dict(u.pair), _detour_pct(u),
                          u.null_blocked, list(u.null_names),
                          u.scut_saved, (u.guard_casts, u.guard_idle),
-                         list(u.fire_times))
+                         list(u.fire_times),
+                         (u.spill_over, u.spill_dealt, u.spill_n))
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
@@ -3271,7 +3300,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          dict(u.pair), _detour_pct(u),
                          u.null_blocked, list(u.null_names),
                          u.scut_saved, (u.guard_casts, u.guard_idle),
-                         list(u.fire_times))
+                         list(u.fire_times),
+                         (u.spill_over, u.spill_dealt, u.spill_n))
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では

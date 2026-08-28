@@ -2388,6 +2388,9 @@ async function viewReplay(state) {
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技防御で ${k(u.scut_saved)}千を軽減</div>`);
       if ((u.guard_idle || 0) > 0)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回張ったが、${u.guard_idle}回は敵の技が来なかった</div>`);
+      /* 余勢の帳簿（§7.76 後記）: 討ち取りの余りが隣へ抜けた分 */
+      if ((u.spill_n || 0) > 0)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　余勢 ${k(u.spill_dealt)}千（${u.spill_n}回・超過 ${k(u.spill_over)}千）</div>`);
       return out;
     }).join("");
     box.innerHTML = `<details class="battle-detail">
