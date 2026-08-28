@@ -1083,6 +1083,18 @@ button.card:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
 .foe-detail > summary .muted { font-family: var(--font-body); font-size: 10px; }
 .foe-detail[open] > summary { border-bottom: 1px dashed #3d3326; margin-bottom: 6px; }
 
+/* ── 三面一覧（一括掲載・§7.128）。編成盤の上に畳んで置く ── */
+.set-summary { margin: 8px 0 4px; }
+.setrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 2px; border-bottom: 1px dashed #3d3527; font-size: 12.5px; }
+.setrow:last-child { border-bottom: none; }
+.setrow-deck { flex: 1 1 240px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.setrow select { max-width: 220px; font-size: 12px; }
+.set-actions { border-bottom: none; padding-top: 8px; }
+.warn-text { font-size: 10px; color: #d9a05b; border: 1px solid #d9a05b;
+  border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+
 /* ── 合戦詳録（§7.94）。見立て→軍功帳→詳録の三段目。畳んで置く ── */
 .battle-detail { margin-top: 12px; }
 .battle-detail > summary {

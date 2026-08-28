@@ -1320,6 +1320,7 @@ async function viewDeck(state) {
       <button class="ghost" id="fight2">この編成で出陣</button>
     </div>
     <div class="reg-tabs" id="regtabs"></div>
+    <div id="setpanel"></div>
     <div class="deck-layout fade-in">
       <div>
         <div class="roster-tools">
@@ -1467,8 +1468,93 @@ function drawAll() {
   // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
   // 後続の枠（軍師に相談・保存庫・軍功枠…）を巻き添えにしないように。
   for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary, drawEntryState, drawDraft,
-                   drawLibrary, drawOnsho, drawSortieBar, drawScout]) {
+                   drawLibrary, drawOnsho, drawSortieBar, drawScout, drawSetPanel]) {
     try { f(); } catch (e) { console.error("drawAll:", f.name, e); }
+  }
+}
+
+/* ── 三面一覧（一括掲載・§7.128） ─────────────────────
+   登録デッキ3面をひと目で。面間の人物取り合いで組み替えが詰むため、
+   「全リセット」と「保存デッキから3面まとめて一斉登録」をここに置く。 */
+const SETSEL = {};        // reg -> "keep" | "empty" | 保存デッキid
+function drawSetPanel() {
+  const el = $("#setpanel");
+  if (!el || !D) return;
+  const rows = D.regs.map((r) => {
+    const d = D.decks[r.name];
+    const ok = (D.boards_ok || {})[r.name];
+    const state = !d ? '<span class="muted">未登録</span>'
+      : ok ? '<span class="active-tag">出陣可</span>'
+      : '<span class="warn-text">要確認</span>';
+    const line = d
+      ? `${d.form}　${d.cards.join("・")}　<span class="num muted">${d.cost != null ? d.cost + "／" + r.cap + "点" : ""}</span>`
+      : '<span class="muted">—</span>';
+    const opts = ['<option value="keep">いまの登録のまま</option>',
+                  '<option value="empty">空にする</option>']
+      .concat((D.saved || []).filter((s) => s.reg === r.name)
+        .map((s) => `<option value="${s.id}">保存: ${s.name}（${s.form}・${s.cost != null ? s.cost + "点" : "?"}）</option>`));
+    return `<div class="setrow">
+      <button class="mini ghost" data-goreg="${r.name}">${r.name}</button>
+      <span class="setrow-deck">${line}</span>${state}
+      <select data-setsel="${r.name}">${opts.join("")}</select>
+    </div>`;
+  }).join("");
+  el.innerHTML = `<details class="battle-detail set-summary" ${el.querySelector("details[open]") ? "open" : ""}>
+    <summary>三面一覧<small class="muted">　登録デッキをまとめて見る・入れ替える</small></summary>
+    ${rows}
+    <div class="setrow set-actions">
+      <button class="mini" id="set-all">選んだ組を一斉登録</button>
+      <button class="mini ghost" id="set-reset">全リセット</button>
+      <span class="muted" style="font-size:12px">一斉登録は3面まとめて検証してから置き換える（人物の取り合いも一度に解ける）。リセットは登録だけ消す — 保存庫は残る。</span>
+    </div>
+  </details>`;
+  $$("#setpanel [data-goreg]").forEach((b) => b.onclick = () => {
+    const saved = D.decks[b.dataset.goreg] || { form: "魚鱗", cards: [] };
+    cur = { reg: b.dataset.goreg, form: saved.form, slots: slotsFromCards(saved.cards) };
+    drawRegTabs(); drawFormTabs(); drawAll();
+  });
+  $$("#setpanel [data-setsel]").forEach((s) => {
+    s.value = SETSEL[s.dataset.setsel] || "keep";
+    s.onchange = () => { SETSEL[s.dataset.setsel] = s.value; };
+  });
+  $("#set-all").onclick = registerSet;
+  $("#set-reset").onclick = resetAllDecks;
+}
+
+async function registerSet() {
+  const boards = [];
+  for (const r of D.regs) {
+    const sel = SETSEL[r.name] || "keep";
+    if (sel === "empty") continue;
+    if (sel === "keep") {
+      const d = D.decks[r.name];
+      if (d) boards.push({ reg: r.name, form: d.form, cards: d.cards });
+      continue;
+    }
+    const s = (D.saved || []).find((x) => String(x.id) === String(sel));
+    if (s) boards.push({ reg: r.name, form: s.form, cards: s.cards });
+  }
+  if (!boards.length) { flashMsg("登録する面が無い（全部「空にする」なら全リセットを使う）", true); return; }
+  const j = await api("/api/deck_all", { boards });
+  if (j.ok) {
+    D = await api("/api/deckdata");
+    const saved = D.decks[cur.reg] || { form: cur.form, cards: [] };
+    cur = { reg: cur.reg, form: saved.form, slots: slotsFromCards(saved.cards) };
+    flashMsg("一斉登録した。次戦からこの組。"); drawRegTabs(); drawFormTabs(); drawAll();
+  } else {
+    const msg = Object.entries(j.errors || {})
+      .map(([reg, es]) => `${reg}: ${es.join("・")}`).join("／");
+    flashMsg(msg || "一斉登録できなかった", true);
+  }
+}
+
+async function resetAllDecks() {
+  if (!confirm("登録デッキを3面とも空にする（保存庫・登用・恩賞は残る）。よい？")) return;
+  const j = await api("/api/deck_reset", {});
+  if (j.ok) {
+    D = await api("/api/deckdata");
+    cur = { reg: cur.reg, form: "魚鱗", slots: slotsFromCards([]) };
+    flashMsg("全リセットした。"); drawRegTabs(); drawFormTabs(); drawAll();
   }
 }
 

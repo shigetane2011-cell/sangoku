@@ -597,6 +597,29 @@ def decks_of(cx: sqlite3.Connection, player_id: str) -> Dict[str, Tuple[str, str
         (player_id,))}
 
 
+def clear_decks(cx: sqlite3.Connection, player_id: str) -> None:
+    """登録デッキを全面ぶん消す（一斉リセット）。**保存庫には触らない。**
+
+    面間の人物取り合い（entry_of の登録レベル規則）で組み替えが詰んだとき、
+    まっさらに戻す出口。"""
+    with cx:
+        cx.execute("DELETE FROM decks WHERE player_id = ?", (player_id,))
+
+
+def replace_decks(cx: sqlite3.Connection, player_id: str,
+                  boards: Dict[str, Tuple[str, str]]) -> None:
+    """登録デッキを丸ごと入れ替える（一斉登録・1トランザクション）。
+
+    boards = {レギュレーション: (カード名の「、」区切り, 陣形名)}。
+    渡されなかった面は空になる — 「この組が新しい全登録」という意味論。"""
+    with cx:
+        cx.execute("DELETE FROM decks WHERE player_id = ?", (player_id,))
+        for reg, (cards, formation) in boards.items():
+            cx.execute(
+                "INSERT INTO decks (player_id, regulation, cards, formation)"
+                " VALUES (?, ?, ?, ?)", (player_id, reg, cards, formation))
+
+
 def save_deck_as(cx: sqlite3.Connection, player_id: str, name: str,
                  regulation: str, cards: str, formation: str) -> None:
     """保存庫へ入れる。同じ名前なら上書き。"""

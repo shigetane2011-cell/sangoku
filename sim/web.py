@@ -522,6 +522,10 @@ class App(BaseHTTPRequestHandler):
                 return self._api_login(body)
             if url.path == "/api/deck":
                 return self._api_deck(body)
+            if url.path == "/api/deck_all":
+                return self._api_deck_all(body)
+            if url.path == "/api/deck_reset":
+                return self._api_deck_reset(body)
             if url.path == "/api/attack":
                 return self._api_attack(body)
             if url.path == "/api/senki_fight":
@@ -933,7 +937,8 @@ class App(BaseHTTPRequestHandler):
         for reg, (raw, fm) in P.decks_of(cx, me.id).items():
             army, errs = PL.parse_deck(cards, raw, fm)
             decks[reg] = {"form": F.FORM_ALIAS.get(fm, fm),
-                          "cards": [c.name for c in army.cards] if army else []}
+                          "cards": [c.name for c in army.cards] if army else [],
+                          "cost": army.total_cost() if army else None}
         _, boards_ok, entry_errors = PL.entry_of(cx, cards, me.id,
                                                  me.display_name)
         from . import design as D
@@ -995,15 +1000,10 @@ class App(BaseHTTPRequestHandler):
             "saved": saved,
         })
 
-    def _api_deck(self, body):
-        cx = self._cx()
-        me = self._me(cx)
-        if me is None:
-            return self._json({"error": "login"}, 401)
-        cards = M._roster_cards()
-        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
-        fm = body.get("form", "魚鱗")
-        names = [str(x) for x in body.get("cards", [])]
+    def _board_check(self, cx, me, cards, reg, fm, names):
+        """登録1面ぶんの検証（/api/deck と /api/deck_all の共通部）。
+
+        (army, raw, errs) を返す。検証規則はここ1箇所だけに持つ。"""
         raw = F.TRAIT_SEP.join(names)      # 「、」区切り＝CLI・DB と同じ表現
         army, errs = PL.parse_deck(cards, raw, fm)
         caps = dict(M.REGULATIONS)
@@ -1023,6 +1023,18 @@ class App(BaseHTTPRequestHandler):
             locked = sorted({M.person_of(c) for c in army.cards} - unl)
             if locked:
                 errs.append("まだ登用していない: " + "・".join(locked))
+        return army, raw, errs
+
+    def _api_deck(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        reg = M.REG_ALIAS.get(body.get("reg", ""), body.get("reg", ""))
+        fm = body.get("form", "魚鱗")
+        names = [str(x) for x in body.get("cards", [])]
+        army, raw, errs = self._board_check(cx, me, cards, reg, fm, names)
         if errs:
             return self._json({"ok": False, "errors": errs})
         P.set_deck(cx, me.id, reg, raw, fm)
@@ -1030,6 +1042,70 @@ class App(BaseHTTPRequestHandler):
                                                  me.display_name)
         self._json({"ok": True, "cost": army.total_cost(),
                     "entry_errors": entry_errors, "boards_ok": boards_ok})
+
+    def _api_deck_all(self, body):
+        """全部セットの一斉登録（§7.128）。渡された組が**新しい全登録**になる。
+
+        面ごとの検証に加えて**面間の同一人物**もここで弾く（従来は登録後に
+        entry_of が両面を塞ぐだけだった）。どれか1面でも不備なら**何も
+        書かない** — 半端な置き換えで前の登録を失わせない。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        boards = body.get("boards", [])
+        if not isinstance(boards, list) or not boards:
+            return self._json({"ok": False,
+                               "errors": {"全体": ["boards が空"]}})
+        errs_by = {}
+        new: dict = {}
+        armies: dict = {}
+        for b in boards:
+            reg = M.REG_ALIAS.get(str(b.get("reg", "")), str(b.get("reg", "")))
+            fm = b.get("form", "魚鱗")
+            names = [str(x) for x in b.get("cards", [])]
+            if reg in new:
+                errs_by.setdefault(reg, []).append("同じ戦場が2回ある")
+                continue
+            army, raw, errs = self._board_check(cx, me, cards, reg, fm, names)
+            if errs:
+                errs_by[reg] = errs
+            else:
+                new[reg] = (raw, fm)
+                armies[reg] = army
+        # 面間の同一人物（登録レベルの規則・§4.1）。セット内で先に弾く
+        seen: dict = {}
+        for reg, army in armies.items():
+            for c in army.cards:
+                p = M.person_of(c)
+                if p in seen and seen[p][0] != reg:
+                    errs_by.setdefault(reg, []).append(
+                        "{} は {} の {} と同一人物（別バージョンも不可）".format(
+                            c.name, seen[p][0], seen[p][1]))
+                else:
+                    seen.setdefault(p, (reg, c.name))
+        if errs_by:
+            return self._json({"ok": False, "errors": errs_by})
+        P.replace_decks(cx, me.id, new)
+        _, boards_ok, entry_errors = PL.entry_of(cx, cards, me.id,
+                                                 me.display_name)
+        self._json({"ok": True,
+                    "costs": {r: a.total_cost() for r, a in armies.items()},
+                    "entry_errors": entry_errors, "boards_ok": boards_ok})
+
+    def _api_deck_reset(self, body):
+        """登録デッキの一斉リセット（§7.128）。保存庫と登用・恩賞は残す。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        P.clear_decks(cx, me.id)
+        cards = M._roster_cards()
+        _, boards_ok, entry_errors = PL.entry_of(cx, cards, me.id,
+                                                 me.display_name)
+        self._json({"ok": True, "entry_errors": entry_errors,
+                    "boards_ok": boards_ok})
 
     def _api_attack(self, body):
         """BO1の出陣（§7.58）。兵符1枚・相手は同レート帯からシステムが選ぶ。"""
