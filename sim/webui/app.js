@@ -1796,7 +1796,7 @@ function showCardInfo(name) {
       <span class="tag skill-tag">技の巡り</span> <b>${esc(c.cadence.tier_jp)}</b>
       <span class="muted">　初動：${esc(c.cadence.first_label)}（自然蓄積 約${c.cadence.first_s}秒）
       　再発：${esc(c.cadence.repeat_label)}（自然蓄積 約${c.cadence.repeat_s}秒）</span>
-      <div class="muted" style="font-size:.85em">※自然蓄積の目安。攻撃・被弾・討ち取りにより早まります
+      <div class="muted" style="font-size:.85em">※自然蓄積の目安。攻撃・被弾により早まります
         <details style="display:inline-block"><summary style="display:inline;cursor:pointer">内部値</summary>
         消費${esc(c.gauge_cost)}%・上昇${esc(c.gauge_rate)}・初期${esc(c.gauge_init)}</details></div>
     </div>` : ""}
