@@ -43,6 +43,23 @@ check("署名つき sid が出る", sid.startswith("sid=") and "." in sid)
 r, d = req("GET", "/api/state", cookie=sid)
 me = json.loads(d).get("me")
 check("sid で me が立つ", bool(me) and me["name"] == "検証太郎")
+state = json.loads(d)
+truce = state.get("tenka", {}).get("truce", {})
+check("休戦令の初期設定8枚がstateへ出る",
+      truce.get("default_hours") == list(range(8))
+      and len(truce.get("days", [])) == 7, truce)
+
+# 2日後なら締切境界に掛からず、どの時刻に走らせても日別変更できる。
+future = truce.get("days", [{}, {}, {}])[2].get("day")
+r, d = req("POST", "/api/truce", cookie=sid,
+           body={"action": "day", "day": future,
+                 "hours": list(range(8, 16))})
+changed = json.loads(d)
+check("Webから日別の休戦令を変更できる",
+      r.status == 200 and changed.get("ok"), changed)
+r, d = req("POST", "/api/truce", cookie=sid,
+           body={"action": "day", "day": future, "hours": [1, 2]})
+check("Webも8枚でない休戦令を拒否", r.status == 400, d)
 
 # 旧クッキーの互換（過去のブラウザに残っている pid=...）
 r, d = req("GET", "/api/state", cookie="pid=" + me["id"])

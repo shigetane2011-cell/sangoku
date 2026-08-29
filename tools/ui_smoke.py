@@ -383,6 +383,35 @@ def council_check(page, rep, label):
         "[{}] 軍議演習が横に溢れない".format(label))
 
 
+def truce_check(page, rep, label):
+    """天下の休戦令が卓上/携帯とも24枠・8枚で触れる。"""
+    page.goto(BASE + "/", wait_until="domcontentloaded")
+    page.wait_for_timeout(600)
+    if page.query_selector(".onboard") is not None:
+        page.evaluate("() => fetch('/api/seen', {method:'POST',"
+                      "headers:{'Content-Type':'application/json'},"
+                      "body:JSON.stringify({key:'onboard'})})")
+        page.wait_for_timeout(300)
+        page.reload(wait_until="domcontentloaded")
+    # 休戦令は畳んだ <details> の中にある（ホームを散らかさないため）。
+    # **開いてから待つ** — 開かずに待つと「在るのに見えない」で60秒待って
+    # 落ちる（実ブラウザで踏んだ。提供元は Playwright 無しで気づけなかった）。
+    page.wait_for_selector("#truce-box", state="attached", timeout=60000)
+    page.evaluate("() => { const d = document.querySelector('#truce-box');"
+                  " if (d) d.open = true; }")
+    page.wait_for_selector("#truce-editor", timeout=60000)
+    rep.check(page.eval_on_selector_all(".truce-hour", "e => e.length") == 24,
+              "[{}] 休戦令に24時刻が出る".format(label))
+    rep.check(page.eval_on_selector_all(".truce-hour.on", "e => e.length") == 8,
+              "[{}] 初期の休戦令が8枚選ばれている".format(label))
+    rep.check("毎日8枚" in (page.text_content("#truce-box") or "") and
+              "開催2時間前" in (page.text_content("#truce-box") or ""),
+              "[{}] 枚数と締切が画面で読める".format(label))
+    rep.check(not page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"),
+        "[{}] 休戦令が横に溢れない".format(label))
+
+
 def readonly_checks(page, rep):
     page.goto(BASE + "/senki", wait_until="domcontentloaded")
     page.wait_for_timeout(1200)
@@ -513,6 +542,7 @@ def run():
                 _login(page, "煙検査" + label)
                 if not mob:
                     onboard_check(page, rep)
+                truce_check(page, rep, label)
                 exercise(page, rep, label, mob)
                 council_check(page, rep, label)
                 if not mob:

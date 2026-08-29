@@ -770,14 +770,31 @@ async function viewHome(state) {
       <button class="mini ghost dev-only" id="refill" title="試験用">＋補充</button>
     </span>` : "";
   const t = state.tenka || {};
+  const tr = t.truce;
+  const rep = t.report || { n: 0, w: 0, l: 0, d: 0 };
+  const tenkaState = !state.me ? "" : (!t.eligible
+    ? '<span class="warn">3デッキ揃えると自動参加</span>'
+    : (t.resting
+      ? `<span class="truce-state">休戦中</span>${t.next_active_at
+          ? ` 次の参戦 ${fmtClock(t.next_active_at)}` : ""}`
+      : '<span class="ok">自動参加</span>'));
   const tenka = `
     <div class="tenka-chip fade-in">
-      <b>天下</b>（三つの戦場一括のBO3）次回 ${fmtClock(t.at)}（${Math.ceil(t.in_sec / 60)}分後）
-      ${state.me ? (t.auto ? '<span class="ok">自動参加</span>'
-                           : '<span class="warn">3デッキ揃えると自動参加</span>') : ""}
-      ${t.foe ? `　対戦相手: <b>${esc(t.foe)}</b> <span class="form-tag">${esc(t.forms || "?")}</span>
-        ${t.battle_id ? `<a href="/replay?id=${t.battle_id}">前の戦いを観る</a>` : ""}` : ""}
-      ${state.me ? '<button class="mini ghost dev-only" id="tenka-now" title="試験用">今すぐ開催</button>' : ""}
+      <div class="tenka-line"><b>天下</b>（三戦一括のBO3・毎時00分）
+        次回 ${fmtClock(t.at)}（${Math.max(1, Math.ceil(t.in_sec / 60))}分後）
+        ${tenkaState}
+        ${state.me ? '<button class="mini ghost dev-only" id="tenka-now" title="試験用">今すぐ開催</button>' : ""}
+      </div>
+      ${state.me ? `<div class="tenka-report">
+        本日 ${rep.n}戦　<b>${rep.w}勝 ${rep.l}敗${rep.d ? ` ${rep.d}分` : ""}</b>
+        ${rep.n ? '<a href="/replays">戦歴を見る</a>' : ""}
+      </div>` : ""}
+      ${tr ? `<details class="truce-box" id="truce-box">
+        <summary><b>休戦令</b>　毎日8枚・開催2時間前に締切
+          <span>${tr.default_hours.map((h) => `${h}時`).join("・")}</span></summary>
+        <p class="muted">休戦にした開催は組合せ対象外。武名・報酬・戦歴は動かない。8時間は分けて選べる。</p>
+        <div id="truce-editor"></div>
+      </details>` : ""}
     </div>`;
   const dummies = (state.dummies || []).map((d) =>
     `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
@@ -868,6 +885,77 @@ async function viewHome(state) {
             + " SANGOKU_DEV=1 を付けると開く。");
     }
   };
+  if (tr) {
+    let scope = "day";
+    const todayPlan = tr.days[0];
+    const todayLocked = new Set(todayPlan ? todayPlan.locked : []);
+    const todayCanMove = todayPlan
+      && todayPlan.hours.some((h2) => !todayLocked.has(h2))
+      && Array.from({ length: 24 }, (_, h2) => h2).some(
+        (h2) => !todayLocked.has(h2) && !todayPlan.hours.includes(h2));
+    // 今日がもう動かせない時間なら、最初から明日を開いて袋小路に見せない。
+    let dayIndex = todayCanMove || tr.days.length < 2 ? 0 : 1;
+    let picked = new Set(tr.days[0] ? tr.days[0].hours : tr.default_hours);
+    const parseApiError = (e) => {
+      try { return JSON.parse(e.message).error || e.message; }
+      catch (_x) { return e.message; }
+    };
+    const resetPicked = () => {
+      const src = scope === "default" ? tr.default_hours : tr.days[dayIndex].hours;
+      picked = new Set(src);
+    };
+    const renderTruce = () => {
+      const ed = $("#truce-editor");
+      if (!ed) return;
+      const day = tr.days[dayIndex];
+      const locked = new Set(scope === "day" ? day.locked : []);
+      const hours = Array.from({ length: 24 }, (_, h) => `
+        <button type="button" class="truce-hour ${picked.has(h) ? "on" : ""}"
+          data-hour="${h}" ${locked.has(h) ? "disabled" : ""}
+          title="${locked.has(h) ? "締切済み" : `${h}時の天下を休戦`}">${h}</button>`).join("");
+      ed.innerHTML = `
+        <div class="truce-tabs">
+          <button class="mini ${scope === "default" ? "primary" : "ghost"}" data-scope="default">通常設定</button>
+          <button class="mini ${scope === "day" ? "primary" : "ghost"}" data-scope="day">日別変更</button>
+          ${scope === "day" ? `<select id="truce-day">${tr.days.map((d, i) =>
+            `<option value="${i}" ${i === dayIndex ? "selected" : ""}>${esc(d.day)}${i === 0 ? "（今日）" : ""}${d.source === "day" ? "・変更済" : ""}</option>`).join("")}</select>` : ""}
+        </div>
+        <div class="truce-hours">${hours}</div>
+        <div class="truce-actions"><span class="truce-count ${picked.size === 8 ? "ok" : "warn"}">休戦令 ${picked.size}/8</span>
+          <button class="mini" id="truce-save" ${picked.size === 8 ? "" : "disabled"}>この設定で布告</button>
+          ${scope === "day" && day.source === "day" ? '<button class="mini ghost" id="truce-reset">通常設定へ戻す</button>' : ""}
+          <small class="muted">${scope === "default" ? "通常設定は締切済みの日を避けて反映" : "灰色の時刻は締切済み"}</small>
+        </div>`;
+      $$("[data-scope]", ed).forEach((b) => b.onclick = () => {
+        scope = b.dataset.scope; resetPicked(); renderTruce();
+      });
+      const sel = $("#truce-day", ed);
+      if (sel) sel.onchange = () => {
+        dayIndex = +sel.value; resetPicked(); renderTruce();
+      };
+      $$(".truce-hour", ed).forEach((b) => b.onclick = () => {
+        const h2 = +b.dataset.hour;
+        if (picked.has(h2)) picked.delete(h2); else picked.add(h2);
+        renderTruce();
+      });
+      $("#truce-save", ed).onclick = async () => {
+        try {
+          await api("/api/truce", scope === "default"
+            ? { action: "default", hours: [...picked] }
+            : { action: "day", day: day.day, hours: [...picked] });
+          location.reload();
+        } catch (e) { alert("休戦令を改められなかった: " + parseApiError(e)); }
+      };
+      const rb = $("#truce-reset", ed);
+      if (rb) rb.onclick = async () => {
+        try {
+          await api("/api/truce", { action: "reset_day", day: day.day });
+          location.reload();
+        } catch (e) { alert("通常設定へ戻せなかった: " + parseApiError(e)); }
+      };
+    };
+    renderTruce();
+  }
   const fg = $("#free-go");
   if (fg) fg.onclick = async () => {
     try {
@@ -1627,17 +1715,13 @@ function drawDraft() {
 }
 
 function drawScout() {
-  // BO1は相手が事前に分からない（挑戦ラダー・§7.58）。偵察の窓は天下だけ:
-  // 開催1時間前に組合せが出たら、ここで相手と陣形を見せて編成調整を促す。
+  // BO1も天下も対戦相手は事前に明かさない。天下は休戦/参戦状態だけ知らせる。
   const el = $("#scout");
   if (!el || !STATE) return;
   const t = STATE.tenka;
-  el.innerHTML = (t && t.foe)
-    ? `<div class="next-chip">天下 ${fmtClock(t.at)}開催: 対 <b>${esc(t.foe)}</b>
-       <span class="form-tag">${esc(t.forms || "?")}</span>
-       ${t.battle_id ? `<a href="/replay?id=${t.battle_id}">前の戦いを観る</a>` : ""}
-       <small class="muted">開催まで編成を調整できる</small></div>`
-    : "";
+  el.innerHTML = t ? `<div class="next-chip">天下 ${fmtClock(t.at)}開催
+    <b>${t.resting ? "休戦" : (t.eligible ? "自動参加" : "3デッキ未登録")}</b>
+    <small class="muted">相手は開催時に決まる</small></div>` : "";
 }
 
 function drawLibrary() {

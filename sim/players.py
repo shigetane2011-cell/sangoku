@@ -201,6 +201,33 @@ CREATE TABLE IF NOT EXISTS enshu_tokens (
   count      INTEGER NOT NULL,
   updated_at INTEGER NOT NULL              -- unix秒
 );
+-- 天下の休戦令。1日8時間を24bitのマスクで持つ（bit0=0時）。通常設定は
+-- 全日に効き、日別設定がある日はそちらを優先する。過去の開催に遡って
+-- 書き換えられないよう、更新時の締切判定は play.py が一元管理する。
+CREATE TABLE IF NOT EXISTS truce_defaults (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  mask       INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS truce_days (
+  player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  day        TEXT NOT NULL,                 -- サーバー地方時の YYYY-MM-DD
+  mask       INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (player_id, day)
+);
+-- 同じ00分に複数端末が /api/state を開いても天下を二重開催しないための開催印。
+-- 先にINSERTできた1要求だけが実行する。失敗時も印を残し、部分実行の上へ自動で
+-- 再実行してレートを二重加算しない（state=failed は運用で調査する）。
+CREATE TABLE IF NOT EXISTS tenka_runs (
+  serial       INTEGER PRIMARY KEY,
+  scheduled_at INTEGER NOT NULL,
+  state        TEXT NOT NULL,
+  started_at   INTEGER NOT NULL,
+  finished_at  INTEGER,
+  fought       INTEGER NOT NULL DEFAULT 0,
+  error        TEXT NOT NULL DEFAULT ''
+);
 -- デッキ保存庫（§7.46）。名前を付けて何個でも取っておける。**登録（decks 表）
 -- とは別物**: 保存は下書きでもよく、検証は登録の瞬間だけ行う。
 CREATE TABLE IF NOT EXISTS saved_decks (
@@ -699,6 +726,79 @@ def clear_pairs(cx: sqlite3.Connection, board: str, rnd: int) -> None:
     with cx:
         cx.execute("DELETE FROM pairings WHERE board = ? AND round = ?",
                    (board, rnd))
+
+
+# ---------------------------------------------------------------- 休戦令
+TRUCE_HOURS = 8
+TRUCE_DEFAULT_MASK = (1 << TRUCE_HOURS) - 1       # 0:00〜8:00（0〜7時）
+
+
+def truce_mask(hours) -> int:
+    """8個の時刻を24bitへ変換する。不正値は黙って丸めず弾く。"""
+    try:
+        hs = [int(h) for h in hours]
+    except (TypeError, ValueError):
+        raise ValueError("休戦令は0〜23時から8つ選ぶ")
+    if len(hs) != TRUCE_HOURS or len(set(hs)) != TRUCE_HOURS:
+        raise ValueError("休戦令は1日8枚、異なる時刻を8つ選ぶ")
+    if any(h < 0 or h > 23 for h in hs):
+        raise ValueError("休戦令の時刻は0〜23時で選ぶ")
+    return sum(1 << h for h in hs)
+
+
+def truce_hours(mask: int) -> List[int]:
+    """bitマスクを昇順の時刻へ戻す。DB破損も24bitの外へ漏らさない。"""
+    return [h for h in range(24) if int(mask) & (1 << h)]
+
+
+def truce_default(cx: sqlite3.Connection, player_id: str) -> int:
+    r = cx.execute("SELECT mask FROM truce_defaults WHERE player_id = ?",
+                   (player_id,)).fetchone()
+    return int(r["mask"]) if r is not None else TRUCE_DEFAULT_MASK
+
+
+def truce_day(cx: sqlite3.Connection, player_id: str,
+              day: str) -> Tuple[int, str]:
+    """その日の有効マスクと出所（day/default）を返す。"""
+    r = cx.execute(
+        "SELECT mask FROM truce_days WHERE player_id = ? AND day = ?",
+        (player_id, day)).fetchone()
+    if r is not None:
+        return int(r["mask"]), "day"
+    return truce_default(cx, player_id), "default"
+
+
+def save_truce_default(cx: sqlite3.Connection, player_id: str,
+                       mask: int, now: int) -> None:
+    # 呼び手で検証済みでも、DBへ8bit以外を入れない最後の腰壁。
+    if len(truce_hours(mask)) != TRUCE_HOURS:
+        raise ValueError("休戦令は1日8枚")
+    with cx:
+        cx.execute(
+            "INSERT INTO truce_defaults (player_id, mask, updated_at)"
+            " VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET"
+            " mask=excluded.mask, updated_at=excluded.updated_at",
+            (player_id, int(mask), int(now)))
+
+
+def save_truce_day(cx: sqlite3.Connection, player_id: str, day: str,
+                   mask: int, now: int) -> None:
+    if len(truce_hours(mask)) != TRUCE_HOURS:
+        raise ValueError("休戦令は1日8枚")
+    with cx:
+        cx.execute(
+            "INSERT INTO truce_days (player_id, day, mask, updated_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(player_id, day) DO UPDATE SET"
+            " mask=excluded.mask, updated_at=excluded.updated_at",
+            (player_id, day, int(mask), int(now)))
+
+
+def delete_truce_day(cx: sqlite3.Connection, player_id: str,
+                     day: str) -> None:
+    with cx:
+        cx.execute("DELETE FROM truce_days WHERE player_id=? AND day=?",
+                   (player_id, day))
 
 
 # ---------------------------------------------------------------- 兵符

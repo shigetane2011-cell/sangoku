@@ -490,8 +490,9 @@ def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
 #   BO1  = 非同期の挑戦ラダー。兵符1枚でいつでも出陣、相手は同レート帯から
 #          システムが選ぶ（対戦カードは事前に見えない）。受ける側は登録デッキが
 #          常に防衛に立ち、拒否できない。同じ相手には1時間に1回まで。
-#   天下 = 1日2回の定刻開催（12時・21時）。1時間前に組合せ発表 → 編成調整の
-#          猶予 → 定刻解決。3デッキ揃っていれば自動参加・兵符不要。
+#   天下 = 毎時00分の自動開催。3デッキ揃っていれば自動参加・兵符不要。
+#          休戦令を1日8枚（8時間）使い、生活時間は組合せ対象から外れる。
+#          対戦相手は事前に見せず、開催時点の登録デッキで組んで即時解決する。
 #   フリー = 在野といつでも／ルーム番号でプレイヤー同士。レート不変動・兵符不要。
 #   シーズン = 月次。月末の順位表と全デッキを魚拓してからレートを完全リセット
 #          （可変Kが月初を数戦で収束させるので、ソフトリセットは要らない）。
@@ -501,8 +502,9 @@ def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
 
 import json as _json
 
-TENKA_HOURS = (12, 21)          # 天下の開催時刻（サーバーの地方時）
-TENKA_ANNOUNCE_SEC = 3600       # 開催の1時間前に組合せ発表
+TENKA_HOURS = tuple(range(24))  # 天下は毎時00分（サーバーの地方時）
+TRUCE_LOCK_SEC = 2 * 3600      # 休戦令は開催2時間前に締切
+TRUCE_DAYS_SHOWN = 7           # 画面から日別変更できる範囲
 
 
 def snap_army(army: F.Army, mult: float = 1.0) -> dict:
@@ -606,6 +608,111 @@ def tenka_events(t0: int, t1: int):
     return out
 
 
+def _local_day(day: str):
+    """YYYY-MM-DDをサーバー地方時の0時へ。存在しない日付もここで弾く。"""
+    import datetime
+    try:
+        d = datetime.datetime.strptime(day, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise ValueError("日付が正しくない")
+    if d.strftime("%Y-%m-%d") != day:
+        raise ValueError("日付が正しくない")
+    return d
+
+
+def _event_time(day: str, hour: int) -> int:
+    return int(_local_day(day).replace(hour=int(hour)).timestamp())
+
+
+def truce_is_active(cx, player_id: str, at: int) -> bool:
+    """指定開催で休戦中か。開催時刻の地方日付・時を正本にする。"""
+    import datetime
+    d = datetime.datetime.fromtimestamp(at)
+    mask, _source = P.truce_day(cx, player_id, d.strftime("%Y-%m-%d"))
+    return bool(mask & (1 << d.hour))
+
+
+def truce_locked_hours(day: str, now: int):
+    """もう変更できない時刻。過去＋開催2時間前に入った枠を含む。"""
+    cutoff = int(now) + TRUCE_LOCK_SEC
+    return [h for h in range(24) if _event_time(day, h) <= cutoff]
+
+
+def truce_schedules(cx, player_id: str, now: int) -> dict:
+    """画面用の通常設定と今日から7日分。規則の判断はサーバー側に残す。"""
+    import datetime
+    today = datetime.datetime.fromtimestamp(now).date()
+    days = []
+    for n in range(TRUCE_DAYS_SHOWN):
+        day = (today + datetime.timedelta(days=n)).isoformat()
+        mask, source = P.truce_day(cx, player_id, day)
+        days.append({"day": day, "hours": P.truce_hours(mask),
+                     "source": source,
+                     "locked": truce_locked_hours(day, now)})
+    return {"name": "休戦令", "count": P.TRUCE_HOURS,
+            "lock_sec": TRUCE_LOCK_SEC,
+            "default_hours": P.truce_hours(P.truce_default(cx, player_id)),
+            "days": days}
+
+
+def set_truce_default(cx, player_id: str, hours, now: int) -> dict:
+    """通常設定を更新する。
+
+    今日まで遡って設定が変わると、既に出た試合を「休戦したこと」にできてしまう。
+    そこで締切済みの開催を含む日だけ旧設定を日別魚拓として残し、新しい通常設定は
+    その次の完全に未締切の日から効かせる。
+    """
+    import datetime
+    new_mask = P.truce_mask(hours)
+    old_mask = P.truce_default(cx, player_id)
+    if new_mask == old_mask:
+        return truce_schedules(cx, player_id, now)
+    today = datetime.datetime.fromtimestamp(now).date()
+    cutoff = datetime.datetime.fromtimestamp(now + TRUCE_LOCK_SEC).date()
+    d = today
+    with cx:
+        while d <= cutoff:
+            day = d.isoformat()
+            explicit = cx.execute(
+                "SELECT 1 FROM truce_days WHERE player_id=? AND day=?",
+                (player_id, day)).fetchone()
+            if explicit is None:
+                # 更新前の有効設定を丸ごと残す。これで同日の未来枠だけ新設定に
+                # なって8枚を超減する、という境界の分かりにくさも避けられる。
+                cx.execute(
+                    "INSERT INTO truce_days (player_id,day,mask,updated_at)"
+                    " VALUES (?,?,?,?)", (player_id, day, old_mask, int(now)))
+            d += datetime.timedelta(days=1)
+        cx.execute(
+            "INSERT INTO truce_defaults (player_id,mask,updated_at) VALUES (?,?,?)"
+            " ON CONFLICT(player_id) DO UPDATE SET"
+            " mask=excluded.mask,updated_at=excluded.updated_at",
+            (player_id, new_mask, int(now)))
+    return truce_schedules(cx, player_id, now)
+
+
+def set_truce_day(cx, player_id: str, day: str, hours, now: int,
+                  reset: bool = False) -> dict:
+    """日別設定。過去と締切2時間以内のbitは一つも変えさせない。"""
+    import datetime
+    target = _local_day(day).date()
+    today = datetime.datetime.fromtimestamp(now).date()
+    if target < today or target >= today + datetime.timedelta(
+            days=TRUCE_DAYS_SHOWN):
+        raise ValueError("日別の休戦令は今日から7日分だけ変更できる")
+    old_mask, _source = P.truce_day(cx, player_id, day)
+    new_mask = P.truce_default(cx, player_id) if reset else P.truce_mask(hours)
+    changed = old_mask ^ new_mask
+    locked = truce_locked_hours(day, now)
+    if any(changed & (1 << h) for h in locked):
+        raise ValueError("開催2時間前を過ぎた休戦令は変更できない")
+    if reset:
+        P.delete_truce_day(cx, player_id, day)
+    else:
+        P.save_truce_day(cx, player_id, day, new_mask, now)
+    return truce_schedules(cx, player_id, now)
+
+
 def _season_archive(cx, season: str) -> None:
     """シーズンの魚拓（§7.58）。順位表と全デッキを焼いてから消す。"""
     names = {p.id: p.display_name for p in P.all_players(cx)}
@@ -631,11 +738,17 @@ def _season_archive(cx, season: str) -> None:
                    (season, "デッキ", _json.dumps(decks, ensure_ascii=False)))
 
 
-def _tenka_participants(cx, cards):
-    """天下に出られる全員（3デッキ揃った人間 + 在野）。"""
+def _tenka_participants(cx, cards, at: int = None):
+    """天下に出られる全員（休戦していない3デッキ所持者 + 在野）。
+
+    在野は休戦令を持たない。人間が全員休戦なら開催自体を省略するので、在野だけが
+    夜通しレートを動かすことはない。
+    """
     dummies = ensure_dummies(cx, cards)
     ents = dict(dummies)
     for p in P.all_players(cx, kind=P.HUMAN):
+        if at is not None and truce_is_active(cx, p.id, at):
+            continue
         e, ok, _ = entry_of(cx, cards, p.id, p.display_name)
         if ok.get("天下"):
             ents[p.id] = e
@@ -643,45 +756,86 @@ def _tenka_participants(cx, cards):
 
 
 def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
-    """天下1開催ぶんを解決する。発表済みの組があればそれを守る。"""
-    ents = _tenka_participants(cx, cards)
-    pairs = P.load_pairs(cx, "天下", serial)
-    if not pairs:
+    """天下1開催ぶんを解決する。組合せは締切後、開催時に初めて作る。"""
+    # ThreadingHTTPServer では同じ00分に複数の state 要求が来る。開催番号を
+    # PRIMARY KEY で先取りし、二重対戦・二重レートをDB制約で止める。
+    import time as _time
+    wall = int(_time.time())
+    with cx:
+        claim = cx.execute(
+            "INSERT OR IGNORE INTO tenka_runs"
+            " (serial,scheduled_at,state,started_at) VALUES (?,?,?,?)",
+            (int(serial), int(now), "running", wall))
+    if claim.rowcount == 0:
+        return 0
+    try:
+        ents = _tenka_participants(cx, cards, now)
+        human_ids = {p.id for p in P.all_players(cx, kind=P.HUMAN)}
+        if not any(pid in human_ids for pid in ents):
+            P.clear_pairs(cx, "天下", serial)
+            with cx:
+                cx.execute(
+                    "UPDATE tenka_runs SET state='done',finished_at=?,fought=0"
+                    " WHERE serial=?", (int(_time.time()), int(serial)))
+            return 0
         b = load_board(cx, "天下")
+        # 人間が奇数でも人間をあぶれさせない。在野を1人だけ休ませて偶数にする。
+        # 不戦勝にはせず、全員が実際のBO3を戦う約束を守る。
+        if len(ents) % 2:
+            dummy_ids = [pid for pid in ents if pid not in human_ids]
+            if dummy_ids:
+                rested_dummy = min(dummy_ids, key=lambda pid: (b.get(pid), pid))
+                del ents[rested_dummy]
         pairs = L.plan_round(b, list(ents), serial)
-    b = load_board(cx, "天下")
+    except Exception as e:
+        with cx:
+            cx.execute("UPDATE tenka_runs SET state='failed',finished_at=?,"
+                       " error=? WHERE serial=?",
+                       (int(_time.time()), str(e)[:500], int(serial)))
+        raise
     fought = 0
-    for a, y in pairs:
-        if a not in ents or y not in ents:
-            continue            # 締切までにデッキが崩れた側は不戦
-        seed = L.battle_seed("天下", serial, a, y)
-        r = M.play(ents[a], ents[y], 0.5, seed=seed)
-        sa = 1.0 if r["wins_a"] > r["wins_b"] else (
-            0.0 if r["wins_b"] > r["wins_a"] else 0.5)
-        ea = L.expected(b.get(a), b.get(y))
-        ka = L.k_of(b.games.get(a, 0)); kb = L.k_of(b.games.get(y, 0))
-        b.rating[a] = b.get(a) + ka * (sa - ea)
-        b.rating[y] = b.get(y) - kb * (sa - ea)
-        b.games[a] = b.games.get(a, 0) + 1
-        b.games[y] = b.games.get(y, 0) + 1
-        P.record_battle(cx, "tenka", "天下", a, y, seed,
-                        snap_entry(ents[a]), snap_entry(ents[y]),
-                        season_key(now), now,
-                        result="".join(result_mark(g["結果"]["score"])
-                                       for g in r["games"]))
-        fought += 1
-    save_board(cx, b)
-    P.clear_pairs(cx, "天下", serial)
-    return fought
+    try:
+        for a, y in pairs:
+            if a not in ents or y not in ents:
+                continue
+            seed = L.battle_seed("天下", serial, a, y)
+            r = M.play(ents[a], ents[y], 0.5, seed=seed)
+            sa = 1.0 if r["wins_a"] > r["wins_b"] else (
+                0.0 if r["wins_b"] > r["wins_a"] else 0.5)
+            ea = L.expected(b.get(a), b.get(y))
+            ka = L.k_of(b.games.get(a, 0)); kb = L.k_of(b.games.get(y, 0))
+            b.rating[a] = b.get(a) + ka * (sa - ea)
+            b.rating[y] = b.get(y) - kb * (sa - ea)
+            b.games[a] = b.games.get(a, 0) + 1
+            b.games[y] = b.games.get(y, 0) + 1
+            P.record_battle(cx, "tenka", "天下", a, y, seed,
+                            snap_entry(ents[a]), snap_entry(ents[y]),
+                            season_key(now), now,
+                            result="".join(result_mark(g["結果"]["score"])
+                                           for g in r["games"]))
+            fought += 1
+        save_board(cx, b)
+        P.clear_pairs(cx, "天下", serial)
+        with cx:
+            cx.execute("UPDATE tenka_runs SET state='done',finished_at=?,fought=?"
+                       " WHERE serial=?",
+                       (int(_time.time()), fought, int(serial)))
+        return fought
+    except Exception as e:
+        # 自動再試行はしない。何戦まで書けたか不明な状態で重ねる方が危険。
+        with cx:
+            cx.execute("UPDATE tenka_runs SET state='failed',finished_at=?,"
+                       " fought=?,error=? WHERE serial=?",
+                       (int(_time.time()), fought, str(e)[:500], int(serial)))
+        raise
 
 
 def tick(cx, cards, now: int) -> None:
     """定刻処理の遅延評価。**どの入口からでも最初に呼ぶ。**
 
     やること: (1) 月が変わっていたら魚拓→レートリセット (2) 期限の来た天下を
-    開催（複数たまっていれば順に） (3) 次の天下が1時間以内なら組合せを発表
-    (4) 順位表の毎時断面を更新。全部が冪等で、呼び忘れた時間は次の呼び出しが
-    まとめて片付ける。
+    開催（複数たまっていれば順に） (3) 順位表の毎時断面を更新。全部が冪等で、
+    呼び忘れた時間は次の呼び出しがまとめて片付ける。
     """
     # (0) 旧 matches からの引っ越し（1回だけ）。魚拓なし＝当時の登録から再構成
     if not P.ledger_get(cx, "migrated_battles"):
@@ -727,23 +881,27 @@ def tick(cx, cards, now: int) -> None:
         _season_archive(cx, stored)
         P.reset_ratings(cx)
         P.ledger_set(cx, "season", cur)
-    # (2) 天下の解決
+    # (2) 天下の解決。1日2回版から切り替えた最初の1回は、現在時までを済扱いに
+    #     する。さもないと導入直後のアクセスで過去24時間ぶんを一気に開催する。
+    if not P.ledger_get(cx, "tenka_hourly_v1"):
+        import datetime
+        d = datetime.datetime.fromtimestamp(now).replace(
+            minute=0, second=0, microsecond=0)
+        serial = int(d.strftime("%Y%m%d")) * 100 + d.hour
+        old_done = int(P.ledger_get(cx, "tenka_done", "0"))
+        P.ledger_set(cx, "tenka_done", str(max(old_done, serial)))
+        P.ledger_set(cx, "tenka_anchor", str(now))
+        with cx:
+            cx.execute("DELETE FROM pairings WHERE board='天下'")
+        P.ledger_set(cx, "tenka_hourly_v1", "1")
     done = int(P.ledger_get(cx, "tenka_done", "0"))
     t0 = int(P.ledger_get(cx, "tenka_anchor", "0")) or (now - 24 * 3600)
     for serial, t in tenka_events(t0, now):
         if serial > done:
-            _tenka_resolve(cx, cards, serial, now)
+            _tenka_resolve(cx, cards, serial, t)
             P.ledger_set(cx, "tenka_done", str(serial))
     P.ledger_set(cx, "tenka_anchor", str(now))
-    # (3) 次の天下の組合せ発表（1時間前）
-    nxt = tenka_events(now, now + 24 * 3600)
-    if nxt:
-        serial, t = nxt[0]
-        if t - now <= TENKA_ANNOUNCE_SEC and not P.load_pairs(cx, "天下", serial):
-            ents = _tenka_participants(cx, cards)
-            b = load_board(cx, "天下")
-            P.save_pairs(cx, "天下", serial, L.plan_round(b, list(ents), serial))
-    # (4) 毎時断面
+    # (3) 毎時断面
     hk = hour_key(now)
     for bn in L.BOARDS:
         r = cx.execute("SELECT hour_key, data FROM standings_cache"

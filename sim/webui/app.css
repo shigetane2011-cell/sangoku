@@ -218,6 +218,30 @@ td.rating { color: var(--gold); }
   color: var(--gold-hi); letter-spacing: .2em; margin-right: 4px; }
 .tenka-chip .ok { color: var(--win); margin: 0 6px; font-weight: 600; }
 .tenka-chip .warn { color: var(--sub); margin: 0 6px; }
+.tenka-line { line-height: 2; }
+.tenka-line > b { font-family: var(--font-min); font-size: 15px;
+  color: var(--gold-hi); letter-spacing: .2em; margin-right: 4px; }
+.truce-state { color: #a9c4df; margin: 0 6px; font-weight: 700; }
+.tenka-report { margin: 2px 0 5px; color: var(--sub); }
+.tenka-report b { color: var(--ink); margin-right: 8px; }
+.truce-box { margin-top: 7px; padding-top: 7px; border-top: 1px solid #5a4a3066; }
+.truce-box summary { cursor: pointer; color: var(--ink); }
+.truce-box summary > b { color: var(--gold-hi); font-family: var(--font-min); }
+.truce-box summary span { margin-left: 8px; color: var(--sub); font-size: 11px; }
+.truce-box p { margin: 8px 0; }
+.truce-tabs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin: 8px 0; }
+.truce-hours { display: grid; grid-template-columns: repeat(12, minmax(28px, 1fr));
+  gap: 4px; max-width: 680px; }
+button.truce-hour { min-height: 32px; padding: 4px 2px; border-radius: 4px;
+  color: var(--sub); border-color: #4a4031; background: #17130f; }
+button.truce-hour.on { color: #e2ecf5; border-color: #7490a8;
+  background: linear-gradient(#344655, #24333f); box-shadow: inset 0 0 8px #94bad333; }
+button.truce-hour:disabled { opacity: .38; cursor: not-allowed; }
+.truce-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 9px; }
+.truce-count { font-weight: 700; min-width: 6.5em; }
+.truce-count.ok { color: var(--win); }
 .senki-chip {
   margin: 8px 0 14px; padding: 10px 14px;
   background: linear-gradient(90deg, #2c1c10, var(--panel));
@@ -812,6 +836,8 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   nav a.on { box-shadow: inset 0 2px 0 var(--gold); }
   .cta { gap: 10px; }
   .heifu { margin-left: 0; width: 100%; }
+  .truce-hours { grid-template-columns: repeat(6, 1fr); }
+  .truce-actions small { flex-basis: 100%; }
   .council-hero { align-items: stretch; flex-direction: column; gap: 10px; }
   .council-shortcut { margin-left: 0; }
   h2 button.attack { float: none; display: block; width: 100%; margin-top: 8px; }

@@ -562,6 +562,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_deck_reset(body)
             if url.path == "/api/attack":
                 return self._api_attack(body)
+            if url.path == "/api/truce":
+                return self._api_truce(body)
             if url.path == "/api/senki_fight":
                 return self._api_senki_fight(body)
             if url.path == "/api/senki_lap":
@@ -833,9 +835,10 @@ class App(BaseHTTPRequestHandler):
                       "me": bool(me and r["pid"] == me.id)}
                      for i, r in enumerate(rows)]
             boards.append({"name": bn, "table": table})
-        # 天下（1日2回の定刻開催）
-        serial, at = PL.next_tenka(now)
-        tenka = {"at": at, "in_sec": at - now, "auto": False, "foe": None}
+        # 天下（毎時00分の定刻開催・休戦令8枚/日）
+        _serial, at = PL.next_tenka(now)
+        tenka = {"at": at, "in_sec": at - now, "auto": False,
+                 "eligible": False, "resting": False}
         entry_ok = False
         boards_ok = {}
         heifu = None
@@ -880,20 +883,36 @@ class App(BaseHTTPRequestHandler):
                     rows2.append({"key": k, "tier": tier, "name": nm,
                                   "kou": PL.kou_of(k), "desc": desc})
                 onsho = {"choices": rows2}
-            tenka["auto"] = bool(boards_ok.get("天下"))
-            # 発表済み（開催1時間前〜）なら相手と陣形を見せる — 天下だけに
-            # 残した偵察→編成調整の窓（§7.58）
-            pairs = P.load_pairs(cx, "天下", serial)
-            mine = next((pr for pr in pairs if me.id in pr), None)
-            if mine is not None:
-                foe = mine[1] if mine[0] == me.id else mine[0]
-                fe = PL._tenka_participants(cx, cards).get(foe)
-                tenka["foe"] = names.get(foe, "?")
-                tenka["forms"] = ("・".join(
-                    F.FORM_NAME.get(fe.unit(i).form.n_front, "?")
-                    for i in range(3)) if fe is not None else "?")
-                last = P.battles_of(cx, pid=foe, limit=1)
-                tenka["battle_id"] = last[0]["id"] if last else None
+            tenka["eligible"] = bool(boards_ok.get("天下"))
+            tenka["resting"] = PL.truce_is_active(cx, me.id, at)
+            tenka["auto"] = tenka["eligible"] and not tenka["resting"]
+            tenka["truce"] = PL.truce_schedules(cx, me.id, now)
+            # 次に実際に参加する開催。8時間連続休戦でも一目で復帰時刻が分かる。
+            tenka["next_active_at"] = None
+            if tenka["eligible"]:
+                for _sr, t2 in PL.tenka_events(now, now + 2 * 24 * 3600):
+                    if not PL.truce_is_active(cx, me.id, t2):
+                        tenka["next_active_at"] = t2
+                        break
+            # 一時間ごとの16件を通知で流さず、ホームでは本日分を一行に畳む。
+            import datetime
+            d0 = datetime.datetime.fromtimestamp(now).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            report = {"n": 0, "w": 0, "l": 0, "d": 0}
+            for row in cx.execute(
+                    "SELECT pid_a,pid_b,result FROM battles"
+                    " WHERE mode='tenka' AND played_at>=? AND played_at<?"
+                    " AND (pid_a=? OR pid_b=?)",
+                    (int(d0.timestamp()),
+                     int((d0 + datetime.timedelta(days=1)).timestamp()),
+                     me.id, me.id)):
+                marks = row["result"] or ""
+                if row["pid_b"] == me.id:
+                    marks = marks.translate(str.maketrans("○●", "●○"))
+                w, lose = marks.count("○"), marks.count("●")
+                report["n"] += 1
+                report["w" if w > lose else ("l" if lose > w else "d")] += 1
+            tenka["report"] = report
         self._json({
             "stale_server": _server_stale(),
             "auth": {"mode": "oidc" if PUBLIC else "local"},
@@ -1184,6 +1203,37 @@ class App(BaseHTTPRequestHandler):
             return self._json({"error": "その順位表には出陣できない"}, 400)
         r = PL.attack(cx, cards, me, reg, now)
         self._json(r, 200 if "error" not in r else 400)
+
+    def _api_truce(self, body):
+        """天下の休戦令。通常設定か、今日から7日分の日別設定を更新する。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        now = int(time.time())
+        # 遅延評価の未開催分を**旧設定のまま先に解決**する。設定を先に変えると、
+        # サーバ停止中の過去開催へ新しい通常設定が遡ってしまう。
+        PL.tick(cx, M._roster_cards(), now)
+        action = str(body.get("action", ""))
+        try:
+            if action == "default":
+                data = PL.set_truce_default(
+                    cx, me.id, body.get("hours", []), now)
+                return self._json({"ok": True, "truce": data,
+                                   "message": "通常の休戦令を改めた"})
+            if action in ("day", "reset_day"):
+                data = PL.set_truce_day(
+                    cx, me.id, str(body.get("day", "")),
+                    body.get("hours", []), now,
+                    reset=(action == "reset_day"))
+                return self._json({
+                    "ok": True, "truce": data,
+                    "message": ("日別設定を通常へ戻した"
+                                if action == "reset_day" else
+                                "この日の休戦令を改めた")})
+            return self._json({"error": "休戦令の操作が正しくない"}, 400)
+        except ValueError as e:
+            return self._json({"error": str(e)}, 400)
 
     def _api_free(self, body):
         """フリー対戦（在野戦）。レートも兵符も動かない。"""
