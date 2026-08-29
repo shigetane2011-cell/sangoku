@@ -229,19 +229,40 @@ td.rating { color: var(--gold); }
 .truce-box summary > b { color: var(--gold-hi); font-family: var(--font-min); }
 .truce-box summary span { margin-left: 8px; color: var(--sub); font-size: 11px; }
 .truce-box p { margin: 8px 0; }
+.truce-auto-note { color: #c8b47b; font-size: 12px; padding: 7px 9px;
+  border-left: 3px solid #8f7845; background: #29211480; }
 .truce-tabs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   margin: 8px 0; }
+.truce-tabs button, .truce-actions button { min-height: 40px; }
+.truce-tabs select { min-height: 40px; padding: 5px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel2); color: var(--ink);
+  font: inherit; font-size: 12px; }
 .truce-hours { display: grid; grid-template-columns: repeat(12, minmax(28px, 1fr));
   gap: 4px; max-width: 680px; }
-button.truce-hour { min-height: 32px; padding: 4px 2px; border-radius: 4px;
-  color: var(--sub); border-color: #4a4031; background: #17130f; }
+button.truce-hour { min-height: 46px; padding: 4px 3px; border-radius: 4px;
+  color: var(--sub); border-color: #4a4031; background: #17130f;
+  display: grid; grid-template-columns: 13px 1fr; grid-template-rows: 1fr auto;
+  align-items: center; justify-items: center; line-height: 1; }
+.truce-check { grid-row: 1 / 3; grid-column: 1; color: #dceaf4;
+  font-size: 12px; font-weight: 800; }
+.truce-hour-num { grid-row: 1; grid-column: 2; font-size: 12px; }
+button.truce-hour small { grid-row: 2; grid-column: 2; font-size: 8px;
+  line-height: 1; color: #aa9d88; }
 button.truce-hour.on { color: #e2ecf5; border-color: #7490a8;
   background: linear-gradient(#344655, #24333f); box-shadow: inset 0 0 8px #94bad333; }
-button.truce-hour:disabled { opacity: .38; cursor: not-allowed; }
+button.truce-hour:disabled { cursor: not-allowed; }
+button.truce-hour.past { opacity: .48; }
+button.truce-hour.deadline { opacity: .76; border-style: dashed; }
 .truce-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 9px; }
 .truce-count { font-weight: 700; min-width: 6.5em; }
 .truce-count.ok { color: var(--win); }
+.truce-notice { margin-top: 8px; padding: 8px 10px; border-radius: 5px;
+  font-size: 12px; border: 1px solid; }
+.truce-notice.ok { color: var(--win); border-color: #668061;
+  background: #1c2b1b; }
+.truce-notice.error { color: #efaaa0; border-color: #8d4d47;
+  background: #321b19; }
 .senki-chip {
   margin: 8px 0 14px; padding: 10px 14px;
   background: linear-gradient(90deg, #2c1c10, var(--panel));
@@ -328,6 +349,22 @@ button.truce-hour:disabled { opacity: .38; cursor: not-allowed; }
 }
 .mode-tag { font-size: 11px; color: var(--sub); border: 1px solid var(--line);
   border-radius: 4px; padding: 0 5px; }
+.replay-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 11px; }
+.replay-filters button { display: inline-flex; align-items: center; gap: 5px;
+  min-height: 40px; }
+.replay-filters button small { color: inherit; opacity: .7; font-size: 9px; }
+.tenka-day-row > td { padding: 4px 0 !important; background: transparent !important; }
+.tenka-day-details { border: 1px solid #5a4a30; border-radius: 7px;
+  background: #17130f; overflow: hidden; }
+.tenka-day-details > summary { cursor: pointer; padding: 10px 12px;
+  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.tenka-day-details > summary b { color: var(--gold-hi); min-width: 7.5em; }
+.tenka-day-details > summary span { color: var(--ink); font-weight: 700; }
+.tenka-day-details > summary small { color: var(--sub); margin-left: auto; }
+.tenka-day-details[open] > summary { border-bottom: 1px solid #5a4a30;
+  background: #2b2215; }
+.tenka-day-table { padding: 3px 8px 8px; }
+.tenka-day-table table { min-width: 620px; }
 h2 button.attack { float: right; font-size: 13px; }
 
 /* ── 出陣オーバーレイ・戦果 ───────────────── */
@@ -837,6 +874,8 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   .cta { gap: 10px; }
   .heifu { margin-left: 0; width: 100%; }
   .truce-hours { grid-template-columns: repeat(6, 1fr); }
+  .truce-tabs button, .truce-tabs select, .truce-actions button,
+  .replay-filters button { min-height: 44px; }
   .truce-actions small { flex-basis: 100%; }
   .council-hero { align-items: stretch; flex-direction: column; gap: 10px; }
   .council-shortcut { margin-left: 0; }

@@ -404,9 +404,38 @@ def truce_check(page, rep, label):
               "[{}] 休戦令に24時刻が出る".format(label))
     rep.check(page.eval_on_selector_all(".truce-hour.on", "e => e.length") == 8,
               "[{}] 初期の休戦令が8枚選ばれている".format(label))
+    sizes = page.eval_on_selector_all(
+        ".truce-hour", "es => es.map(e => e.getBoundingClientRect().height)")
+    rep.check(bool(sizes) and min(sizes) >= 44,
+              "[{}] 時刻ボタンが触りの目安44を満たす（最小{:.0f}px）".format(
+                  label, min(sizes) if sizes else 0))
+    rep.check(page.eval_on_selector_all(
+        '.truce-hour.on[aria-pressed="true"]', "e => e.length") == 8 and
+        page.eval_on_selector_all(".truce-hour.on .truce-check",
+                                  "es => es.every(e => e.textContent.includes('✓'))"),
+        "[{}] 選択が色だけでなく✓とaria-pressedで分かる".format(label))
     rep.check("毎日8枚" in (page.text_content("#truce-box") or "") and
               "開催2時間前" in (page.text_content("#truce-box") or ""),
               "[{}] 枚数と締切が画面で読める".format(label))
+    # 2日後は締切に掛からない。1枠を入れ替えて保存し、再描画後も同じ日・
+    # 開いた設定欄・成功の言葉が残ることを触って確かめる。
+    page.select_option("#truce-day", "2")
+    page.wait_for_timeout(250)
+    on_h = page.eval_on_selector(".truce-hour.on:not([disabled])", "e => e.dataset.hour")
+    off_h = page.eval_on_selector(".truce-hour:not(.on):not([disabled])", "e => e.dataset.hour")
+    page.click('.truce-hour[data-hour="{}"]'.format(on_h))
+    page.click('.truce-hour[data-hour="{}"]'.format(off_h))
+    page.click("#truce-save")
+    page.wait_for_selector(".truce-notice.ok", timeout=60000)
+    rep.check(page.eval_on_selector("#truce-box", "e => e.open"),
+              "[{}] 保存後も休戦令の設定欄が開いている".format(label))
+    rep.check("布告しました" in (page.text_content(".truce-notice.ok") or "") and
+              page.input_value("#truce-day") == "2",
+              "[{}] 保存成功と編集中の日付が残る".format(label))
+    selected = page.eval_on_selector_all(
+        ".truce-hour.on", "es => es.map(e => e.dataset.hour)")
+    rep.check(len(selected) == 8 and off_h in selected and on_h not in selected,
+              "[{}] 保存した8枠が再取得後も一致する".format(label))
     rep.check(not page.evaluate(
         "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"),
         "[{}] 休戦令が横に溢れない".format(label))

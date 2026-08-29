@@ -632,10 +632,20 @@ def truce_is_active(cx, player_id: str, at: int) -> bool:
     return bool(mask & (1 << d.hour))
 
 
+def truce_hour_states(day: str, now: int) -> dict:
+    """画面用の締切状態。判断はブラウザの時計でなくサーバー側に置く。"""
+    now = int(now)
+    cutoff = now + TRUCE_LOCK_SEC
+    past = [h for h in range(24) if _event_time(day, h) <= now]
+    deadline = [h for h in range(24)
+                if now < _event_time(day, h) <= cutoff]
+    return {"past": past, "deadline": deadline,
+            "locked": past + deadline}
+
+
 def truce_locked_hours(day: str, now: int):
     """もう変更できない時刻。過去＋開催2時間前に入った枠を含む。"""
-    cutoff = int(now) + TRUCE_LOCK_SEC
-    return [h for h in range(24) if _event_time(day, h) <= cutoff]
+    return truce_hour_states(day, now)["locked"]
 
 
 def truce_schedules(cx, player_id: str, now: int) -> dict:
@@ -646,9 +656,12 @@ def truce_schedules(cx, player_id: str, now: int) -> dict:
     for n in range(TRUCE_DAYS_SHOWN):
         day = (today + datetime.timedelta(days=n)).isoformat()
         mask, source = P.truce_day(cx, player_id, day)
+        states = truce_hour_states(day, now)
         days.append({"day": day, "hours": P.truce_hours(mask),
                      "source": source,
-                     "locked": truce_locked_hours(day, now)})
+                     "past": states["past"],
+                     "deadline": states["deadline"],
+                     "locked": states["locked"]})
     return {"name": "休戦令", "count": P.TRUCE_HOURS,
             "lock_sec": TRUCE_LOCK_SEC,
             "default_hours": P.truce_hours(P.truce_default(cx, player_id)),

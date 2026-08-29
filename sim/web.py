@@ -1627,7 +1627,9 @@ class App(BaseHTTPRequestHandler):
         seen_ids = set()
         pool = []
         if me:
-            pool += P.battles_of(cx, pid=me.id, limit=40)
+            # 天下は最大16件/日。40件では約2.5日で挑戦・軍議が押し出される。
+            # 無制限にはせず、天下7日分＋ほかの遊びが残る200件を上限にする。
+            pool += P.battles_of(cx, pid=me.id, limit=200)
         pool += P.battles_of(cx, limit=60)
         rows = []
         for m in pool:
@@ -1649,7 +1651,8 @@ class App(BaseHTTPRequestHandler):
             council = P.council_run(cx, m["id"]) if m["mode"] == "council" else None
             rows.append({
                 "id": m["id"], "board": m["board"], "marks": marks,
-                "mode": mode_jp.get(m["mode"], m["mode"]), "role": role,
+                "mode": mode_jp.get(m["mode"], m["mode"]),
+                "mode_key": m["mode"], "role": role,
                 "a": names.get(m["pid_a"], "?"),
                 "b": ((council or {}).get("foe_name", "?")
                       if m["mode"] == "council" else
@@ -1657,6 +1660,8 @@ class App(BaseHTTPRequestHandler):
                        else names.get(m["pid_b"], "?"))),
                 "at": datetime.datetime.fromtimestamp(
                     m["played_at"]).strftime("%m/%d %H:%M"),
+                "day": datetime.datetime.fromtimestamp(
+                    m["played_at"]).strftime("%Y-%m-%d"),
                 "mine": bool(me and me.id in (m["pid_a"], m["pid_b"])),
                 "can_council": bool(
                     me and me.id in (m["pid_a"], m["pid_b"])

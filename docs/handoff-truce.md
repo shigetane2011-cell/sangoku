@@ -16,6 +16,16 @@
 - 同時アクセスの二重開催を `tenka_runs.serial` の主キーで防止
 - 旧2回制からの初回切替では現在時までを済扱いにし、過去24時間を一括開催しない
 
+## 画面と戦歴の追補
+
+- 今日が動かせず明日を自動表示した時、選択中の8枠も明日から初期化する。
+  旧版は見出しだけ明日、選択は今日になり、明日を誤って上書きできた
+- 畳んだ要約は通常設定でなく**今日の有効設定**。連続時刻を `0〜8時` のように畳む
+- 開催済みを「済」、未来だが2時間前を過ぎた枠を「締切」とサーバー判定で区別
+- 保存後は同じ日・同じタブ・開いた設定欄を保ち、成功または失敗を欄内へ表示
+- 自分の戦歴は上限40→200件。`すべて／天下／挑戦／軍議` で絞れ、天下は
+  日別の勝敗へ畳む。APIは表示名と別に `mode_key` と地方日 `day` を返す
+
 ## 主な変更箇所
 
 | ファイル | 内容 |
@@ -27,6 +37,7 @@
 | `sim/webui/app.css` | 休戦令の卓上/スマホ表示 |
 | `tools/test_truce.py` | 休戦令の契約・実開催・移行・二重防止試験 |
 | `tools/test_local.py` | Web API配管試験 |
+| `tools/test_truce_ui.js` | 時間帯要約・日付・明日自動選択・天下日計の純粋関数試験 |
 | `tools/ui_smoke.py` | 卓上1280/携帯390の24枠・8枚・横溢れ検査 |
 
 ## 確認コマンド
@@ -41,6 +52,7 @@ python3 tools/test_deckset.py
 python3 tools/test_council.py
 python3 tools/test_restraint.py
 node --check sim/webui/app.js
+node tools/test_truce_ui.js
 python3 tools/ui_smoke.py
 ```
 

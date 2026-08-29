@@ -10,6 +10,91 @@ const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
 const esc = (s) => String(s).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/* ── 地方日付と休戦時刻の表示 ─────────────────────
+   YYYY-MM-DD を Date.parse へ直接渡すと UTC 扱いで前日にずれる環境があるため、
+   数字に分けて地方日の Date を作る。規則の締切判定そのものはサーバーが正本。 */
+const JP_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+function localDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1
+    && d.getDate() === +m[3] ? d : null;
+}
+
+function formatLocalDay(iso, suffix = "") {
+  const d = localDay(iso);
+  if (!d) return String(iso || "");
+  return `${d.getMonth() + 1}/${d.getDate()}（${JP_WEEKDAYS[d.getDay()]}）${suffix}`;
+}
+
+function formatTruceDayLabel(iso, index) {
+  return formatLocalDay(iso, index === 0 ? "今日" : (index === 1 ? "明日" : ""));
+}
+
+function formatHourRanges(hours) {
+  const hs = [...new Set((hours || []).map(Number)
+    .filter((h) => Number.isInteger(h) && h >= 0 && h < 24))].sort((a, b) => a - b);
+  if (!hs.length) return "設定なし";
+  const groups = [];
+  for (const h of hs) {
+    const last = groups[groups.length - 1];
+    if (last && last[last.length - 1] + 1 === h) last.push(h);
+    else groups.push([h]);
+  }
+  let wrap = null;
+  if (groups.length > 1 && groups[0][0] === 0
+      && groups[groups.length - 1].slice(-1)[0] === 23) {
+    const first = groups.shift();
+    const last = groups.pop();
+    wrap = { start: last[0], end: first[first.length - 1] + 1 };
+  }
+  const labels = groups.map((g) => g.length === 1
+    ? `${g[0]}時` : `${g[0]}〜${g[g.length - 1] + 1}時`);
+  if (wrap) labels.push(`${wrap.start}〜翌${wrap.end}時`);
+  return labels.join("・");
+}
+
+function truceDayCanMove(day) {
+  if (!day) return false;
+  const locked = new Set(day.locked || []);
+  const picked = new Set(day.hours || []);
+  return [...picked].some((h) => !locked.has(h))
+    && Array.from({ length: 24 }, (_, h) => h)
+      .some((h) => !locked.has(h) && !picked.has(h));
+}
+
+function initialTruceDayIndex(tr) {
+  if (!tr || !tr.days || tr.days.length < 2) return 0;
+  return truceDayCanMove(tr.days[0]) ? 0 : 1;
+}
+
+function truceHoursFor(tr, dayIndex, scope = "day") {
+  const src = scope === "default" ? tr.default_hours
+    : ((tr.days || [])[dayIndex] || {}).hours;
+  return Array.isArray(src) ? [...src] : [...(tr.default_hours || [])];
+}
+
+function truceSummaryText(tr) {
+  const today = tr && tr.days && tr.days[0];
+  const hours = today ? today.hours : ((tr && tr.default_hours) || []);
+  return `今日 ${formatHourRanges(hours)}休戦`
+    + (today && today.source === "day" ? "（個別変更）" : "");
+}
+
+function tenkaDayStats(rows) {
+  const out = { n: 0, w: 0, l: 0, d: 0 };
+  for (const m of rows || []) {
+    const marks = m.marks || "";
+    const w = (marks.match(/○/g) || []).length;
+    const l = (marks.match(/●/g) || []).length;
+    out.n++;
+    out[w > l ? "w" : (l > w ? "l" : "d")]++;
+  }
+  return out;
+}
+
 /* ── 兵種印・コスト印（§7.59）: sim/webui/icons/ の絵を出す。
    絵は差し替え式で、無ければ枠だけが出る（規則の表示は文字が正）。 ── */
 const TYPE_FILE = { "歩兵": "typ-shield", "騎兵": "typ-cav",
@@ -728,7 +813,7 @@ function renderOnboard() {
   $("#ob-guide").onclick = () => { ensureGuide().hidden = false; };
 }
 
-async function viewHome(state) {
+async function viewHome(state, options = {}) {
   if (state.onboard) return renderOnboard();
   // 現在の武名（§7.86）。順位表は毎時の断面なので、自分の値は即時を出す。
   // **この画面（viewHome）の中で作る** — shell() に置いていたせいで別関数の
@@ -770,7 +855,7 @@ async function viewHome(state) {
       <button class="mini ghost dev-only" id="refill" title="試験用">＋補充</button>
     </span>` : "";
   const t = state.tenka || {};
-  const tr = t.truce;
+  let tr = t.truce;
   const rep = t.report || { n: 0, w: 0, l: 0, d: 0 };
   const tenkaState = !state.me ? "" : (!t.eligible
     ? '<span class="warn">3デッキ揃えると自動参加</span>'
@@ -791,7 +876,7 @@ async function viewHome(state) {
       </div>` : ""}
       ${tr ? `<details class="truce-box" id="truce-box">
         <summary><b>休戦令</b>　毎日8枚・開催2時間前に締切
-          <span>${tr.default_hours.map((h) => `${h}時`).join("・")}</span></summary>
+          <span id="truce-summary">${esc(truceSummaryText(tr))}</span></summary>
         <p class="muted">休戦にした開催は組合せ対象外。武名・報酬・戦歴は動かない。8時間は分けて選べる。</p>
         <div id="truce-editor"></div>
       </details>` : ""}
@@ -886,75 +971,125 @@ async function viewHome(state) {
     }
   };
   if (tr) {
-    let scope = "day";
-    const todayPlan = tr.days[0];
-    const todayLocked = new Set(todayPlan ? todayPlan.locked : []);
-    const todayCanMove = todayPlan
-      && todayPlan.hours.some((h2) => !todayLocked.has(h2))
-      && Array.from({ length: 24 }, (_, h2) => h2).some(
-        (h2) => !todayLocked.has(h2) && !todayPlan.hours.includes(h2));
+    let scope = options.truceScope === "default" ? "default" : "day";
     // 今日がもう動かせない時間なら、最初から明日を開いて袋小路に見せない。
-    let dayIndex = todayCanMove || tr.days.length < 2 ? 0 : 1;
-    let picked = new Set(tr.days[0] ? tr.days[0].hours : tr.default_hours);
+    const requestedDay = options.truceDay
+      ? tr.days.findIndex((d) => d.day === options.truceDay) : -1;
+    let dayIndex = requestedDay >= 0 ? requestedDay : initialTruceDayIndex(tr);
+    let autoAdvanced = requestedDay < 0 && dayIndex === 1;
+    // **表示中の日を正本にする**。以前は dayIndex=1 でも days[0] から取り、
+    // 「明日」の見出しで今日の8枠を保存できてしまっていた。
+    let picked = new Set(truceHoursFor(tr, dayIndex, scope));
+    let notice = options.truceNotice || null;
     const parseApiError = (e) => {
       try { return JSON.parse(e.message).error || e.message; }
       catch (_x) { return e.message; }
     };
+    const updateSummary = () => {
+      const el = $("#truce-summary");
+      if (el) el.textContent = truceSummaryText(tr);
+    };
     const resetPicked = () => {
-      const src = scope === "default" ? tr.default_hours : tr.days[dayIndex].hours;
-      picked = new Set(src);
+      picked = new Set(truceHoursFor(tr, dayIndex, scope));
+    };
+    const finishSave = async (saved, message) => {
+      // 上の「次の参戦」も古くしないためstateを取り直し、ページ遷移なしで描き直す。
+      try {
+        const fresh = await api("/api/state");
+        await viewHome(fresh, { truceOpen: true,
+          truceNotice: { kind: "ok", text: message },
+          truceScope: scope, truceDay: tr.days[dayIndex].day });
+      } catch (_refreshError) {
+        // 保存API自体は成功済み。再取得だけ失敗しても失敗扱いの文言にはしない。
+        tr = saved.truce || tr;
+        dayIndex = Math.min(dayIndex, Math.max(0, tr.days.length - 1));
+        resetPicked();
+        notice = { kind: "ok", text: message };
+        updateSummary();
+        renderTruce();
+        const box = $("#truce-box");
+        if (box) box.open = true;
+      }
     };
     const renderTruce = () => {
       const ed = $("#truce-editor");
       if (!ed) return;
       const day = tr.days[dayIndex];
       const locked = new Set(scope === "day" ? day.locked : []);
-      const hours = Array.from({ length: 24 }, (_, h) => `
-        <button type="button" class="truce-hour ${picked.has(h) ? "on" : ""}"
-          data-hour="${h}" ${locked.has(h) ? "disabled" : ""}
-          title="${locked.has(h) ? "締切済み" : `${h}時の天下を休戦`}">${h}</button>`).join("");
+      const past = new Set(scope === "day" ? (day.past || []) : []);
+      const deadline = new Set(scope === "day" ? (day.deadline || []) : []);
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const on = picked.has(h);
+        const lockKind = past.has(h) ? "済"
+          : (deadline.has(h) || locked.has(h) ? "締切" : "");
+        const label = lockKind
+          ? `${h}時の天下、${on ? "休戦" : "参戦"}、${lockKind === "済" ? "開催済み" : "変更締切済み"}`
+          : `${h}時の天下を${on ? "休戦" : "参戦"}にする`;
+        return `
+          <button type="button" class="truce-hour ${on ? "on" : ""} ${lockKind === "済" ? "past" : (lockKind ? "deadline" : "")}"
+            data-hour="${h}" aria-pressed="${on ? "true" : "false"}"
+            aria-label="${esc(label)}" ${locked.has(h) ? "disabled aria-disabled=\"true\"" : ""}
+            title="${esc(label)}"><span class="truce-check" aria-hidden="true">${on ? "✓" : ""}</span>
+            <span class="truce-hour-num">${h}</span>${lockKind
+              ? `<small aria-hidden="true">${lockKind}</small>` : ""}</button>`;
+      }).join("");
       ed.innerHTML = `
         <div class="truce-tabs">
           <button class="mini ${scope === "default" ? "primary" : "ghost"}" data-scope="default">通常設定</button>
           <button class="mini ${scope === "day" ? "primary" : "ghost"}" data-scope="day">日別変更</button>
           ${scope === "day" ? `<select id="truce-day">${tr.days.map((d, i) =>
-            `<option value="${i}" ${i === dayIndex ? "selected" : ""}>${esc(d.day)}${i === 0 ? "（今日）" : ""}${d.source === "day" ? "・変更済" : ""}</option>`).join("")}</select>` : ""}
+            `<option value="${i}" ${i === dayIndex ? "selected" : ""}>${esc(formatTruceDayLabel(d.day, i))}${d.source === "day" ? "・個別変更" : ""}</option>`).join("")}</select>` : ""}
         </div>
+        ${scope === "day" && autoAdvanced && dayIndex === 1
+          ? '<p class="truce-auto-note">本日分は締切済みのため、明日分を表示しています</p>' : ""}
         <div class="truce-hours">${hours}</div>
         <div class="truce-actions"><span class="truce-count ${picked.size === 8 ? "ok" : "warn"}">休戦令 ${picked.size}/8</span>
           <button class="mini" id="truce-save" ${picked.size === 8 ? "" : "disabled"}>この設定で布告</button>
           ${scope === "day" && day.source === "day" ? '<button class="mini ghost" id="truce-reset">通常設定へ戻す</button>' : ""}
-          <small class="muted">${scope === "default" ? "通常設定は締切済みの日を避けて反映" : "灰色の時刻は締切済み"}</small>
-        </div>`;
+          <small class="muted">${scope === "default" ? "通常設定は締切済みの日を避けて反映"
+            : "済＝開催済み　締切＝開催2時間前を過ぎて変更不可"}</small>
+        </div>
+        ${notice ? `<div class="truce-notice ${notice.kind === "error" ? "error" : "ok"}" role="status">${esc(notice.text)}</div>` : ""}`;
       $$("[data-scope]", ed).forEach((b) => b.onclick = () => {
-        scope = b.dataset.scope; resetPicked(); renderTruce();
+        scope = b.dataset.scope; notice = null; resetPicked(); renderTruce();
       });
       const sel = $("#truce-day", ed);
       if (sel) sel.onchange = () => {
-        dayIndex = +sel.value; resetPicked(); renderTruce();
+        dayIndex = +sel.value; autoAdvanced = false; notice = null;
+        resetPicked(); renderTruce();
       };
       $$(".truce-hour", ed).forEach((b) => b.onclick = () => {
         const h2 = +b.dataset.hour;
         if (picked.has(h2)) picked.delete(h2); else picked.add(h2);
+        notice = null;
         renderTruce();
       });
       $("#truce-save", ed).onclick = async () => {
         try {
-          await api("/api/truce", scope === "default"
+          const saved = await api("/api/truce", scope === "default"
             ? { action: "default", hours: [...picked] }
             : { action: "day", day: day.day, hours: [...picked] });
-          location.reload();
-        } catch (e) { alert("休戦令を改められなかった: " + parseApiError(e)); }
+          await finishSave(saved, "休戦令を布告しました");
+        } catch (e) {
+          notice = { kind: "error",
+            text: "休戦令を改められませんでした: " + parseApiError(e) };
+          renderTruce();
+        }
       };
       const rb = $("#truce-reset", ed);
       if (rb) rb.onclick = async () => {
         try {
-          await api("/api/truce", { action: "reset_day", day: day.day });
-          location.reload();
-        } catch (e) { alert("通常設定へ戻せなかった: " + parseApiError(e)); }
+          const saved = await api("/api/truce", { action: "reset_day", day: day.day });
+          await finishSave(saved, "通常設定へ戻しました");
+        } catch (e) {
+          notice = { kind: "error",
+            text: "通常設定へ戻せませんでした: " + parseApiError(e) };
+          renderTruce();
+        }
       };
     };
     renderTruce();
+    if (options.truceOpen) $("#truce-box").open = true;
   }
   const fg = $("#free-go");
   if (fg) fg.onclick = async () => {
@@ -2237,17 +2372,78 @@ async function viewReplays(state) {
         ${m.can_council ? `<a class="btn ghost mini" href="/council?source=${m.id}">演習</a>` : ""}</td></tr>`;
   const mine = d.battles.filter((m) => m.mine);
   const rest = d.battles.filter((m) => !m.mine);
+  const modeKey = (m) => m.mode_key || ({ "天下": "tenka", "挑戦": "ranked",
+    "軍議": "council" }[m.mode] || m.mode);
+  const tenkaByDay = new Map();
+  for (const m of mine) {
+    if (modeKey(m) !== "tenka") continue;
+    const day = m.day || "";
+    if (!tenkaByDay.has(day)) tenkaByDay.set(day, []);
+    tenkaByDay.get(day).push(m);
+  }
+  const tenkaGroup = (day, rows) => {
+    const s = tenkaDayStats(rows);
+    return `<tr class="tenka-day-row"><td colspan="6">
+      <details class="tenka-day-details">
+        <summary><b>${esc(formatLocalDay(day))}</b>
+          <span>天下 ${s.w}勝 ${s.l}敗${s.d ? ` ${s.d}分` : ""}</span>
+          <small>詳細を見る（${s.n}戦）</small></summary>
+        <div class="table-scroll tenka-day-table"><table class="std"><tbody>
+          ${rows.map(row).join("")}
+        </tbody></table></div>
+      </details></td></tr>`;
+  };
+  const filters = [
+    ["all", "すべて"], ["tenka", "天下"], ["ranked", "挑戦"],
+    ["council", "軍議"],
+  ];
+  const filterCount = (key) => key === "all" ? mine.length
+    : mine.filter((m) => modeKey(m) === key).length;
   $("#app").innerHTML = `
     <div class="panel fade-in" style="margin-bottom:16px">
       <h2>自分の戦歴<span class="sub">防衛戦（挑まれた側）も残る</span></h2>
-      <table class="std">${mine.map(row).join("")
-        || "<tr><td class='muted'>記録なし</td></tr>"}</table>
+      <div class="replay-filters" role="group" aria-label="戦歴の種別">
+        ${filters.map(([key, label]) => `<button type="button" class="mini ghost"
+          data-replay-filter="${key}" aria-pressed="false">${label}<small>${filterCount(key)}</small></button>`).join("")}
+      </div>
+      <div class="table-scroll"><table class="std"><tbody id="my-replay-rows"></tbody></table></div>
     </div>
     <div class="panel fade-in">
       <h2>近ごろの合戦<span class="sub">他家の戦いも観て研究できる</span></h2>
-      <table class="std">${rest.map(row).join("")
-        || "<tr><td class='muted'>記録なし</td></tr>"}</table>
+      <div class="table-scroll"><table class="std">${rest.map(row).join("")
+        || "<tr><td class='muted'>記録なし</td></tr>"}</table></div>
     </div>`;
+  let active = "all";
+  const renderMine = () => {
+    const target = $("#my-replay-rows");
+    const seenDays = new Set();
+    const rows = [];
+    for (const m of mine) {
+      const key = modeKey(m);
+      if (active !== "all" && key !== active) continue;
+      if (key === "tenka") {
+        const day = m.day || "";
+        if (seenDays.has(day)) continue;
+        seenDays.add(day);
+        rows.push(tenkaGroup(day, tenkaByDay.get(day) || [m]));
+      } else {
+        rows.push(row(m));
+      }
+    }
+    target.innerHTML = rows.join("")
+      || '<tr><td colspan="6" class="muted">この種別の記録はまだありません</td></tr>';
+    $$('[data-replay-filter]').forEach((b) => {
+      const on = b.dataset.replayFilter === active;
+      b.classList.toggle("primary", on);
+      b.classList.toggle("ghost", !on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  };
+  $$('[data-replay-filter]').forEach((b) => b.onclick = () => {
+    active = b.dataset.replayFilter;
+    renderMine();
+  });
+  renderMine();
 }
 
 /* ── リプレイ再生 ───────────────────── */
@@ -2703,7 +2899,10 @@ async function viewReplay(state) {
 
 /* Nodeの軽量テストから純粋関数とコンポーネント契約を検証できるようにする。 */
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { FORMATIONS, normalizeSlots, swapOrMove, rankPosition, FormationBoard };
+  module.exports = { FORMATIONS, normalizeSlots, swapOrMove, rankPosition, FormationBoard,
+    localDay, formatLocalDay, formatTruceDayLabel, formatHourRanges,
+    truceDayCanMove, initialTruceDayIndex, truceHoursFor, truceSummaryText,
+    tenkaDayStats };
 }
 
 /* ── 起動 ──────────────────────── */

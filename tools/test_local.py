@@ -104,10 +104,22 @@ if fought.get("battle_id"):
     check("軍議結果をリプレイできる",
           r.status == 200 and replay.get("mode") == "council"
           and replay.get("foe_name") == P.get(cx, pids[1]).display_name, replay)
+    # 天下16件/日で直近40件が埋まっても、挑戦・軍議が研究動線から消えない。
+    for i in range(48):
+        P.record_battle(
+            cx, "tenka", "天下", me["id"], pids[1], 9000 + i,
+            json.dumps(PL.snap_army(army_a), ensure_ascii=False),
+            json.dumps(PL.snap_army(army_b), ensure_ascii=False),
+            PL.season_key(1800000100 + i), 1800000100 + i, "○○●")
     r, d = req("GET", "/api/replays", cookie=sid)
     hist = json.loads(d).get("battles", [])
     srcrow = next((x for x in hist if x["id"] == source), {})
-    check("戦歴の元対戦に演習動線が出る", srcrow.get("can_council"), srcrow)
+    tenkarow = next((x for x in hist if x.get("mode_key") == "tenka"), {})
+    check("天下48件後も古い挑戦と演習動線が残る",
+          len(hist) > 40 and srcrow.get("can_council"),
+          {"count": len(hist), "source": srcrow})
+    check("戦歴APIに判定用mode_keyと地方日が出る",
+          tenkarow.get("day") and tenkarow.get("mode") == "天下", tenkarow)
 print()
 if FAIL:
     print("失敗:", FAIL); sys.exit(1)

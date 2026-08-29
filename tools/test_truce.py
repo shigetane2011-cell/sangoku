@@ -88,6 +88,12 @@ check("画面契約は休戦令8枚・7日分",
 check("締切表示に14時を含み15時を含まない",
       14 in schedule["days"][0]["locked"] and
       15 not in schedule["days"][0]["locked"])
+check("開催済みと2時間前締切をサーバーが分ける",
+      12 in schedule["days"][0]["past"] and
+      13 in schedule["days"][0]["deadline"] and
+      14 in schedule["days"][0]["deadline"] and
+      15 not in schedule["days"][0]["deadline"],
+      schedule["days"][0])
 
 # 実在野を使い、休戦者の除外・奇数時の在野調整・二重開催防止まで1開催だけ通す。
 cards = M._roster_cards()
