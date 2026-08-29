@@ -40,7 +40,7 @@ from . import rosterdata as R
 
 FORM_BY_NAME = D.FORM_BY_NAME
 REG_NAMES = tuple(label for label, _ in M.REGULATIONS)
-MIN_DUMMIES = 24    # 在野の数（§7.83 で 15→24。8性格×3）
+MIN_DUMMIES = 36    # 在野の数（§7.83 で 15→24、§7.133 で 24→36。12性格×3）
 
 
 # ----------------------------------------------------------------------------

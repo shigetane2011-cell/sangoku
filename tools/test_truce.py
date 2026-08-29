@@ -114,15 +114,19 @@ after = cx.execute("SELECT COUNT(*) n FROM battles").fetchone()["n"]
 mine = cx.execute(
     "SELECT COUNT(*) n FROM battles WHERE mode='tenka'"
     " AND (pid_a=? OR pid_b=?)", (soldier.id, soldier.id)).fetchone()["n"]
+# 期待する開催数は**在野の人数から導く**（直書きすると MIN_DUMMIES を
+# 動かすたびに落ちる。実際 §7.133 の 24→36 で踏んだ）。奇数なら在野を
+# 1人外して偶数化するので、組数は参加者の半分。
+want = len(PL._tenka_participants(cx, cards, active_at)) // 2
 check("奇数人数でも人間は1回のBO3を戦う",
-      fought == 12 and after - before == 12 and mine == 1,
-      {"fought": fought, "written": after - before, "mine": mine})
+      fought == want and after - before == want and mine == 1,
+      {"fought": fought, "want": want, "written": after - before, "mine": mine})
 check("同じ開催番号の再要求は二重開催しない",
       PL._tenka_resolve(cx, cards, active_serial, active_at) == 0 and
       cx.execute("SELECT COUNT(*) n FROM battles").fetchone()["n"] == after)
 run = cx.execute("SELECT state,fought FROM tenka_runs WHERE serial=?",
                  (active_serial,)).fetchone()
-check("開催印が完了戦数を持つ", run["state"] == "done" and run["fought"] == 12)
+check("開催印が完了戦数を持つ", run["state"] == "done" and run["fought"] == want)
 
 # 旧1日2回版からの切替日に過去24時間をまとめて走らせない。
 DB2 = os.path.join(tempfile.mkdtemp(prefix="sangoku-truce-migrate-"), "players.db")
