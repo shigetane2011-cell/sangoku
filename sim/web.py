@@ -512,6 +512,8 @@ class App(BaseHTTPRequestHandler):
                                   "application/manifest+json; charset=utf-8")
             if url.path.startswith("/icons/"):
                 return self._icon(url.path[len("/icons/"):])
+            if url.path.startswith("/art/"):
+                return self._art(url.path[len("/art/"):])
             if url.path.startswith("/portrait/"):
                 return self._portrait(
                     urllib.parse.unquote(url.path[len("/portrait/"):]))
@@ -733,6 +735,23 @@ class App(BaseHTTPRequestHandler):
             return self._send(b"not found", 404, "text/plain")
         ctype = {"png": "image/png", "webp": "image/webp",
                  "svg": "image/svg+xml"}[name.rsplit(".", 1)[1]]
+        self._send_file(path, ctype)
+
+    # 題字絵（キービジュアル）。icons と同じ差し替え式で、
+    # sim/webui/art/ に置いたものをそのまま出す。無ければ404 — 画面側は
+    # 文字の題字へ落ちるので、絵が無くても読めなくならない。
+    _ART_DIR = os.path.join(WEBUI, "art")
+
+    def _art(self, name: str):
+        name = os.path.basename(urllib.parse.unquote(name))
+        if not re.fullmatch(r"[a-z0-9_-]+\.(png|webp|jpg|svg)", name):
+            return self._send(b"not found", 404, "text/plain")
+        path = os.path.join(self._ART_DIR, name)
+        if not os.path.exists(path):
+            return self._send(b"not found", 404, "text/plain")
+        ctype = {"png": "image/png", "webp": "image/webp",
+                 "jpg": "image/jpeg", "svg": "image/svg+xml"}[
+                     name.rsplit(".", 1)[1]]
         self._send_file(path, ctype)
 
     # 顔絵（§7.59）。**差し替え式**: sim/webui/portraits/ に「人物名.png」

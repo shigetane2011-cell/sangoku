@@ -509,6 +509,25 @@ function logoHTML(big) {
   </span>`;
 }
 
+/* 参陣の画面の題字絵（キービジュアル）。**絵の中に題字が入っている**ので、
+   出せたときは文字の題字を出さない（二重になる）。読み込めなければ onerror で
+   絵を畳み、従来の文字の題字へ落ちる — 絵は差し替え式で、無くても読めなく
+   ならないという顔絵と同じ約束（§7.59）。卓上は横長・携帯は縦長を出し分ける。 */
+function heroHTML() {
+  return `
+    <div class="login-hero fade-in">
+      <picture class="hero-art">
+        <source media="(max-width: 620px)" srcset="/art/keyvisual-tall.webp">
+        <img src="/art/keyvisual-wide.webp" alt="三国布陣"
+             onerror="this.closest('.hero-art').remove();
+                      document.querySelector('.hero-fallback').hidden = false;">
+      </picture>
+      <div class="hero-fallback" hidden>${logoHTML(true)}</div>
+      <div class="logo-sub">六将軍略オートバトル</div>
+      <div class="logo-tag">知略を布き、乱世を制せ</div>
+    </div>`;
+}
+
 /* ── 共通シェル ─────────────────────── */
 function shell(state) {
   const view = document.body.dataset.view;
@@ -539,11 +558,7 @@ function renderLogin(state, force) {
   if (state.auth && state.auth.mode === "oidc") {
     // 公開モード（§7.118）: 外部ログインだけ。名乗りやpid選択の口は出さない。
     app.innerHTML = `
-      <div class="login-hero fade-in">
-        ${logoHTML(true)}
-        <div class="logo-sub">六将軍略オートバトル</div>
-        <div class="logo-tag">知略を布き、乱世を制せ</div>
-      </div>
+      ${heroHTML()}
       <div class="login-panel panel fade-in">
         <h2>参陣せよ、主公</h2>
         <div class="login-row">
@@ -556,11 +571,7 @@ function renderLogin(state, force) {
   const opts = state.humans.map((h) =>
     `<option value="${h.id}">${esc(h.name)}</option>`).join("");
   app.innerHTML = `
-    <div class="login-hero fade-in">
-      ${logoHTML(true)}
-      <div class="logo-sub">六将軍略オートバトル</div>
-      <div class="logo-tag">知略を布き、乱世を制せ</div>
-    </div>
+    ${heroHTML()}
     <div class="login-panel panel fade-in">
       <h2>名乗りを上げよ、主公</h2>
       ${state.humans.length ? `
