@@ -194,6 +194,13 @@ CREATE TABLE IF NOT EXISTS tokens (
   count      INTEGER NOT NULL,
   updated_at INTEGER NOT NULL              -- unix秒
 );
+-- 軍議演習の挑戦権「演習令」。兵符とは完全に別勘定だが、同じく読む時に
+-- 回復を計算する（10分ごとに+1・上限10）。
+CREATE TABLE IF NOT EXISTS enshu_tokens (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  count      INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL              -- unix秒
+);
 -- デッキ保存庫（§7.46）。名前を付けて何個でも取っておける。**登録（decks 表）
 -- とは別物**: 保存は下書きでもよく、検証は登録の瞬間だけ行う。
 CREATE TABLE IF NOT EXISTS saved_decks (
@@ -223,6 +230,17 @@ CREATE TABLE IF NOT EXISTS battles (
 );
 CREATE INDEX IF NOT EXISTS ix_battles_board ON battles(board, played_at);
 CREATE INDEX IF NOT EXISTS ix_battles_pid ON battles(pid_a, board, played_at);
+-- 軍議演習は過去の敵デッキ魚拓を仮想敵として使う。battles.pid_b は実在の
+-- プレイヤーにせず council:<元記録id> とし、元記録と表示名だけここに残す。
+-- これにより相手本人の戦歴・戦績へ演習が混ざらない。
+CREATE TABLE IF NOT EXISTS council_runs (
+  battle_id       INTEGER PRIMARY KEY REFERENCES battles(id) ON DELETE CASCADE,
+  source_battle_id INTEGER NOT NULL,
+  player_id       TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  foe_name        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_council_runs_player
+  ON council_runs(player_id, battle_id);
 -- ルーム対戦（フリー・レート不変動）。番号を発行→相手が入力→即解決。
 CREATE TABLE IF NOT EXISTS rooms (
   code       TEXT PRIMARY KEY,
@@ -744,6 +762,58 @@ def refill_heifu(cx: sqlite3.Connection, player_id: str, now: int) -> None:
                    (player_id, HEIFU_CAP, now))
 
 
+# ---------------------------------------------------------------- 演習令
+ENSHU_CAP = 10
+ENSHU_REGEN_SEC = 10 * 60
+
+
+def enshu(cx: sqlite3.Connection, player_id: str, now: int) -> Tuple[int, int]:
+    """演習令の残数と、次の1枚まで何秒か。兵符とは別勘定。"""
+    r = cx.execute(
+        "SELECT count, updated_at FROM enshu_tokens WHERE player_id = ?",
+        (player_id,)).fetchone()
+    if r is None:
+        return ENSHU_CAP, 0
+    n = r["count"] + (now - r["updated_at"]) // ENSHU_REGEN_SEC
+    if n >= ENSHU_CAP:
+        return ENSHU_CAP, 0
+    return n, ENSHU_REGEN_SEC - (now - r["updated_at"]) % ENSHU_REGEN_SEC
+
+
+def spend_enshu(cx: sqlite3.Connection, player_id: str, amount: int,
+                now: int) -> bool:
+    """演習令を減らす。足りなければ何も書かず False。"""
+    r = cx.execute(
+        "SELECT count, updated_at FROM enshu_tokens WHERE player_id = ?",
+        (player_id,)).fetchone()
+    if r is None:
+        n, anchor = ENSHU_CAP, now
+    else:
+        ticks = (now - r["updated_at"]) // ENSHU_REGEN_SEC
+        n = min(ENSHU_CAP, r["count"] + ticks)
+        anchor = (now if n >= ENSHU_CAP
+                  else r["updated_at"] + ticks * ENSHU_REGEN_SEC)
+    if n < amount:
+        return False
+    with cx:
+        cx.execute(
+            "INSERT INTO enshu_tokens (player_id, count, updated_at)"
+            " VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET"
+            " count=excluded.count, updated_at=excluded.updated_at",
+            (player_id, n - amount, anchor))
+    return True
+
+
+def refill_enshu(cx: sqlite3.Connection, player_id: str, now: int) -> None:
+    """演習令を満タンへ（手元の試験用。公開版では口を閉じる）。"""
+    with cx:
+        cx.execute(
+            "INSERT INTO enshu_tokens (player_id, count, updated_at)"
+            " VALUES (?, ?, ?) ON CONFLICT(player_id) DO UPDATE SET"
+            " count=excluded.count, updated_at=excluded.updated_at",
+            (player_id, ENSHU_CAP, now))
+
+
 # ---------------------------------------------------------------- 解放（登用）
 def unlocked(cx: sqlite3.Connection, player_id: str) -> set:
     """解放済みの人物名の集合。"""
@@ -789,7 +859,8 @@ def record_of(cx: sqlite3.Connection, pid: str) -> Dict[str, Tuple[int, int, int
     out: Dict[str, List[int]] = {}
     for r in cx.execute(
             "SELECT board, pid_a, pid_b, result FROM battles"
-            " WHERE (pid_a = ? OR pid_b = ?) AND result <> ''", (pid, pid)):
+            " WHERE (pid_a = ? OR pid_b = ?) AND result <> ''"
+            " AND mode <> 'council'", (pid, pid)):
         marks = r["result"]
         if r["pid_b"] == pid:
             marks = marks.translate(str.maketrans("○●", "●○"))
@@ -811,6 +882,12 @@ def battles_of(cx: sqlite3.Connection, board: Optional[str] = None,
     q += " ORDER BY id DESC LIMIT ?"
     args.append(limit)
     return [dict(r) for r in cx.execute(q, args)]
+
+
+def council_run(cx: sqlite3.Connection, battle_id: int) -> Optional[Dict]:
+    r = cx.execute("SELECT * FROM council_runs WHERE battle_id = ?",
+                   (battle_id,)).fetchone()
+    return dict(r) if r else None
 
 
 def fought_recently(cx: sqlite3.Connection, board: str, a: str, b: str,

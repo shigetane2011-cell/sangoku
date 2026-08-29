@@ -47,7 +47,8 @@ _DEF_MEAN = sum(F.DEF_BY_TYPE.values()) / len(F.DEF_BY_TYPE)
 WEBUI = os.path.join(os.path.dirname(__file__), "webui")
 
 VIEWS = {"/": "home", "/senki": "senki", "/deck": "deck",
-         "/replays": "replays", "/replay": "replay"}
+         "/council": "council", "/replays": "replays",
+         "/replay": "replay"}
 
 # 起動時刻。これより新しい .py がディスクにあれば「サーバが古い」— ファイルを
 # 差し替えたのに再起動していない状態。**新旧混在は静かに壊れる**（版ずれの
@@ -524,6 +525,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_senki()
             if url.path == "/api/senki_prep":
                 return self._api_senki_prep(q)
+            if url.path == "/api/council":
+                return self._api_council()
             if url.path == "/api/replays":
                 return self._api_replays()
             if url.path == "/api/replay":
@@ -561,6 +564,8 @@ class App(BaseHTTPRequestHandler):
                 return self._api_senki_fight(body)
             if url.path == "/api/senki_lap":
                 return self._api_senki_lap(body)
+            if url.path == "/api/council_fight":
+                return self._api_council_fight(body)
             if url.path == "/api/dev_senki":
                 if not DEV_DOORS:
                     return self._send(b"not found", 404, "text/plain")
@@ -628,6 +633,16 @@ class App(BaseHTTPRequestHandler):
                 if me is None:
                     return self._json({"error": "login"}, 401)
                 P.refill_heifu(self._cx(), me.id, int(time.time()))
+                return self._json({"ok": True})
+            if url.path == "/api/dev_enshu":
+                if not DEV_DOORS:
+                    return self._send(b"not found", 404, "text/plain")
+                # 手元の試験用: 演習令を無料でMAXへ。公開版ではこの口ごと消す。
+                cx = self._cx()
+                me = self._me(cx)
+                if me is None:
+                    return self._json({"error": "login"}, 401)
+                P.refill_enshu(cx, me.id, int(time.time()))
                 return self._json({"ok": True})
             if url.path == "/api/dev_reset_record":
                 if not DEV_DOORS:
@@ -1467,6 +1482,67 @@ class App(BaseHTTPRequestHandler):
         r = SK.lap_fight(cx, cards, me, now)
         self._json(r, 200 if "error" not in r else 400)
 
+    def _api_council(self):
+        """軍議演習の札数と、使える過去対戦の敵魚拓。"""
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        PL.tick(cx, cards, now)
+        _entry, boards_ok, _errs = PL.entry_of(cx, cards, me.id,
+                                               me.display_name)
+        names = {p.id: p.display_name for p in P.all_players(cx)}
+        mode_jp = {"ranked": "挑戦", "tenka": "天下", "free": "在野",
+                   "room": "ルーム"}
+        import datetime
+        targets = []
+        for m in P.battles_of(cx, pid=me.id, limit=60):
+            if m["mode"] in ("senki", "council"):
+                continue
+            if not m["snap_a"] or not m["snap_b"]:
+                continue
+            if m["board"] not in PL.REG_NAMES and m["board"] != "天下":
+                continue
+            me_a = m["pid_a"] == me.id
+            foe_pid = m["pid_b"] if me_a else m["pid_a"]
+            marks = m.get("result", "")
+            if marks and not me_a:
+                marks = marks.translate(str.maketrans("○●", "●○"))
+            targets.append({
+                "id": m["id"], "board": m["board"],
+                "mode": mode_jp.get(m["mode"], m["mode"]),
+                "foe": names.get(foe_pid, "名もなき軍"),
+                "marks": marks,
+                "at": datetime.datetime.fromtimestamp(
+                    m["played_at"]).strftime("%m/%d %H:%M"),
+                "ready": bool(boards_ok.get(m["board"])),
+            })
+            if len(targets) >= 30:
+                break
+        n, wait = P.enshu(cx, me.id, now)
+        self._json({
+            "ticket": {"name": "演習令", "count": n, "cap": P.ENSHU_CAP,
+                       "next_in": wait, "regen": P.ENSHU_REGEN_SEC},
+            "targets": targets,
+        })
+
+    def _api_council_fight(self, body):
+        cx = self._cx()
+        me = self._me(cx)
+        if me is None:
+            return self._json({"error": "login"}, 401)
+        cards = M._roster_cards()
+        now = int(time.time())
+        PL.tick(cx, cards, now)
+        try:
+            source_id = int(body.get("source_id", 0))
+        except (TypeError, ValueError):
+            source_id = 0
+        r = PL.council_battle(cx, cards, me, source_id, now)
+        self._json(r, 200 if "error" not in r else 400)
+
     def _api_replays(self):
         cx = self._cx()
         me = self._me(cx)
@@ -1475,7 +1551,7 @@ class App(BaseHTTPRequestHandler):
         names = {p.id: p.display_name for p in P.all_players(cx)}
         import datetime
         mode_jp = {"ranked": "挑戦", "tenka": "天下", "free": "フリー",
-                   "room": "ルーム", "senki": "戦記"}
+                   "room": "ルーム", "senki": "戦記", "council": "軍議"}
         # **自分の記録は別に引く**（§7.82）。全体の直近60件から絞ると、
         # 天下1回で8件ほど書かれるダミー同士の対戦に自分の戦歴が押し出されて
         # 消えていた（「見えていない」の正体）。
@@ -1501,15 +1577,23 @@ class App(BaseHTTPRequestHandler):
             marks = m["result"] if "result" in m.keys() else ""
             if marks and me and m["pid_b"] == me.id:
                 marks = marks.translate(str.maketrans("○●", "●○"))
+            council = P.council_run(cx, m["id"]) if m["mode"] == "council" else None
             rows.append({
                 "id": m["id"], "board": m["board"], "marks": marks,
                 "mode": mode_jp.get(m["mode"], m["mode"]), "role": role,
                 "a": names.get(m["pid_a"], "?"),
-                "b": (SK.title_of(m["pid_b"]) if m["mode"] == "senki"
-                      else names.get(m["pid_b"], "?")),
+                "b": ((council or {}).get("foe_name", "?")
+                      if m["mode"] == "council" else
+                      (SK.title_of(m["pid_b"]) if m["mode"] == "senki"
+                       else names.get(m["pid_b"], "?"))),
                 "at": datetime.datetime.fromtimestamp(
                     m["played_at"]).strftime("%m/%d %H:%M"),
-                "mine": bool(me and me.id in (m["pid_a"], m["pid_b"]))})
+                "mine": bool(me and me.id in (m["pid_a"], m["pid_b"])),
+                "can_council": bool(
+                    me and me.id in (m["pid_a"], m["pid_b"])
+                    and m["mode"] not in ("senki", "council")
+                    and m["snap_a"] and m["snap_b"]),
+            })
         rows.sort(key=lambda r: -r["id"])        # 2つの束を混ぜたので並べ直す
         self._json({"battles": rows})
 
@@ -1528,6 +1612,12 @@ class App(BaseHTTPRequestHandler):
             if not (me and me.id == m["pid_a"]):
                 return self._json({"error": "その記録は無い"}, 404)
             names[m["pid_b"]] = SK.title_of(m["pid_b"])
+        elif m["mode"] == "council":
+            # 仮想敵の魚拓は作成者だけが見られる。元の相手本人へは記録を出さない。
+            run = P.council_run(cx, mid)
+            if not (me and run and run["player_id"] == me.id):
+                return self._json({"error": "その記録は無い"}, 404)
+            names[m["pid_b"]] = run["foe_name"]
 
         def sides():
             if m["snap_a"] and m["snap_b"]:
@@ -1594,6 +1684,11 @@ class App(BaseHTTPRequestHandler):
             "mine_name": names.get(mine_id, "?"),
             "foe_name": names.get(foe_id, "?"),
             "me_first": me_first, "games": games,
+            "battle_id": mid,
+            "can_council": bool(
+                me and me.id in (m["pid_a"], m["pid_b"])
+                and m["mode"] not in ("senki", "council")
+                and m["snap_a"] and m["snap_b"]),
         })
 
 

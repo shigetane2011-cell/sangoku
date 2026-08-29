@@ -161,6 +161,40 @@ td.rating { color: var(--gold); }
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .heifu .empty { color: var(--line); }
 .heifu b { font-size: 15px; color: var(--gold-hi); } .heifu small { color: var(--sub); letter-spacing: 0; }
+
+/* 軍議演習 */
+.council-hero { display: flex; align-items: center; gap: 28px;
+  background: radial-gradient(circle at 85% 20%, #6f532426, transparent 42%),
+              linear-gradient(135deg, #201a12, #17130f); }
+.council-hero > div:first-child { flex: 1; min-width: 240px; }
+.council-hero h2 { margin: 0 0 8px; font-size: 30px; }
+.council-hero p { line-height: 1.8; }
+.eyebrow { margin: 0 0 3px !important; color: var(--gold); font-size: 11px;
+  letter-spacing: .22em; }
+.enshu-box { width: min(260px, 100%); padding: 15px; border: 1px solid #7b6038;
+  background: #100d09aa; box-shadow: inset 0 0 24px #0008; }
+.enshu-box > div:first-child { display: flex; align-items: baseline;
+  justify-content: space-between; margin-bottom: 10px; }
+.enshu-box strong { color: var(--gold-hi); font-size: 19px; }
+.enshu-pips { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px;
+  margin-bottom: 8px; }
+.enshu-pips i { height: 18px; border: 1px solid #4d4232; background: #1a1712; }
+.enshu-pips i.full { border-color: #b48a47; background: linear-gradient(#d6b76e, #8d652d);
+  box-shadow: 0 0 7px #c99c4866; }
+.enshu-box button { margin-top: 10px; width: 100%; }
+.table-scroll { overflow-x: auto; }
+.council-table { min-width: 690px; }
+.council-table thead td { color: var(--sub); font-size: 11px; }
+.council-table tr.selected td { background: #b98b2a18; }
+.council-table tr.selected td:first-child { box-shadow: inset 3px 0 var(--gold); }
+.council-table td:last-child { text-align: right; white-space: nowrap; }
+.council-table small.warn { display: block; margin-top: 3px; }
+.council-marks b { margin-right: 2px; }
+.council-marks .win { color: #d8b663; }
+.council-marks .lose { color: #91aac6; }
+.council-marks .draw { color: var(--sub); }
+.council-note { margin: 12px 0 0; font-size: 12px; }
+.council-shortcut { margin-left: auto; }
 .next-chip { font-size: 12.5px; color: var(--sub); margin: -2px 0 8px;
   padding: 6px 10px; background: var(--panel2); border-radius: 8px;
   border: 1px solid var(--line); }
@@ -772,6 +806,8 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   nav a.on { box-shadow: inset 0 2px 0 var(--gold); }
   .cta { gap: 10px; }
   .heifu { margin-left: 0; width: 100%; }
+  .council-hero { align-items: stretch; flex-direction: column; gap: 10px; }
+  .council-shortcut { margin-left: 0; }
   h2 button.attack { float: none; display: block; width: 100%; margin-top: 8px; }
   .cards { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
   .card .cost-ring { --r: 29px; }

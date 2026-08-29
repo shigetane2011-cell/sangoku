@@ -118,8 +118,9 @@ app = "sangoku"
 - [ ] **裏口の物理削除**。公開モードで自動封鎖はされているが、公開コミットでは
       コードごと消す（handoff §0 の約束）:
       - `sim/web.py` の `/api/dev_senki` `/api/dev_onsho` `/api/dev_heifu`
+        `/api/dev_enshu`
         `/api/dev_reset_record` `/api/dev_tenka` の各ブロックと `DEV_DOORS`
-      - `sim/webui/app.js` の `dev-only` ボタン5箇所
+      - `sim/webui/app.js` の `dev-only` ボタン（軍議演習の無料MAXを含む）
       - `sim/webui/app.css` の `.dev-only` 規則
       - 消えたことの検査: `grep -rn "dev_\|dev-only" sim/web.py sim/webui/` が空
 - [ ] `SANGOKU_SECRET` が48文字以上・リポジトリに無い（`git grep SANGOKU_SECRET` は
@@ -130,6 +131,7 @@ app = "sangoku"
 - [ ] `https://…/api/state` で `auth.mode == "oidc"` と `humans == []` を確認
 - [ ] 名乗りログイン（POST /api/login）が 403 を返すことを確認
 - [ ] `/api/dev_heifu` が 404 を返すことを確認
+- [ ] `/api/dev_enshu` が 404 を返すことを確認
 - [ ] 別ブラウザで Google ログイン → 戦記1戦 → リプレイ再生、の通し
 - [ ] 利用規約・プライバシー表記（メールアドレスの保存先と削除手順 = identities
       1行の削除）を1枚置く

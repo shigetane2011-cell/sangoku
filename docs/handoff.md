@@ -1,6 +1,6 @@
 # 引き継ぎ — 『三国布陣』開発
 
-最終更新 2026-08-26。**新しいセッションはここから読む。**
+最終更新 2026-08-29。**新しいセッションはここから読む。**
 
 一次資料は `docs/spec/basic-game-spec-v0.5.md`。この文書はその要約ではなく、
 **いま手を動かしている場所と、踏んではいけない地雷**だけを書く。
@@ -16,7 +16,7 @@
 | DB と個人情報 | `sim/data/*.db` は gitignore 済みで**追跡していない**（`git ls-files sim/data/` は CSV と README だけ）。個人情報は `identities` テーブルにだけ置く。ダミーのメールは予約ドメイン `@example.invalid`（`players.DUMMY_DOMAIN`） |
 | カード・決済 | 自前のサーバに置かない |
 | Web版 | **手元専用・認証なし。公開しない。** 外部認証と管理されたDBが入るまでは非公開 |
-| 開発用の裏口 | `/api/dev_heifu` `/api/dev_tenka` `/api/dev_senki` `/api/dev_onsho` `/api/dev_reset_record` は `DEV_DOORS` で塞いである。**公開時に全部消すこと**（`.dev-only` の CSS 規則も一緒に） |
+| 開発用の裏口 | `/api/dev_heifu` `/api/dev_enshu` `/api/dev_tenka` `/api/dev_senki` `/api/dev_onsho` `/api/dev_reset_record` は `DEV_DOORS` で塞いである。**公開時に全部消すこと**（`.dev-only` の CSS 規則も一緒に） |
 | 画像 | 拾ってきた素材を焼き込まない |
 | 本人のDB | 本人の遊んだ記録が入っている。**触るときはスクラッチパッドへ複製してから** |
 
@@ -26,6 +26,22 @@
 ---
 
 ## 1. いま何をしているか
+
+### 軍議演習（§7.131・2026-08-29）
+
+- 共通ナビ `/council`。自分が参加した過去対戦の敵デッキ魚拓へ、現在の登録
+  デッキを当てる。結果画面/リプレイと戦歴から対象選択済みで入れる
+- 専用札は**演習令**。`enshu_tokens` 表、10分1回復、上限10、兵符とは別勘定
+- 手元だけ `/api/dev_enshu` の「無料でMAX」。公開前に削除する
+- `battles.mode=council` と `council_runs` で本人にだけ記録。相手pidは
+  `council:<source>` なので、元の相手本人の戦歴・通常戦績・レートへ混ざらない
+- 試験は `python tools/test_council.py`。UIは `ui_smoke.py` に題字・10枠・
+  無料MAX・ナビ・モバイル横溢れの検査を追加
+- **実ブラウザ検査は取り込み側で実行済み**（提供元の環境に Chromium が
+  無かったぶん）。卓上1280・携帯390 の両方で題字・演習令10枠・ナビ入口・
+  横溢れなしを確認。test_council / test_local / test_decks / test_deckset も通過
+
+---
 
 **カード1枚ずつの値付けを実測で詰めている。** 発端は「関羽・張飛・諸葛亮・
 司馬懿は弱くないか」というテストプレイの問いだった。

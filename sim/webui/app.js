@@ -513,7 +513,7 @@ function logoHTML(big) {
 function shell(state) {
   const view = document.body.dataset.view;
   const nav = [["/", "対戦"], ["/senki", "戦記"], ["/deck", "編成"],
-               ["/replays", "戦歴"]]
+               ["/council", "軍議演習"], ["/replays", "戦歴"]]
     .map(([p, t]) => `<a href="${p}" class="${location.pathname === p ? "on" : ""}">${t}</a>`)
     .join("");
   const chip = state.me
@@ -2026,6 +2026,94 @@ async function saveDeck() {
   }
 }
 
+/* ── 軍議演習（過去の敵魚拓 × 現在の登録デッキ） ───────── */
+async function viewCouncil(_state) {
+  const d = await api("/api/council");
+  const t = d.ticket;
+  const chosen = +(new URLSearchParams(location.search).get("source") || 0);
+  const marks = (s) => s
+    ? `<span class="council-marks num">${[...s].map((x) =>
+        `<b class="${x === "○" ? "win" : (x === "●" ? "lose" : "draw")}">${x}</b>`
+      ).join("")}</span>` : '<span class="muted">—</span>';
+  const tickets = Array.from({ length: t.cap }, (_, i) =>
+    `<i class="${i < t.count ? "full" : ""}" aria-hidden="true"></i>`).join("");
+  const rows = d.targets.map((x) => `
+    <tr class="${x.id === chosen ? "selected" : ""}" id="source-${x.id}">
+      <td class="num">${esc(x.at)}</td><td><span class="mode-tag">${esc(x.mode)}</span></td>
+      <td>${esc(x.board)}</td><td><b>${esc(x.foe)}</b></td><td>${marks(x.marks)}</td>
+      <td><button class="council-go primary mini" data-source="${x.id}"
+          data-board="${esc(x.board)}" data-foe="${esc(x.foe)}"
+          ${!x.ready || t.count <= 0 ? "disabled" : ""}>この布陣と演習</button>
+          ${!x.ready ? '<small class="warn">登録デッキ要確認</small>' : ""}</td>
+    </tr>`).join("");
+  $("#app").innerHTML = `
+    <section class="panel council-hero fade-in">
+      <div>
+        <p class="eyebrow">過去を盤上へ呼び戻す</p>
+        <h2>軍議演習</h2>
+        <p>過去に戦った敵の布陣を魚拓として再現し、<b>現在登録中の自軍デッキ</b>をぶつける。
+        勝敗を研究する場なので、武名・通常戦績・報酬は動かない。</p>
+      </div>
+      <div class="enshu-box">
+        <div><b>${esc(t.name)}</b> <strong class="num" id="enshu-count">${t.count}／${t.cap}</strong></div>
+        <div class="enshu-pips">${tickets}</div>
+        <small class="muted" id="enshu-wait">${t.count >= t.cap ? "満タン" : "次の1枚まで計算中"}</small>
+        <button id="enshu-max" class="ghost mini dev-only">無料でMAX</button>
+      </div>
+    </section>
+    <section class="panel fade-in">
+      <h2>対戦魚拓を選ぶ<span class="sub">1戦につき演習令1枚・同じ魚拓へ何度でも挑戦可</span></h2>
+      <div class="table-scroll"><table class="std council-table">
+        <thead><tr><td>日時</td><td>種別</td><td>戦場</td><td>相手</td><td>当時</td><td></td></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6" class="muted">まず対戦か在野戦を行うと、敵布陣の魚拓がここへ残ります。</td></tr>'}</tbody>
+      </table></div>
+      <p class="muted council-note">編成を変えるときは「編成」で登録し直してから戻る。敵側はこの対戦時点の布陣のまま変わらない。</p>
+    </section>`;
+
+  let wait = t.next_in;
+  const drawWait = () => {
+    const el = $("#enshu-wait");
+    if (!el) return;
+    if (t.count >= t.cap) { el.textContent = "満タン"; return; }
+    const mm = Math.floor(Math.max(0, wait) / 60);
+    const ss = Math.max(0, wait) % 60;
+    el.textContent = `次の1枚まで ${mm}:${String(ss).padStart(2, "0")}（10分で1枚）`;
+    if (wait > 0) wait--;
+  };
+  drawWait();
+  const clock = setInterval(drawWait, 1000);
+  window.addEventListener("pagehide", () => clearInterval(clock), { once: true });
+
+  $$(".council-go").forEach((b) => b.onclick = () =>
+    doCouncil(+b.dataset.source, b.dataset.board, b.dataset.foe));
+  $("#enshu-max").onclick = async () => {
+    try { await api("/api/dev_enshu", {}); location.reload(); }
+    catch (e) { alert("無料MAXは手元の試験用起動でだけ使える: " + e.message); }
+  };
+  if (chosen) setTimeout(() => {
+    const el = $("#source-" + chosen);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 80);
+}
+
+async function doCouncil(sourceId, board, foe) {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="overlay"><div class="box"><div class="march">軍議演習</div>
+      <p class="muted">${esc(foe)}の対戦魚拓を盤上へ再現しております……</p></div></div>`);
+  try {
+    const r = await api("/api/council_fight", { source_id: sourceId });
+    sessionStorage.setItem("fight:" + r.battle_id, JSON.stringify(
+      { label: `軍議演習・${board}`, result: r, kind: "council",
+        source_id: sourceId, board, foe }));
+    location.href = "/replay?id=" + r.battle_id + "&from=fight";
+  } catch (e) {
+    const ov = $("#overlay"); if (ov) ov.remove();
+    let msg = e.message;
+    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /* 素通し */ }
+    alert(msg);
+  }
+}
+
 /* ── リプレイ一覧 ───────────────────── */
 async function viewReplays(state) {
   const d = await api("/api/replays");
@@ -2050,7 +2138,8 @@ async function viewReplays(state) {
       <td>${esc(m.board)}</td>
       <td>${esc(m.a)} <small>対</small> ${esc(m.b)}</td>
       ${verdictCell(m)}
-      <td><a href="/replay?id=${m.id}">観る</a></td></tr>`;
+      <td><a href="/replay?id=${m.id}">観る</a>
+        ${m.can_council ? `<a class="btn ghost mini" href="/council?source=${m.id}">演習</a>` : ""}</td></tr>`;
   const mine = d.battles.filter((m) => m.mine);
   const rest = d.battles.filter((m) => !m.mine);
   $("#app").innerHTML = `
@@ -2140,13 +2229,17 @@ async function viewReplay(state) {
         `<button data-i="${i}" class="${i === 0 ? "on" : ""}">
           第${i + 1}戦 ${esc(g.label)} <b>${g.verdict}</b></button>`).join("")}</div>`
     : "";
+  const fightBack = FIGHT && FIGHT.kind === "council" ? "/council"
+    : (FIGHT && FIGHT.kind === "ladder" ? "/" : (FIGHT ? "/senki" : "/replays"));
+  const fightBackLabel = FIGHT && FIGHT.kind === "council" ? "← 軍議演習へ"
+    : (FIGHT && FIGHT.kind === "ladder" ? "← 対戦へ" : (FIGHT ? "← 戦記へ" : "← 戦歴へ"));
   $("#app").innerHTML = `
     <div class="replay-head">
-      <a class="btn ghost mini" href="${FIGHT ? (FIGHT.kind === "ladder" ? "/" : "/senki") : "/replays"}">${
-        FIGHT ? (FIGHT.kind === "ladder" ? "← 対戦へ" : "← 戦記へ") : "← 戦歴へ"}</a>
+      <a class="btn ghost mini" href="${fightBack}">${fightBackLabel}</a>
       <div><h2>${FIGHT ? esc(FIGHT.label) : esc(d.board)}</h2>
       <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
         ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}</span></div>
+      ${d.can_council ? `<a class="btn council-shortcut" href="/council?source=${d.battle_id}">軍議演習で再戦</a>` : ""}
     </div>
     <div class="battle-card">
       <div class="battle-side mine"><span>${mineSide}</span><b>${esc(d.mine_name)}</b></div>
@@ -2212,6 +2305,17 @@ async function viewReplay(state) {
       });
       return;
     }
+    if (FIGHT.kind === "council") {
+      drawFightBar(r, null);
+      showBattleResult(FIGHT.label, r, {
+        hideReplay: true, closeLabel: "軍議演習へ戻る", close: to("/council"),
+        review: () => {
+          const bar = $("#fight-actions");
+          if (bar) bar.scrollIntoView({ block: "start", behavior: "smooth" });
+        },
+      });
+      return;
+    }
     const next = FIGHT.next === null ? null : to("/senki?i=" + FIGHT.next);
     // 判の窓を閉じても行き先が消えないよう、同じ動線を画面にも残す。
     // 実況・戦況図・軍師の見立て・軍功帳は、判のあとが**読みどころ**なので、
@@ -2240,8 +2344,20 @@ async function viewReplay(state) {
         <span class="fa-verdict">${esc(r.win)}</span>
         <span class="muted">実況・戦況図・軍功帳をこのまま読み返せる</span>
         <button class="primary" id="fa-again">もう一度出陣</button>
+        <a class="btn ghost" href="/council?source=${d.battle_id}">この相手を軍議演習</a>
         <a class="btn ghost" href="/">対戦へ戻る</a>`;
       $("#fa-again").onclick = () => doAttack(FIGHT.label);
+      return;
+    }
+    if (FIGHT.kind === "council") {
+      el.innerHTML = `
+        <span class="fa-verdict">${esc(r.win)}</span>
+        <span class="muted">敵の魚拓は固定。編成を変えれば同じ条件で研究できる</span>
+        <button class="primary" id="fa-council-again">同じ魚拓でもう一度</button>
+        <a class="btn ghost" href="/deck">編成を見直す</a>
+        <a class="btn ghost" href="/council?source=${FIGHT.source_id}">軍議演習へ戻る</a>`;
+      $("#fa-council-again").onclick = () =>
+        doCouncil(FIGHT.source_id, FIGHT.board, FIGHT.foe);
       return;
     }
     el.innerHTML = `
@@ -2514,6 +2630,7 @@ if (typeof document !== "undefined") (async function boot() {
     return qi === null ? viewSenki(state) : viewSenkiPrep(+qi);
   }
   if (view === "deck") return viewDeck(state);
+  if (view === "council") return viewCouncil(state);
   if (view === "replays") return viewReplays(state);
   if (view === "replay") return viewReplay(state);
 })();

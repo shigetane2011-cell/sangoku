@@ -851,6 +851,84 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
             "rating_old": round(old, 1), "rating_new": round(new, 1)}
 
 
+def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
+    """軍議演習。過去に戦った敵の魚拓へ、現在登録中の自軍を当てる。
+
+    レート・通常戦績・報酬は動かさず、演習令を1枚だけ消費する。相手本人の
+    pid は記録に使わないため、相手側の戦歴にも演習は現れない。
+    """
+    src = cx.execute("SELECT * FROM battles WHERE id = ?",
+                     (source_battle_id,)).fetchone()
+    if src is None or me.id not in (src["pid_a"], src["pid_b"]):
+        return {"error": "その対戦魚拓は使えない"}
+    if src["mode"] in ("senki", "council"):
+        return {"error": "その記録は軍議演習の相手にできない"}
+    if not src["snap_a"] or not src["snap_b"]:
+        return {"error": "古い記録のため敵布陣の魚拓が残っていない"}
+    board = src["board"]
+    if board not in REG_NAMES and board != "天下":
+        return {"error": "その戦場は軍議演習に対応していない"}
+    if P.enshu(cx, me.id, now)[0] < 1:
+        return {"error": "演習令が足りない（10分に1枚回復する）"}
+
+    mine_entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
+    if not ok.get(board):
+        return {"error": "{} の登録デッキが出せる状態にない: {}".format(
+            board, "／".join(errs) or "未登録")}
+
+    me_was_a = src["pid_a"] == me.id
+    foe_pid = src["pid_b"] if me_was_a else src["pid_a"]
+    foe_snap = src["snap_b"] if me_was_a else src["snap_a"]
+    names = {p.id: p.display_name for p in P.all_players(cx)}
+    foe_name = names.get(foe_pid, "名もなき軍")
+
+    # 消費前に魚拓を再構成し、壊れた記録で演習令だけ失わないようにする。
+    try:
+        foe_entry = entry_from_snap(cards, foe_snap)
+        if board == "天下":
+            result = M.play(mine_entry, foe_entry, 0.5,
+                            seed=L.battle_seed("council", source_battle_id,
+                                               now, me.id))
+            sa = (1.0 if result["wins_a"] > result["wins_b"] else
+                  (0.0 if result["wins_b"] > result["wins_a"] else 0.5))
+            marks = "".join(result_mark(g["結果"]["score"])
+                            for g in result["games"])
+            mine_snap = snap_entry(mine_entry)
+        else:
+            reg_i = REG_NAMES.index(board)
+            ua, ub = mine_entry.unit(reg_i), foe_entry.unit(reg_i)
+            seed = L.battle_seed("council", source_battle_id, now, me.id)
+            result = M.play_one(BoardEntry({reg_i: ua}),
+                                BoardEntry({reg_i: ub}), reg_i, 0.5,
+                                seed=seed)
+            sa = (1.0 if result["winner"] == "A" else
+                  (0.0 if result["winner"] == "B" else 0.5))
+            marks = result_mark(sa)
+            mine_snap = _json.dumps(snap_army(ua), ensure_ascii=False)
+    except (KeyError, ValueError, TypeError):
+        return {"error": "敵布陣の魚拓を再構成できない"}
+
+    if not P.spend_enshu(cx, me.id, 1, now):
+        return {"error": "演習令が足りない（10分に1枚回復する）"}
+    seed = L.battle_seed("council", source_battle_id, now, me.id)
+    bid = P.record_battle(
+        cx, "council", board, me.id, "council:{}".format(source_battle_id),
+        seed, mine_snap, foe_snap, season_key(now), now, result=marks)
+    with cx:
+        cx.execute(
+            "INSERT INTO council_runs"
+            " (battle_id, source_battle_id, player_id, foe_name)"
+            " VALUES (?, ?, ?, ?)",
+            (bid, source_battle_id, me.id, foe_name))
+    n, wait = P.enshu(cx, me.id, now)
+    return {"battle_id": bid, "source_id": source_battle_id,
+            "foe": foe_name,
+            "win": ("勝ち" if sa > 0.5 else
+                    ("負け" if sa < 0.5 else "引き分け")),
+            "enshu": {"count": n, "cap": P.ENSHU_CAP,
+                      "next_in": wait, "regen": P.ENSHU_REGEN_SEC}}
+
+
 def free_battle(cx, cards, me, reg_name: str, foe_pid: str, now: int) -> dict:
     """フリー対戦（在野戦・§7.58）。レートも兵符も動かない。"""
     entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)

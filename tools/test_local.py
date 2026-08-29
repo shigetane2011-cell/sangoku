@@ -14,7 +14,7 @@ os.environ.update({"SANGOKU_DB": DB, "SANGOKU_PORT": str(PORT),
                    "no_proxy": "127.0.0.1", "NO_PROXY": "127.0.0.1"})
 os.environ.pop("SANGOKU_PUBLIC", None)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sim import web as W
+from sim import web as W, players as P, play as PL, match as M, field as F
 app = ThreadingHTTPServer(("127.0.0.1", PORT), W.App)
 threading.Thread(target=app.serve_forever, daemon=True).start()
 
@@ -53,6 +53,44 @@ check("dev の口は手元では開く（401=要ログインでなく404でな�
       r.status != 404, f"got {r.status}")
 r, d = req("POST", "/api/dev_heifu", cookie=sid, body={})
 check("dev_heifu が sid で通る", r.status == 200, f"got {r.status}")
+r, d = req("POST", "/api/dev_enshu", cookie=sid, body={})
+check("dev_enshu（無料MAX）が sid で通る", r.status == 200, f"got {r.status}")
+
+# 軍議演習の Web 配管（対象一覧→実行→リプレイ→戦歴動線）。
+cx = P.connect(DB)
+cards = M._roster_cards()
+dummies = PL.ensure_dummies(cx, cards)
+pids = list(dummies)
+army_a = dummies[pids[0]].unit(0)
+army_b = dummies[pids[1]].unit(0)
+reg = PL.REG_NAMES[0]
+P.set_deck(cx, me["id"], reg, "、".join(c.name for c in army_a.cards),
+           F.FORM_NAME[army_a.form.n_front])
+source = P.record_battle(
+    cx, "ranked", reg, me["id"], pids[1], 777,
+    json.dumps(PL.snap_army(army_a), ensure_ascii=False),
+    json.dumps(PL.snap_army(army_b), ensure_ascii=False),
+    PL.season_key(1800000000), 1800000000, "●")
+r, d = req("GET", "/api/council", cookie=sid)
+council = json.loads(d)
+check("軍議APIに演習令10と対戦魚拓が出る",
+      r.status == 200 and council.get("ticket", {}).get("count") == 10
+      and any(x["id"] == source for x in council.get("targets", [])), council)
+r, d = req("POST", "/api/council_fight", cookie=sid,
+           body={"source_id": source})
+fought = json.loads(d)
+check("Webから軍議演習を実行できる",
+      r.status == 200 and fought.get("battle_id"), fought)
+if fought.get("battle_id"):
+    r, d = req("GET", "/api/replay?id=" + str(fought["battle_id"]), cookie=sid)
+    replay = json.loads(d)
+    check("軍議結果をリプレイできる",
+          r.status == 200 and replay.get("mode") == "council"
+          and replay.get("foe_name") == P.get(cx, pids[1]).display_name, replay)
+    r, d = req("GET", "/api/replays", cookie=sid)
+    hist = json.loads(d).get("battles", [])
+    srcrow = next((x for x in hist if x["id"] == source), {})
+    check("戦歴の元対戦に演習動線が出る", srcrow.get("can_council"), srcrow)
 print()
 if FAIL:
     print("失敗:", FAIL); sys.exit(1)

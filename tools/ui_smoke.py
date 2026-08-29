@@ -366,6 +366,23 @@ def onboard_check(page, rep):
               "一度出発したら導入は出ない")
 
 
+def council_check(page, rep, label):
+    """軍議演習の入口は、敵魚拓がまだ無い新規でも崩れず表示される。"""
+    page.goto(BASE + "/council", wait_until="domcontentloaded")
+    page.wait_for_selector(".council-hero", timeout=60000)
+    rep.check((page.text_content(".council-hero h2") or "").strip() == "軍議演習",
+              "[{}] 軍議演習の題字が出る".format(label))
+    rep.check(page.eval_on_selector_all(".enshu-pips i", "e => e.length") == 10,
+              "[{}] 演習令が10枠で表示される".format(label))
+    rep.check(page.query_selector("#enshu-max") is not None,
+              "[{}] 無料MAXボタンがある".format(label))
+    rep.check(page.query_selector('nav a[href="/council"]') is not None,
+              "[{}] 共通ナビから軍議演習へ入れる".format(label))
+    rep.check(not page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"),
+        "[{}] 軍議演習が横に溢れない".format(label))
+
+
 def readonly_checks(page, rep):
     page.goto(BASE + "/senki", wait_until="domcontentloaded")
     page.wait_for_timeout(1200)
@@ -497,6 +514,7 @@ def run():
                 if not mob:
                     onboard_check(page, rep)
                 exercise(page, rep, label, mob)
+                council_check(page, rep, label)
                 if not mob:
                     readonly_checks(page, rep)
                 rep.check(not errs, "[{}] 画面の例外なし{}".format(
