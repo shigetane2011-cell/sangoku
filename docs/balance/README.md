@@ -25,6 +25,8 @@ python3 tools/balance_suite.py distribution
 python3 tools/balance_suite.py battle --profile standard
 python3 tools/balance_suite.py archetype --profile standard
 python3 tools/balance_suite.py cadence --profile standard
+python3 tools/bo3_cadence_counter.py --profile standard \
+  --output docs/balance/experiments/restraint-first-cast40-standard.json
 python3 tools/one_ruler.py --json one-ruler.json
 ```
 

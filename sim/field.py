@@ -1197,6 +1197,12 @@ GAUGE_ON_ROUT = 10.0    # 敵を撤退させたとき — **未配線・現在�
                         # の後の別検証で、そのときは固定値でなく「撤退武将のコスト
                         # 比例・生存味方へ均等配分」を候補にする。
 
+# 節制（陸抗・§7.130）。陸抗が自身の必殺技を初めて放った後、
+# 敵味方の各武将は自身の初回発動までは通常速度、それ以降の自然増加だけを
+# この倍率にする。初期・与ダメージ・被弾のゲージ獲得は不変。非重複で、
+# 発動後は陸抗が撤退しても戦闘終了まで残る。
+RESTRAINT_NATURAL_MULT = 0.40
+
 # 勝敗を消耗だけで決めない（§6.1 案C）。
 #
 # いまは総残存兵力率だけで決めている。すると「早い段階の与ダメージ差」がそのまま
@@ -1972,6 +1978,15 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
 def x_rate(u: Unit) -> float:
     """ゲージの溜まる速さ。気勢の状態効果（率）を掛ける。"""
     return u.gauge_rate * u.rate_mult
+
+
+def natural_gauge_mult(u: Unit, units) -> float:
+    """節制下の自然ゲージ倍率。各武将の初回発動までは1.0。"""
+    if (TRAITS_ON and any("restraint" in x.traits and x.fires > 0
+                          for x in units)
+            and u.fires > 0):
+        return RESTRAINT_NATURAL_MULT
+    return 1.0
 
 
 @dataclass(frozen=True)
@@ -3247,11 +3262,13 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         offense = set()      # 攻め技が解決した札（§7.129・持重が見る）
         if SKILLS_ON:
             for x, taken in ((u, d) for u, d in zip(ua, da)):
-                x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
+                x.gauge += GAUGE_PER_SEC * x_rate(x) * natural_gauge_mult(
+                    x, ua + ub) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
             for x, taken in ((u, d) for u, d in zip(ub, db)):
-                x.gauge += GAUGE_PER_SEC * x_rate(x) * dt
+                x.gauge += GAUGE_PER_SEC * x_rate(x) * natural_gauge_mult(
+                    x, ua + ub) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
             # §7.126 技フェーズの二段化。まず**両軍の**構え（必殺技防御・反射・

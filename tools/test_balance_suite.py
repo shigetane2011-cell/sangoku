@@ -53,6 +53,9 @@ class BalanceSuiteTest(unittest.TestCase):
         self.assertEqual(sum(C.cadence(c) == "手数" for c in army.cards), 6)
         self.assertEqual(M.placement_errors(army), [])
 
+    def test_restraint_multiplier_is_recorded_in_manifest(self):
+        self.assertEqual(C.balance_constants()["RESTRAINT_NATURAL_MULT"], 0.40)
+
 
 if __name__ == "__main__":
     unittest.main()

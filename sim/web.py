@@ -303,6 +303,11 @@ def _trait_brief(g, key, t):
         desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
                 "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
                 ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
+    elif key == "restraint":
+        desc = ("自身が初めて必殺技を放った後、敵味方の各武将は"
+                "初回発動後の自然ゲージ増加 -{:.0%}"
+                "（一発目・初期・与ダメージ・被弾の獲得は不変）"
+                .format(1.0 - F.RESTRAINT_NATURAL_MULT))
     elif key in F.FACTION_OF:
         desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
             F.FACTION_OF[key], F.VS_FACTION)
