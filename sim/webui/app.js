@@ -2821,12 +2821,12 @@ async function viewReplay(state) {
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
           <span class="bars">
             <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
+            <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（兵法${(sk / 1000).toFixed(1)}）</small></span>
             <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
+            <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}${
+              u.wiped ? ` <span class="wiped">・${u.wiped}壊</span>` : ""}</span>
             ${marks ? `<span class="fx-row">${marks}</span>` : ""}
           </span>
-          <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（兵法${(sk / 1000).toFixed(1)}）</small></span>
-          <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}${
-            u.wiped ? ` <span class="wiped">・${u.wiped}壊</span>` : ""}</span>
         </div>`;
       }).join("");
     $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=兵法・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
