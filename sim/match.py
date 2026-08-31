@@ -83,6 +83,28 @@ def person_of(card: F.Card) -> str:
     return n.split("〔")[0] if "〔" in n else n
 
 
+def duplicate_person_errors(
+        labeled_armies: Sequence[Tuple[str, F.Army]]) -> List[Tuple[str, str]]:
+    """(面ラベル, Army) の並びから、面をまたいでも面の中でも人物の重複を
+    漏れなく拾う（§7.135）。**面の境界で条件を分けない** — 以前 Web 側に
+    あった `seen[p][0] != reg` のような除外は同じ面内の重複を見逃す
+    （§7.135 発見）。戻りは (どの面で見つかったか, メッセージ) の組で、
+    呼び出し側の書式（面ごとに分けるか、1本の文にまとめるか）に合わせる。
+    `validate()` と Web の各保存経路はここへ寄せる。
+    """
+    seen: Dict[str, Tuple[str, str]] = {}
+    errs: List[Tuple[str, str]] = []
+    for label, army in labeled_armies:
+        for c in army.cards:
+            p = person_of(c)
+            if p in seen:
+                errs.append((label, "{} は {} と同一人物（別バージョンも不可）".format(
+                    c.name, seen[p][1])))
+            else:
+                seen[p] = (label, c.name)
+    return errs
+
+
 # 前衛と後衛に置ける兵種（§4.1）。**入れ子の配置を禁じる。**
 #
 #   前衛 … 歩兵・騎兵（近接）
@@ -129,7 +151,6 @@ def validate(entry: Entry) -> List[str]:
         errs.append("部隊は{}つ必要（いまは{}つ）".format(
             len(REGULATIONS), len(entry.units)))
         return errs
-    seen: Dict[str, str] = {}
     for army, (label, cap) in zip(entry.units, REGULATIONS):
         if len(army.cards) != UNIT_SIZE:
             errs.append("{}: {}人必要（いまは{}人）".format(
@@ -140,13 +161,8 @@ def validate(entry: Entry) -> List[str]:
                 label, cost, cap))
         for m in placement_errors(army):
             errs.append("{}: {}".format(label, m))
-        for c in army.cards:
-            p = person_of(c)
-            if p in seen:
-                errs.append("{}: {} は {} と同一人物（別バージョンも不可）".format(
-                    label, c.name, seen[p]))
-            else:
-                seen[p] = c.name
+    errs += ["{}: {}".format(label, msg) for label, msg in duplicate_person_errors(
+        [(label, army) for army, (label, _cap) in zip(entry.units, REGULATIONS)])]
     return errs
 
 

@@ -16,7 +16,7 @@ import re
 import os
 import statistics as st
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
@@ -31,6 +31,38 @@ def _load(name: str) -> List[Dict[str, str]]:
 
 def generals() -> List[Dict[str, str]]:
     return [r for r in _load("generals.csv") if r.get("名前")]
+
+
+def _version_num(g: Dict[str, str]) -> int:
+    v = (g.get("版") or "").strip()
+    return int(v) if v else 1
+
+
+def character_versions(person: str) -> List[Dict[str, str]]:
+    """その人物が使える武将カード（版）の一覧。版の昇順（§7.135）。
+
+    人物IDと武将カードIDを分ける§4.3の設計を、実データから引く側の入口。
+    同一人物は重複判定の単位になる（`match.person_of`）が、選べる中身は
+    このバージョンごとに変わってよい（§4.3「原則可能とする暫定案」）。
+    """
+    rows = [g for g in generals() if g["人物"] == person]
+    return sorted(rows, key=_version_num)
+
+
+def latest_character_version(person: str) -> Optional[Dict[str, str]]:
+    """その人物の最新版（版番号が最大のもの）。無い人物なら None。"""
+    vs = character_versions(person)
+    return vs[-1] if vs else None
+
+
+def version_of(name: str) -> int:
+    """武将カード名（名前列。例「呂布〔虓虎〕」）から版番号を引く。無ければ1。
+
+    名前は生成・保存・魚拓のどこでも変わらない一意なキーなので、これだけで
+    「試合当時どの版だったか」を後から引ける（§7.135）。
+    """
+    g = next((r for r in generals() if r["名前"] == name), None)
+    return _version_num(g) if g else 1
 
 
 def skills() -> List[Dict[str, str]]:
@@ -460,7 +492,10 @@ COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種",
            "台詞", "武勇", "知略",
            # 役割寄せ（§7.56）・槍（§7.57）・防御寄せ/速度寄せ（§7.66）。
            # 設計の入力（authored）なので落とさない。
-           "役割寄せ", "槍", "防御寄せ", "速度寄せ", "床調整"]
+           "役割寄せ", "槍", "防御寄せ", "速度寄せ", "床調整",
+           # 武将版（§7.135）。同一人物の何枚目のカードか。空欄は1として扱う
+           # （既存行は全て1枚目）。設計の入力（authored）。
+           "版"]
 
 
 def regenerate() -> int:

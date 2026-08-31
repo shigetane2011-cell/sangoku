@@ -635,6 +635,9 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
   margin: 5px 4px 0; letter-spacing: .02em; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .card .name .role { font-size: 10px; color: var(--faint); margin-left: 5px; }
+/* 武将版バッジ（§7.135）。同一人物に2枚目以降があるときだけ出る */
+.ver { font-size: 9px; color: var(--gold); border: 1px solid var(--gold);
+  border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
 .card .skill { font-size: 10.5px; color: var(--sub); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; margin: 0 6px; }
 .card .stats { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
@@ -663,6 +666,7 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
 /* ── リプレイ ───────────────────────── */
 .replay-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .replay-head h2 { margin: 0; }
+.rule-ver { font-size: 9.5px; color: var(--faint); margin-left: 8px; }
 .battle-card { display: grid; grid-template-columns: 1fr 54px 1fr; align-items: stretch;
   margin: 12px 0; border: 1px solid var(--line2); border-radius: 12px; overflow: hidden;
   background: #120f0b; }

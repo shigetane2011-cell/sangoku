@@ -344,6 +344,11 @@ def _roster_json(only=None):
                            "kind": t.get("型", ""), "cond": cond, "desc": desc})
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
+            # 武将版（§7.135）。同一人物の2枚目以降にだけ意味がある番号
+            # なので、UIは1のときはバッジを出さない。顔絵は名前優先で
+            # 探す（無ければ人物名の絵、それも無ければ生成プレースホルダ）。
+            "version": int((g.get("版") or "").strip() or 1),
+            "portraitUrl": "/portrait/" + urllib.parse.quote(g["名前"]),
             "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
             # 武勇・知略は**歴史イメージの演出値**（1〜100・盤面に不干渉）。
             # エンジン内部の武力・知力は帳簿なので出さない（§7.47）。
@@ -430,7 +435,10 @@ def _formation_board_json(army, brief=None):
             continue
         units[c.name] = {
             "name": row["name"],
-            "portraitUrl": "/portrait/" + urllib.parse.quote(row["person"]),
+            # 版専用の絵があれば名前（版込み）で、無ければ人物名の絵へ
+            # フォールバック（§7.135）。_portrait 側の解決順と対にする。
+            "portraitUrl": row.get("portraitUrl")
+                or "/portrait/" + urllib.parse.quote(row["person"]),
             "troopType": row["typ"],
             # 槍は後衛の可否を決める属性なので盤面まで運ぶ（§7.91）
             "spear": bool(row.get("spear")),
@@ -756,30 +764,40 @@ class App(BaseHTTPRequestHandler):
                      name.rsplit(".", 1)[1]]
         self._send_file(path, ctype)
 
-    # 顔絵（§7.59）。**差し替え式**: sim/webui/portraits/ に「人物名.png」
-    # （jpg/webp/svgも可）を置けばそれを出す。無ければ勢力色＋姓の一字の
-    # 生成SVG（明らかにダミーと分かる置き絵）を返す。素材の出所と権利は
-    # 差し替える人が確かめる — こちらからフリー素材を焼き込むことはしない。
+    # 顔絵（§7.59・§7.135）。**差し替え式**: sim/webui/portraits/ に
+    # 「人物名.png」（jpg/webp/svgも可）を置けばそれを出す。無ければ勢力色＋
+    # 姓の一字の生成SVG（明らかにダミーと分かる置き絵）を返す。素材の出所と
+    # 権利は差し替える人が確かめる — こちらからフリー素材を焼き込むことはしない。
+    #
+    # 武将版（§7.135）: 呼び出し側は「名前」（例「呂布〔虓虎〕」）を渡す。
+    # 版専用の絵を先に探し、無ければ人物名の絵（既存120枚はここで見つかる・
+    # 後方互換）、それも無ければ生成プレースホルダの順で解決する。
     _PORTRAIT_DIR = os.path.join(WEBUI, "portraits")
     _FACTION_HEX = {"魏": ("#2a3d5e", "#46689c"), "蜀": ("#28492f", "#47825a"),
                     "呉": ("#5e2727", "#a04343"), "群雄": ("#4d4122", "#8a7640")}
 
-    def _portrait(self, person: str):
-        person = os.path.basename(person).split(".")[0]
-        for ext in ("png", "jpg", "jpeg", "webp", "svg"):
-            path = os.path.join(self._PORTRAIT_DIR, person + "." + ext)
-            if os.path.exists(path):
-                ctype = {"svg": "image/svg+xml", "png": "image/png",
-                         "webp": "image/webp"}.get(ext, "image/jpeg")
-                if self._send_file(path, ctype):
-                    return
-        g = next((x for x in R.generals() if x["人物"] == person), None)
+    def _portrait(self, key: str):
+        key = os.path.basename(key).split(".")[0]
+        person = key.split("〔")[0] if "〔" in key else key
+        for candidate in (key, person) if key != person else (key,):
+            for ext in ("png", "jpg", "jpeg", "webp", "svg"):
+                path = os.path.join(self._PORTRAIT_DIR, candidate + "." + ext)
+                if os.path.exists(path):
+                    ctype = {"svg": "image/svg+xml", "png": "image/png",
+                             "webp": "image/webp"}.get(ext, "image/jpeg")
+                    if self._send_file(path, ctype):
+                        return
+        g = next((x for x in R.generals() if x["名前"] == key), None) \
+            or next((x for x in R.generals() if x["人物"] == person), None)
         fac = (g or {}).get("勢力", "群雄")
         typ = (g or {}).get("兵種", "")[:1]
         c1, c2 = self._FACTION_HEX.get(fac, self._FACTION_HEX["群雄"])
         kanji = person[:1] or "将"
         import zlib
-        tilt = (zlib.crc32(person.encode()) % 13) - 6   # 人ごとに少し違う表情
+        # tilt は key（版込み）から取る — 版専用の絵が無くても、版が違えば
+        # 表情の傾きだけは自動的に変わる（§7.135。プレースホルダでも
+        # 「別バージョンで見た目が変わる」を満たす最小限の仕掛け）。
+        tilt = (zlib.crc32(key.encode()) % 13) - 6
         svg = """<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 320'>
 <defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'>
 <stop offset='0' stop-color='{c2}'/><stop offset='1' stop-color='{c1}'/>
@@ -1082,10 +1100,16 @@ class App(BaseHTTPRequestHandler):
             "saved": saved,
         })
 
-    def _board_check(self, cx, me, cards, reg, fm, names):
+    def _board_check(self, cx, me, cards, reg, fm, names, check_other_boards=True):
         """登録1面ぶんの検証（/api/deck と /api/deck_all の共通部）。
 
-        (army, raw, errs) を返す。検証規則はここ1箇所だけに持つ。"""
+        (army, raw, errs) を返す。検証規則はここ1箇所だけに持つ。
+
+        check_other_boards は単面保存（/api/deck）だけ True にする。
+        /api/deck_all は3面を丸ごと差し替える途中でここを呼ぶため、DBの
+        旧内容と突き合わせると「入れ替え」を誤って重複扱いしてしまう
+        （§7.135で発見・修正）。全面まとめての重複判定は呼び出し側が
+        新しい内容どうしで別途行う。"""
         raw = F.TRAIT_SEP.join(names)      # 「、」区切り＝CLI・DB と同じ表現
         army, errs = PL.parse_deck(cards, raw, fm)
         caps = dict(M.REGULATIONS)
@@ -1105,6 +1129,19 @@ class App(BaseHTTPRequestHandler):
             locked = sorted({M.person_of(c) for c in army.cards} - unl)
             if locked:
                 errs.append("まだ登用していない: " + "・".join(locked))
+            # 同一人物は面の中でも、他の面（DBに保存済み）とまたいでも1枚
+            # まで（§4.1・§7.135）。単面保存の /api/deck はここを通さないと
+            # クライアントの無効化表示だけが頼りになり、直叩きで抜けられる。
+            others = []
+            if check_other_boards:
+                for r, (c_raw, f_raw) in P.decks_of(cx, me.id).items():
+                    if r == reg:
+                        continue
+                    a, _ = PL.parse_deck(cards, c_raw, f_raw)
+                    if a is not None:
+                        others.append((r, a))
+            errs += [msg for _label, msg in
+                     M.duplicate_person_errors([(reg, army)] + others)]
         return army, raw, errs
 
     def _api_deck(self, body):
@@ -1150,23 +1187,18 @@ class App(BaseHTTPRequestHandler):
             if reg in new:
                 errs_by.setdefault(reg, []).append("同じ戦場が2回ある")
                 continue
-            army, raw, errs = self._board_check(cx, me, cards, reg, fm, names)
+            army, raw, errs = self._board_check(cx, me, cards, reg, fm, names,
+                                                check_other_boards=False)
             if errs:
                 errs_by[reg] = errs
             else:
                 new[reg] = (raw, fm)
                 armies[reg] = army
-        # 面間の同一人物（登録レベルの規則・§4.1）。セット内で先に弾く
-        seen: dict = {}
-        for reg, army in armies.items():
-            for c in army.cards:
-                p = M.person_of(c)
-                if p in seen and seen[p][0] != reg:
-                    errs_by.setdefault(reg, []).append(
-                        "{} は {} の {} と同一人物（別バージョンも不可）".format(
-                            c.name, seen[p][0], seen[p][1]))
-                else:
-                    seen.setdefault(p, (reg, c.name))
+        # 面間・面内の同一人物（登録レベルの規則・§4.1）。セット内で先に弾く。
+        # duplicate_person_errors は面の境界で条件を分けないので、同じ面に
+        # 同一人物が2回（別バージョン含む）入っていても見逃さない（§7.135）。
+        for reg, msg in M.duplicate_person_errors(list(armies.items())):
+            errs_by.setdefault(reg, []).append(msg)
         if errs_by:
             return self._json({"ok": False, "errors": errs_by})
         P.replace_decks(cx, me.id, new)
@@ -1759,6 +1791,9 @@ class App(BaseHTTPRequestHandler):
             "foe_name": names.get(foe_id, "?"),
             "me_first": me_first, "games": games,
             "battle_id": mid,
+            # 対戦時点の戦闘ルール版（§7.135）。旧記録（空文字列）は "1.0" に
+            # 補完する — 現行ルールをそのまま初版としているので、値として嘘にならない。
+            "rule_version": m["rule_version"] or "1.0",
             "can_council": bool(
                 me and me.id in (m["pid_a"], m["pid_b"])
                 and m["mode"] not in ("senki", "council")

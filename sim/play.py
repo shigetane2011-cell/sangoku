@@ -244,13 +244,15 @@ def entry_of(cx, cards, player_id: str, name: str
             errs += ["{}: {}".format(reg, e) for e in es]
         elif army is not None:
             units[i] = army
-    # 同一人物の重複は、関わる盤面をどちらも塞ぐ（登録レベルの規則）
+    # 同一人物の重複は、関わる盤面をどちらも塞ぐ（登録レベルの規則）。
+    # **面の境界で除外しない** — 同じ面の中の重複（CLI・直接書き込みなど
+    # /api/deck の検証を経ない経路）も見逃さない（§7.135）。
     seen: Dict[str, Tuple[int, str]] = {}
     dup_regs: set = set()
     for i, army in units.items():
         for c in army.cards:
             p = M.person_of(c)
-            if p in seen and seen[p][0] != i:
+            if p in seen:
                 errs.append("{}: {} は {} の {} と同一人物（別バージョンも不可）"
                             .format(M.REGULATIONS[i][0], c.name,
                                     M.REGULATIONS[seen[p][0]][0], seen[p][1]))
@@ -825,7 +827,8 @@ def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
                             snap_entry(ents[a]), snap_entry(ents[y]),
                             season_key(now), now,
                             result="".join(result_mark(g["結果"]["score"])
-                                           for g in r["games"]))
+                                           for g in r["games"]),
+                            rule_version=F.BATTLE_RULE_VERSION)
             fought += 1
         save_board(cx, b)
         P.clear_pairs(cx, "天下", serial)
@@ -853,6 +856,8 @@ def tick(cx, cards, now: int) -> None:
     # (0) 旧 matches からの引っ越し（1回だけ）。魚拓なし＝当時の登録から再構成
     if not P.ledger_get(cx, "migrated_battles"):
         for m in cx.execute("SELECT * FROM matches ORDER BY id"):
+            # rule_version は渡さない（既定 ''）。旧 matches は当時どのルール
+            # で戦ったか記録が無いので、いま分かるふりをしない（§7.135）。
             P.record_battle(cx, "tenka" if m["board"] == "天下" else "ranked",
                             m["board"], m["pid_a"], m["pid_b"], m["seed"],
                             "", "", season_key(now), now)
@@ -1015,7 +1020,8 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
         cx, "ranked", reg_name, me.id, foe, seed,
         _json.dumps(snap_army(ua), ensure_ascii=False),
         _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now, result=result_mark(sa))
+        season_key(now), now, result=result_mark(sa),
+        rule_version=F.BATTLE_RULE_VERSION)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(foe, "?"),
             "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け")),
@@ -1084,7 +1090,8 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
     seed = L.battle_seed("council", source_battle_id, now, me.id)
     bid = P.record_battle(
         cx, "council", board, me.id, "council:{}".format(source_battle_id),
-        seed, mine_snap, foe_snap, season_key(now), now, result=marks)
+        seed, mine_snap, foe_snap, season_key(now), now, result=marks,
+        rule_version=F.BATTLE_RULE_VERSION)
     with cx:
         cx.execute(
             "INSERT INTO council_runs"
@@ -1118,7 +1125,8 @@ def free_battle(cx, cards, me, reg_name: str, foe_pid: str, now: int) -> dict:
         cx, "free", reg_name, me.id, foe_pid, seed,
         _json.dumps(snap_army(ua), ensure_ascii=False),
         _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now, result=result_mark(sa))
+        season_key(now), now, result=result_mark(sa),
+        rule_version=F.BATTLE_RULE_VERSION)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(foe_pid, "?"),
             "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け"))}
@@ -1147,7 +1155,8 @@ def room_join(cx, cards, me, code: str, now: int) -> dict:
     bid = P.record_battle(
         cx, "room", reg_name, room["creator"], me.id, seed,
         room["snap"], _json.dumps(snap_army(ub), ensure_ascii=False),
-        season_key(now), now, result=result_mark(1.0 - sb))
+        season_key(now), now, result=result_mark(1.0 - sb),
+        rule_version=F.BATTLE_RULE_VERSION)
     P.room_close(cx, code, bid)
     names = {p.id: p.display_name for p in P.all_players(cx)}
     return {"battle_id": bid, "foe": names.get(room["creator"], "?"),
@@ -1511,8 +1520,12 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         out = []
         for (n, t, d, m, m0, sd, _fa, ff, rf, cs, hl, al,
              tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, wp) in xs:
+            person = M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t]
             out.append({
-                "name": M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t],
+                "name": person,
+                # 武将版（§7.135）。合戦詳録・戦果表は人物名だけ出すが、対戦
+                # 当時どの版を使ったかはここで追える（名前=n は不変のキー）。
+                "person": person, "version": R.version_of(n) if n else 1,
                 "typ": F.TYPE_JP[t], "dealt": round(d), "men": round(m),
                 "men0": round(m0), "skill_dealt": round(sd),
                 # 真の壊滅（ANNIHIL_UNIT）。苦戦（ROUT_UNIT=15%）はペナルティの

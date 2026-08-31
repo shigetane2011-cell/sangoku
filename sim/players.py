@@ -383,6 +383,14 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
                    " DEFAULT ''")
     except sqlite3.OperationalError:
         pass                        # 追加済み
+    # 戦闘ルール版（§7.135）。試合当時どのルールで戦ったかは事後に導けない
+    # ので、result と同じやり方で記録時に書く（旧記録は '' のまま＝表示側で
+    # "1.0" に補完）。
+    try:
+        cx.execute("ALTER TABLE battles ADD COLUMN rule_version TEXT NOT NULL"
+                   " DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass                        # 追加済み
     return cx
 
 
@@ -939,16 +947,18 @@ def unlock(cx: sqlite3.Connection, player_id: str, persons,
 def record_battle(cx: sqlite3.Connection, mode: str, board: str,
                   pid_a: str, pid_b: str, seed: int,
                   snap_a: str, snap_b: str, season: str, now: int,
-                  result: str = "") -> int:
+                  result: str = "", rule_version: str = "") -> int:
     """result は A から見た各戦の刻み（○勝ち・●負け・△分け）。BO1 なら
-    1文字、天下（BO3）なら「○●○」の3文字（汜水関・官渡・赤壁の順）。"""
+    1文字、天下（BO3）なら「○●○」の3文字（汜水関・官渡・赤壁の順）。
+    rule_version は対戦時点の `field.BATTLE_RULE_VERSION`（§7.135）。空なら
+    旧記録として扱う（読み出し側で "1.0" に補完）。"""
     with cx:
         cur = cx.execute(
             "INSERT INTO battles (mode, board, pid_a, pid_b, seed,"
-            " snap_a, snap_b, season, played_at, result)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " snap_a, snap_b, season, played_at, result, rule_version)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (mode, board, pid_a, pid_b, seed, snap_a, snap_b, season, now,
-             result))
+             result, rule_version))
     return int(cur.lastrowid)
 
 

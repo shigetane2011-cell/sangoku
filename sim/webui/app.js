@@ -1329,7 +1329,7 @@ async function viewSenkiPrep(i) {
   // 読めない（§7.62 の詰将棋の可読性）。盤面の下に畳んで置く。
   const foe = p.enemy.cards.map((c, k) => `
     <div class="foe-card f${c.faction}">
-      <img src="/portrait/${encodeURIComponent(c.person)}" alt="">
+      <img src="${c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`}" alt="">
       <div class="fc-body">
         <div class="fc-head"><b>${esc(c.name)}</b>
           <span class="cost num">${c.cost}点</span></div>
@@ -2013,14 +2013,14 @@ function drawRoster() {
     const off = u || dup;
     return `<button type="button" class="card f${c.faction} ${off ? "used" : ""} ${selfInDeck ? "indeck" : ""} ${pricey ? "pricey" : ""}"
          data-n="${esc(c.name)}" ${off ? "disabled" : ""} aria-label="${esc(c.name)} ${esc(c.typ)} コスト${c.cost}${selfInDeck ? "（編成中・素早く2回押すと外す）" : ""}">
-      <div class="face"><img src="/portrait/${encodeURIComponent(c.person)}"
+      <div class="face"><img src="${c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`}"
         loading="lazy" alt="">
         ${icoCost(c.cost)}
         <span class="typ">${icoTyp(c.typ, c.spear)}</span>
         ${u ? `<span class="usedby">${esc(u).slice(0, 1)}で使用</span>`
             : (selfInDeck ? `<span class="usedby">編成中</span>` : "")}
       </div>
-      <div class="name">${esc(c.name)}<span class="role">${esc(c.role)}</span></div>
+      <div class="name">${esc(c.name)}${c.version > 1 ? `<span class="ver">v${c.version}</span>` : ""}<span class="role">${esc(c.role)}</span></div>
       <div class="stats num">武勇${c.might}　知略${c.wits}</div>
       <div class="stats num">攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</div>
       <div class="skill">【${esc(c.skill)}】</div>
@@ -2092,11 +2092,11 @@ function showCardInfo(name) {
       生まれつきの特性は持たない（軍功枠の恩賞は付けられる）
     </div>`;
   $("#cardinfo").innerHTML = `
-    <img class="ci-face" src="/portrait/${encodeURIComponent(c.person)}" alt="">
+    <img class="ci-face" src="${c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`}" alt="">
     <div class="ci-body">
     <div class="ci-head">
       ${icoCost(c.cost)}
-      <span class="ci-name">${esc(c.name)}</span>
+      <span class="ci-name">${esc(c.name)}${c.version > 1 ? `<span class="ver">v${c.version}</span>` : ""}</span>
       <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍・後衛可）" : ""}・${esc(c.role)}</span>
     </div>
     <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
@@ -2529,7 +2529,8 @@ async function viewReplay(state) {
       <a class="btn ghost mini" href="${fightBack}">${fightBackLabel}</a>
       <div><h2>${FIGHT ? esc(FIGHT.label) : esc(d.board)}</h2>
       <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
-        ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}</span></div>
+        ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}
+        ${d.rule_version ? `<span class="rule-ver" title="対戦当時の戦闘ルール版（§7.135）">ルール${esc(d.rule_version)}</span>` : ""}</span></div>
       ${d.can_council ? `<a class="btn council-shortcut" href="/council?source=${d.battle_id}">軍議演習で再戦</a>` : ""}
     </div>
     <div class="battle-card">
