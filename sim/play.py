@@ -162,7 +162,8 @@ def _apply_onsho(cx, player_id: str, army: F.Army) -> Tuple[F.Army, int]:
         if keys:
             extra += sum(kou_of(k) for k in keys)
             c = dataclasses.replace(
-                c, trait=F.TRAIT_SEP.join(list(F.trait_keys(c.trait)) + keys))
+                c, trait=F.TRAIT_SEP.join(list(F.trait_keys(c.trait)) + keys),
+                hidden_trait=F.TRAIT_SEP.join(keys))
         if books:
             # 寄せの書（§7.70）: 特性でなくカードの枠を動かす。対価は盤面が
             # lean_men_comp で自動で払う（功0）。積み過ぎは寄せの上限で頭打ち。
@@ -513,10 +514,18 @@ def snap_army(army: F.Army, mult: float = 1.0) -> dict:
     """デッキの陣容。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
 
     mult は戦記番付の周回スケーリング（§7.60: 敵全体の兵力×mult）。
-    陣容へ記録しないとリプレイが素の強さで再生されてしまう。
+    陣容へ記録しないとリプレイが素の強さで再生されてしまう。h は恩賞で
+    加わった特性キー（§7.136）。実況の種明かし防止は詳報の再生時に
+    field.py 側が組み立て直すので、これも一緒に記録しておかないと
+    リプレイでだけ正体がバレてしまう。
     """
+    def _card(c: F.Card) -> dict:
+        r = {"n": c.name, "t": c.trait}
+        if c.hidden_trait:
+            r["h"] = c.hidden_trait
+        return r
     d = {"form": F.FORM_NAME[army.form.n_front],
-         "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
+         "cards": [_card(c) for c in army.cards]}
     if mult != 1.0:
         d["mult"] = mult
     return d
@@ -556,7 +565,9 @@ def army_from_snap(cards, snap: dict) -> F.Army:
         c = idx.get(it["n"])
         if c is None:
             raise KeyError(it["n"])
-        picked.append(dataclasses.replace(c, trait=it.get("t", c.trait)))
+        picked.append(dataclasses.replace(
+            c, trait=it.get("t", c.trait),
+            hidden_trait=it.get("h", c.hidden_trait)))
     army = F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
         snap["form"], snap["form"])])
     if snap.get("plus"):        # 旧形式（切り替え前の陣容）

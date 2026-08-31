@@ -1485,6 +1485,12 @@ class Card:
     # Unit.__init__ の両方が同じ値で切るので、片方だけ直すと
     # 「シートの数字どおりに動かない札」ができる。
     floor_adj: float = 0.0
+    # 恩賞で付けた固有特性のキー（「、」区切り・§7.43）。**trait のうち
+    # どれが本人の選択で足されたかだけを持つ**（生まれつきの特性は含めない）。
+    # 対戦相手や第三者に「誰が何を付けたか」を知られないよう、実況の
+    # 名指しをここに載ったキーだけ避ける（§7.136・テストプレイの相談）。
+    # 数値・勝敗には一切影響しない — 表示だけの器。
+    hidden_trait: str = ""
 
     def label(self) -> str:
         if self.name:
@@ -1580,7 +1586,7 @@ class Unit:
         "null_blocked", "null_names", "scut_saved",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
-        "wiped_at",
+        "wiped_at", "hidden_traits",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1640,6 +1646,8 @@ class Unit:
         self.atk = (self.might * (1.0 - w) + self.wits * w) / f
         # 常在型の固有特性（§6.6）。戦闘中の瞬間を持たないので実況には出ない。
         self.traits = trait_keys(card.trait)
+        # 恩賞で付けたキー（§7.43・§7.136）。実況の名指しをここだけ避ける。
+        self.hidden_traits = trait_keys(card.hidden_trait)
         if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
             self.men = self.men0
@@ -2495,6 +2503,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     coef = u.might * (1.0 - v) + u.wits * v
     n = max(len(tgts), 1)
     name = name or src
+    if kind_jp == "誘発" and src and src in u.hidden_traits:
+        # 恩賞で加えた特性は種明かししない（本人以外・対戦相手にも）。
+        # 名前を伏せるだけで、発動そのもの・武将名・数値は今まで通り実況する。
+        name = "秘策"
 
     def say(kind, amount, secs=0.0, mag=0.0, jp=None, stat=""):
         """実況行を1本積む。**効いた量をそのまま持たせる**（行の取捨に使う）。"""
@@ -3356,10 +3368,12 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for u in (ua if k == 0 else ub):
                     u.men *= 1.0 - COMMAND_COLLAPSE
                 if events is not None:
+                    # 恩賞で付けた本陣は名指ししない（§7.136）。
+                    who = ("本陣の将" if "command" in cmds[0].hidden_traits
+                           else _who(cmds[0]))
                     events.append(Event(t, "決着", 1,
                         "{}軍の本陣、破られる！　{}は乱軍の中に倒れ、全軍に"
-                        "動揺が走った！".format(_JP["A" if k == 0 else "B"],
-                                          _who(cmds[0])),
+                        "動揺が走った！".format(_JP["A" if k == 0 else "B"], who),
                         side="A" if k == 0 else "B"))
         ra = sum(u.men for u in ua) / men0a
         rb = sum(u.men for u in ub) / men0b
@@ -3713,8 +3727,9 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         _JP["B"], shape(b), mix(b), sum(u.men0 for u in ub))
     # 常在型はタイムラインに瞬間を持たないので、ここで触れる（§9.3）
     for side, us in (("A", ua), ("B", ub)):
-        vg = [u.name for u in us
-              if u.name and "vanguard" in u.traits and u.is_front]
+        # 恩賞で付けた陣頭は名指ししない（§7.136）。生まれつきの陣頭だけ挙げる。
+        vg = [u.name for u in us if u.name and "vanguard" in u.traits
+              and "vanguard" not in u.hidden_traits and u.is_front]
         if vg:
             line += "{}軍は{}が自ら陣頭に立つ。".format(_JP[side], "・".join(vg))
     ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
