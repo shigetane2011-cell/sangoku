@@ -58,7 +58,7 @@ def latest_character_version(person: str) -> Optional[Dict[str, str]]:
 def version_of(name: str) -> int:
     """武将カード名（名前列。例「呂布〔虓虎〕」）から版番号を引く。無ければ1。
 
-    名前は生成・保存・魚拓のどこでも変わらない一意なキーなので、これだけで
+    名前は生成・保存・陣容のどこでも変わらない一意なキーなので、これだけで
     「試合当時どの版だったか」を後から引ける（§7.135）。
     """
     g = next((r for r in generals() if r["名前"] == name), None)

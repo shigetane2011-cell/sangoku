@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""軍議演習の受け入れ試験: 演習令・魚拓再戦・戦績/相手への非混入。"""
+"""軍議演習の受け入れ試験: 演習令・陣容再戦・戦績/相手への非混入。"""
 import json
 import os
 import sys
@@ -55,7 +55,7 @@ check("10分後に1枚回復", P.enshu(cx, me.id, now + 600) == (10, 0),
       P.enshu(cx, me.id, now + 600))
 P.refill_enshu(cx, me.id, now)
 
-print("[2] 過去魚拓への仮想対戦")
+print("[2] 過去陣容への仮想対戦")
 before_record = P.record_of(cx, me.id)
 r = PL.council_battle(cx, cards, me, source, now + 1)
 check("演習が成立", "battle_id" in r, r)
@@ -68,7 +68,7 @@ check("独立したcouncilモード", battle and battle["mode"] == "council",
 check("仮想敵pidで相手本人へ混ぜない",
       battle and battle["pid_b"] == "council:{}".format(source),
       battle["pid_b"] if battle else None)
-check("敵側は元対戦の魚拓を固定",
+check("敵側は元対戦の陣容を固定",
       battle and battle["snap_b"] == json.dumps(
           PL.snap_army(foe_army), ensure_ascii=False))
 check("演習令だけ1枚減る", P.enshu(cx, me.id, now + 1)[0] == 9,
@@ -82,7 +82,7 @@ check("元の相手の戦歴へ軍議を加えない",
 print("[3] 不正な入口")
 stranger = P.register(cx, "無関係者")
 bad = PL.council_battle(cx, cards, stranger, source, now + 2)
-check("参加していない魚拓は使えない", "error" in bad, bad)
+check("参加していない陣容は使えない", "error" in bad, bad)
 again = PL.council_battle(cx, cards, me, r.get("battle_id", 0), now + 3)
 check("演習記録を孫コピーできない", "error" in again, again)
 

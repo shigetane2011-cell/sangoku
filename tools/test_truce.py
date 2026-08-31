@@ -49,7 +49,7 @@ new_default = list(range(8, 16))
 PL.set_truce_default(cx, me.id, new_default, now)
 today_mask, today_source = P.truce_day(cx, me.id, today)
 tomorrow_mask, tomorrow_source = P.truce_day(cx, me.id, tomorrow)
-check("通常設定変更でも今日の締切済み設定は魚拓で不変",
+check("通常設定変更でも今日の締切済み設定は陣容で不変",
       P.truce_hours(today_mask) == list(range(8)) and today_source == "day")
 check("新しい通常設定は翌日から反映",
       P.truce_hours(tomorrow_mask) == new_default and

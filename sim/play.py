@@ -496,7 +496,7 @@ def run_round(cx, cards, entries: Dict[str, M.Entry], board_name: str,
 #          休戦令を1日8枚（8時間）使い、生活時間は組合せ対象から外れる。
 #          対戦相手は事前に見せず、開催時点の登録デッキで組んで即時解決する。
 #   フリー = 在野といつでも／ルーム番号でプレイヤー同士。レート不変動・兵符不要。
-#   シーズン = 月次。月末の順位表と全デッキを魚拓してからレートを完全リセット
+#   シーズン = 月次。月末の順位表と全デッキの陣容を控えてからレートを完全リセット
 #          （可変Kが月初を数戦で収束させるので、ソフトリセットは要らない）。
 #
 # **定刻処理はすべて遅延評価**（tick）。cron が要らず、手元でもクラウドでも
@@ -510,10 +510,10 @@ TRUCE_DAYS_SHOWN = 7           # 画面から日別変更できる範囲
 
 
 def snap_army(army: F.Army, mult: float = 1.0) -> dict:
-    """デッキの魚拓。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
+    """デッキの陣容。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
 
     mult は戦記番付の周回スケーリング（§7.60: 敵全体の兵力×mult）。
-    魚拓に残さないとリプレイが素の強さで再生されてしまう。
+    陣容へ記録しないとリプレイが素の強さで再生されてしまう。
     """
     d = {"form": F.FORM_NAME[army.form.n_front],
          "cards": [{"n": c.name, "t": c.trait} for c in army.cards]}
@@ -538,7 +538,7 @@ def army_boost(army: F.Army, mult: float) -> F.Army:
 
 def army_plus(army: F.Army, plus: float) -> F.Army:
     """旧・周回上乗せ（+N点を cost/stat_cost へ等分）。**新規には使わない** —
-    切り替え前に焼いた魚拓（"plus" 入り）の再生専用に残してある。"""
+    切り替え前に記録した陣容（"plus" 入り）の再生専用に残してある。"""
     import dataclasses
     per = plus / max(1, len(army.cards))
     cards = tuple(dataclasses.replace(
@@ -559,7 +559,7 @@ def army_from_snap(cards, snap: dict) -> F.Army:
         picked.append(dataclasses.replace(c, trait=it.get("t", c.trait)))
     army = F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
         snap["form"], snap["form"])])
-    if snap.get("plus"):        # 旧形式（切り替え前の魚拓）
+    if snap.get("plus"):        # 旧形式（切り替え前の陣容）
         army = army_plus(army, float(snap["plus"]))
     if snap.get("mult"):
         army = army_boost(army, float(snap["mult"]))
@@ -674,7 +674,7 @@ def set_truce_default(cx, player_id: str, hours, now: int) -> dict:
     """通常設定を更新する。
 
     今日まで遡って設定が変わると、既に出た試合を「休戦したこと」にできてしまう。
-    そこで締切済みの開催を含む日だけ旧設定を日別魚拓として残し、新しい通常設定は
+    そこで締切済みの開催を含む日だけ旧設定を日別陣容として残し、新しい通常設定は
     その次の完全に未締切の日から効かせる。
     """
     import datetime
@@ -729,7 +729,7 @@ def set_truce_day(cx, player_id: str, day: str, hours, now: int,
 
 
 def _season_archive(cx, season: str) -> None:
-    """シーズンの魚拓（§7.58）。順位表と全デッキを焼いてから消す。"""
+    """シーズンの陣容（§7.58）。順位表と全デッキを焼いてから消す。"""
     names = {p.id: p.display_name for p in P.all_players(cx)}
     kinds = {p.id: p.kind for p in P.all_players(cx)}
     for bn in L.BOARDS:
@@ -849,11 +849,11 @@ def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
 def tick(cx, cards, now: int) -> None:
     """定刻処理の遅延評価。**どの入口からでも最初に呼ぶ。**
 
-    やること: (1) 月が変わっていたら魚拓→レートリセット (2) 期限の来た天下を
+    やること: (1) 月が変わっていたら陣容→レートリセット (2) 期限の来た天下を
     開催（複数たまっていれば順に） (3) 順位表の毎時断面を更新。全部が冪等で、
     呼び忘れた時間は次の呼び出しがまとめて片付ける。
     """
-    # (0) 旧 matches からの引っ越し（1回だけ）。魚拓なし＝当時の登録から再構成
+    # (0) 旧 matches からの引っ越し（1回だけ）。陣容なし＝当時の登録から再構成
     if not P.ledger_get(cx, "migrated_battles"):
         for m in cx.execute("SELECT * FROM matches ORDER BY id"):
             # rule_version は渡さない（既定 ''）。旧 matches は当時どのルール
@@ -1029,7 +1029,7 @@ def attack(cx, cards, me, reg_name: str, now: int) -> dict:
 
 
 def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
-    """軍議演習。過去に戦った敵の魚拓へ、現在登録中の自軍を当てる。
+    """軍議演習。過去に戦った敵の陣容へ、現在登録中の自軍を当てる。
 
     レート・通常戦績・報酬は動かさず、演習令を1枚だけ消費する。相手本人の
     pid は記録に使わないため、相手側の戦歴にも演習は現れない。
@@ -1037,11 +1037,11 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
     src = cx.execute("SELECT * FROM battles WHERE id = ?",
                      (source_battle_id,)).fetchone()
     if src is None or me.id not in (src["pid_a"], src["pid_b"]):
-        return {"error": "その対戦魚拓は使えない"}
+        return {"error": "その対戦陣容は使えない"}
     if src["mode"] in ("senki", "council"):
         return {"error": "その記録は軍議演習の相手にできない"}
     if not src["snap_a"] or not src["snap_b"]:
-        return {"error": "古い記録のため敵布陣の魚拓が残っていない"}
+        return {"error": "古い記録のため敵布陣の陣容が残っていない"}
     board = src["board"]
     if board not in REG_NAMES and board != "天下":
         return {"error": "その戦場は軍議演習に対応していない"}
@@ -1059,7 +1059,7 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
     names = {p.id: p.display_name for p in P.all_players(cx)}
     foe_name = names.get(foe_pid, "名もなき軍")
 
-    # 消費前に魚拓を再構成し、壊れた記録で演習令だけ失わないようにする。
+    # 消費前に陣容を再構成し、壊れた記録で演習令だけ失わないようにする。
     try:
         foe_entry = entry_from_snap(cards, foe_snap)
         if board == "天下":
@@ -1083,7 +1083,7 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
             marks = result_mark(sa)
             mine_snap = _json.dumps(snap_army(ua), ensure_ascii=False)
     except (KeyError, ValueError, TypeError):
-        return {"error": "敵布陣の魚拓を再構成できない"}
+        return {"error": "敵布陣の陣容を再構成できない"}
 
     if not P.spend_enshu(cx, me.id, 1, now):
         return {"error": "演習令が足りない（10分に1枚回復する）"}
@@ -1146,7 +1146,7 @@ def room_join(cx, cards, me, code: str, now: int) -> dict:
     entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
     if not ok.get(reg_name):
         return {"error": "{} のデッキが出せる状態にない".format(reg_name)}
-    ua = army_from_snap(cards, _json.loads(room["snap"]))   # 発行側の魚拓
+    ua = army_from_snap(cards, _json.loads(room["snap"]))   # 発行側の陣容
     ub = entry.unit(reg_i)
     seed = L.battle_seed("room", code, now)
     r = M.play_one(BoardEntry({reg_i: ua}), BoardEntry({reg_i: ub}),

@@ -2256,7 +2256,7 @@ async function saveDeck() {
   }
 }
 
-/* ── 軍議演習（過去の敵魚拓 × 現在の登録デッキ） ───────── */
+/* ── 軍議演習（過去の敵陣容 × 現在の登録デッキ） ───────── */
 async function viewCouncil(_state) {
   const d = await api("/api/council");
   const t = d.ticket;
@@ -2281,7 +2281,7 @@ async function viewCouncil(_state) {
       <div>
         <p class="eyebrow">過去を盤上へ呼び戻す</p>
         <h2>軍議演習</h2>
-        <p>過去に戦った敵の布陣を魚拓として再現し、<b>現在登録中の自軍デッキ</b>をぶつける。
+        <p>過去に戦った敵の布陣を陣容として再現し、<b>現在登録中の自軍デッキ</b>をぶつける。
         勝敗を研究する場なので、武名・通常戦績・報酬は動かない。</p>
       </div>
       <div class="enshu-box">
@@ -2292,10 +2292,10 @@ async function viewCouncil(_state) {
       </div>
     </section>
     <section class="panel fade-in">
-      <h2>対戦魚拓を選ぶ<span class="sub">1戦につき演習令1枚・同じ魚拓へ何度でも挑戦可</span></h2>
+      <h2>対戦陣容を選ぶ<span class="sub">1戦につき演習令1枚・同じ陣容へ何度でも挑戦可</span></h2>
       <div class="table-scroll"><table class="std council-table">
         <thead><tr><td>日時</td><td>種別</td><td>戦場</td><td>相手</td><td>当時</td><td></td></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" class="muted">まず対戦か在野戦を行うと、敵布陣の魚拓がここへ残ります。</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="6" class="muted">まず対戦か在野戦を行うと、敵布陣の陣容がここへ残ります。</td></tr>'}</tbody>
       </table></div>
       <p class="muted council-note">編成を変えるときは「編成」で登録し直してから戻る。敵側はこの対戦時点の布陣のまま変わらない。</p>
     </section>`;
@@ -2329,7 +2329,7 @@ async function viewCouncil(_state) {
 async function doCouncil(sourceId, board, foe) {
   document.body.insertAdjacentHTML("beforeend", `
     <div id="overlay"><div class="box"><div class="march">軍議演習</div>
-      <p class="muted">${esc(foe)}の対戦魚拓を盤上へ再現しております……</p></div></div>`);
+      <p class="muted">${esc(foe)}の対戦陣容を盤上へ再現しております……</p></div></div>`);
   try {
     const r = await api("/api/council_fight", { source_id: sourceId });
     sessionStorage.setItem("fight:" + r.battle_id, JSON.stringify(
@@ -2644,8 +2644,8 @@ async function viewReplay(state) {
     if (FIGHT.kind === "council") {
       el.innerHTML = `
         <span class="fa-verdict">${esc(r.win)}</span>
-        <span class="muted">敵の魚拓は固定。編成を変えれば同じ条件で研究できる</span>
-        <button class="primary" id="fa-council-again">同じ魚拓でもう一度</button>
+        <span class="muted">敵の陣容は固定。編成を変えれば同じ条件で研究できる</span>
+        <button class="primary" id="fa-council-again">同じ陣容でもう一度</button>
         <a class="btn ghost" href="/deck">編成を見直す</a>
         <a class="btn ghost" href="/council?source=${FIGHT.source_id}">軍議演習へ戻る</a>`;
       $("#fa-council-again").onclick = () =>

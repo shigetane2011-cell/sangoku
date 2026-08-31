@@ -90,7 +90,7 @@ source = P.record_battle(
     PL.season_key(1800000000), 1800000000, "●")
 r, d = req("GET", "/api/council", cookie=sid)
 council = json.loads(d)
-check("軍議APIに演習令10と対戦魚拓が出る",
+check("軍議APIに演習令10と対戦陣容が出る",
       r.status == 200 and council.get("ticket", {}).get("count") == 10
       and any(x["id"] == source for x in council.get("targets", [])), council)
 r, d = req("POST", "/api/council_fight", cookie=sid,

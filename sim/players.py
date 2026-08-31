@@ -240,9 +240,9 @@ CREATE TABLE IF NOT EXISTS saved_decks (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (player_id, regulation, name)
 );
--- ⑨（§7.58）対戦の記録v2。**デッキの魚拓を持つ** — 後からデッキを変えても
+-- ⑨（§7.58）対戦の記録v2。**デッキの陣容を持つ** — 後からデッキを変えても
 -- リプレイが変わらない（旧 matches は登録デッキから再構成していて、差し替えで
--- 過去のリプレイごと変わった）。勝敗は保存しない（種＋魚拓から決定的に再計算）。
+-- 過去のリプレイごと変わった）。勝敗は保存しない（種＋陣容から決定的に再計算）。
 CREATE TABLE IF NOT EXISTS battles (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   mode       TEXT NOT NULL,             -- ranked / tenka / free / room
@@ -250,14 +250,14 @@ CREATE TABLE IF NOT EXISTS battles (
   pid_a      TEXT NOT NULL,             -- ranked では挑んだ側
   pid_b      TEXT NOT NULL,
   seed       INTEGER NOT NULL,
-  snap_a     TEXT NOT NULL,             -- デッキ魚拓（JSON）。'' は旧記録
+  snap_a     TEXT NOT NULL,             -- デッキ陣容（JSON）。'' は旧記録
   snap_b     TEXT NOT NULL,
   season     TEXT NOT NULL,             -- YYYY-MM
   played_at  INTEGER NOT NULL           -- unix秒
 );
 CREATE INDEX IF NOT EXISTS ix_battles_board ON battles(board, played_at);
 CREATE INDEX IF NOT EXISTS ix_battles_pid ON battles(pid_a, board, played_at);
--- 軍議演習は過去の敵デッキ魚拓を仮想敵として使う。battles.pid_b は実在の
+-- 軍議演習は過去の敵デッキ陣容を仮想敵として使う。battles.pid_b は実在の
 -- プレイヤーにせず council:<元記録id> とし、元記録と表示名だけここに残す。
 -- これにより相手本人の戦歴・戦績へ演習が混ざらない。
 CREATE TABLE IF NOT EXISTS council_runs (
@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   code       TEXT PRIMARY KEY,
   creator    TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   regulation TEXT NOT NULL,
-  snap       TEXT NOT NULL,             -- 発行時点のデッキ魚拓
+  snap       TEXT NOT NULL,             -- 発行時点のデッキ陣容
   created_at INTEGER NOT NULL,
   battle_id  INTEGER                    -- 成立したら battles.id
 );
@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS standings_cache (
   hour_key TEXT NOT NULL,
   data     TEXT NOT NULL
 );
--- 月次の魚拓（シーズン末の順位表と全デッキ）。リセットの前に必ず焼く。
+-- 月次の陣容（シーズン末の順位表と全デッキ）。リセットの前に必ず焼く。
 CREATE TABLE IF NOT EXISTS archives (
   season TEXT NOT NULL,
   board  TEXT NOT NULL,
@@ -1045,7 +1045,7 @@ def ledger_set(cx: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def reset_ratings(cx: sqlite3.Connection) -> None:
-    """月次リセット（§7.58）。**魚拓を焼いてから呼ぶこと。** games も消すので
+    """月次リセット（§7.58）。**陣容を控えてから呼ぶこと。** games も消すので
     可変Kが月初を速く収束させる（全員K最大から数戦で実力帯へ）。"""
     with cx:
         cx.execute("DELETE FROM ratings")

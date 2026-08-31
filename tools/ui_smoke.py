@@ -367,7 +367,7 @@ def onboard_check(page, rep):
 
 
 def council_check(page, rep, label):
-    """軍議演習の入口は、敵魚拓がまだ無い新規でも崩れず表示される。"""
+    """軍議演習の入口は、敵陣容がまだ無い新規でも崩れず表示される。"""
     page.goto(BASE + "/council", wait_until="domcontentloaded")
     page.wait_for_selector(".council-hero", timeout=60000)
     rep.check((page.text_content(".council-hero h2") or "").strip() == "軍議演習",

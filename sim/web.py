@@ -106,7 +106,7 @@ def _my_rating(cx, me):
 
 def _deck_records(cx, pid):
     """保存デッキの戦績（§7.120）。**中身一致で自動集計** — 対戦の記録
-    （battles・§7.58）は編成の魚拓と勝敗の刻みを持っているので、新しい表を
+    （battles・§7.58）は編成の陣容と勝敗の刻みを持っているので、新しい表を
     足さずに (レギュレーション, 札の並び, 陣形) で突き合わせれば、過去の
     対戦ぶんまで遡って出る。編成を1枚でも変えると別デッキ扱いになる（戦績は
     その編成のものとして残る）。
@@ -148,11 +148,11 @@ def _deck_records(cx, pid):
             d = _json.loads(mine)
         except ValueError:
             continue
-        if "units" in d:                      # 天下（3レギュぶんの魚拓）
+        if "units" in d:                      # 天下（3レギュぶんの陣容）
             for i, snap in enumerate(d["units"]):
                 if i < len(regs) and i < len(marks):
                     bump(regs[i], snap, marks[i])
-        elif r["board"] in regs:              # BO1（そのレギュの魚拓1つ）
+        elif r["board"] in regs:              # BO1（そのレギュの陣容1つ）
             bump(r["board"], d, marks[0] if marks else "")
     return out
 
@@ -1584,7 +1584,7 @@ class App(BaseHTTPRequestHandler):
         self._json(r, 200 if "error" not in r else 400)
 
     def _api_council(self):
-        """軍議演習の札数と、使える過去対戦の敵魚拓。"""
+        """軍議演習の札数と、使える過去対戦の敵陣容。"""
         cx = self._cx()
         me = self._me(cx)
         if me is None:
@@ -1719,7 +1719,7 @@ class App(BaseHTTPRequestHandler):
                 return self._json({"error": "その記録は無い"}, 404)
             names[m["pid_b"]] = SK.title_of(m["pid_b"])
         elif m["mode"] == "council":
-            # 仮想敵の魚拓は作成者だけが見られる。元の相手本人へは記録を出さない。
+            # 仮想敵の陣容は作成者だけが見られる。元の相手本人へは記録を出さない。
             run = P.council_run(cx, mid)
             if not (me and run and run["player_id"] == me.id):
                 return self._json({"error": "その記録は無い"}, 404)
@@ -1727,10 +1727,10 @@ class App(BaseHTTPRequestHandler):
 
         def sides():
             if m["snap_a"] and m["snap_b"]:
-                # 魚拓から再構成（§7.58）。後からデッキを変えても不変。
+                # 陣容から再構成（§7.58）。後からデッキを変えても不変。
                 return (PL.entry_from_snap(cards, m["snap_a"]),
                         PL.entry_from_snap(cards, m["snap_b"]))
-            # 旧記録（魚拓なし）。当時の登録デッキから再構成するので、
+            # 旧記録（陣容なし）。当時の登録デッキから再構成するので、
             # 登録が変わっていれば再生できない。
             entries = PL.ensure_dummies(cx, cards)
             for p in P.all_players(cx, kind=P.HUMAN):
