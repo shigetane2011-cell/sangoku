@@ -2825,7 +2825,8 @@ async function viewReplay(state) {
           </span>
           <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（技${(sk / 1000).toFixed(1)}）</small></span>
           <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}${
-            u.fell ? ` <span class="fell">・${u.fell}崩</span>` : ""}</span>
+            u.fell ? ` <span class="fell">・${u.fell}崩</span>` : ""}${
+            u.wiped ? ` <span class="wiped">・${u.wiped}壊</span>` : ""}</span>
         </div>`;
       }).join("");
     $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
@@ -2843,7 +2844,7 @@ async function viewReplay(state) {
       <div class="detail-scroll"><table class="detail-table num">
         <thead><tr><th>武将</th><th>与ダメ</th><th>うち技</th><th>被ダメ</th>
           <th>軽減</th><th>癒し</th><th>発動</th><th>阻害</th>
-          <th title="残15%を割った時刻。表示のみ — 隊はそのまま戦い続ける">残存</th></tr></thead>
+          <th title="・崩＝残15%を割った時刻／・壊＝真に壊滅した時刻。どちらも表示のみ — 崩は隊がそのまま戦い続ける">残存</th></tr></thead>
         <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
           <td class="uname">${esc(u.name)}</td>
           <td>${k(u.dealt)}千</td><td>${k(u.skill_dealt)}千</td>
@@ -2855,7 +2856,8 @@ async function viewReplay(state) {
             : (u.fires ? u.fires + "回" : "—")}</td>
           <td>${u.stun ? u.stun + "分" : "—"}</td>
           <td>${u.men / u.men0 <= 0.005 ? "壊滅" : "残" + Math.round(100 * u.men / u.men0) + "%"}${
-            u.fell ? `<span class="fell">・${u.fell}崩</span>` : ""}</td>
+            u.fell ? `<span class="fell">・${u.fell}崩</span>` : ""}${
+            u.wiped ? `<span class="wiped">・${u.wiped}壊</span>` : ""}</td>
         </tr>`).join("")}</tbody>
       </table></div>`;
     // 矛先: 誰が誰を削ったか（与えた量の大きい順・上位3）

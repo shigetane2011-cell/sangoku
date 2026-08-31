@@ -1569,6 +1569,7 @@ class Unit:
         "null_blocked", "null_names", "scut_saved",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
+        "wiped_at",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1707,6 +1708,7 @@ class Unit:
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
         self.nullify = False    # 必殺技打消しの構え（§7.51 機構5）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
+        self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -3322,9 +3324,13 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         for u in ua:
             if u.fell_at is None and u.ratio() < ROUT_UNIT:
                 u.fell_at = t
+            if u.wiped_at is None and u.ratio() < ANNIHIL_UNIT:
+                u.wiped_at = t
         for u in ub:
             if u.fell_at is None and u.ratio() < ROUT_UNIT:
                 u.fell_at = t
+            if u.wiped_at is None and u.ratio() < ANNIHIL_UNIT:
+                u.wiped_at = t
         # 陣頭指揮（§7.52）: 指揮官の隊が COMMAND_ROUT を割ったら全軍が動揺
         # し、現在兵力の COMMAND_COLLAPSE を一度に失う。**両側の条件を見て
         # から両方へ適用する**（先に崩れた側の動揺が相手の判定を変えない）。
@@ -3393,7 +3399,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.null_blocked, list(u.null_names),
                          u.scut_saved, (u.guard_casts, u.guard_idle),
                          list(u.fire_times),
-                         (u.spill_over, u.spill_dealt, u.spill_n))
+                         (u.spill_over, u.spill_dealt, u.spill_n),
+                         u.wiped_at)
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
@@ -3404,7 +3411,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.null_blocked, list(u.null_names),
                          u.scut_saved, (u.guard_casts, u.guard_idle),
                          list(u.fire_times),
-                         (u.spill_over, u.spill_dealt, u.spill_n))
+                         (u.spill_over, u.spill_dealt, u.spill_n),
+                         u.wiped_at)
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
             # 誘発条件の多くは「味方が潰走した」なので、誰も潰走しない対戦では
@@ -3538,16 +3546,24 @@ def _army_name(army: "Army", fallback: str) -> str:
 # 補助技が勝ってダメージ技が一行も出なくなる（実測: 火計も無双乱舞も消えた）。
 # 大きさの単位が違うもの（人数 と %×秒×枚数）を1つの物差しで比べていたのが原因で、
 # 係数を調整して釣り合わせるより、枠を分けるほうが素直である。
+# 「苦戦」（ROUT_UNIT=15%）と「壊滅」（ANNIHIL_UNIT=0.5%）は別種の行にする
+# （テストプレイの指摘・§7.49後記）。以前は両方とも種別名"壊滅"・同じ文言
+# 「支えきれず崩れ立つ」で、ペナルティのない15%到達が「もう戦えない」ふうに
+# 読めてしまい、実際にまだ動ける隊が技を撃つたび「バグでは」と誤解された。
+# 苦戦は雑魚が多いが山場が乏しい対戦の見せ場に、壊滅は本当に隊が尽きた
+# 節目にする。cap/prio は必殺技・計略と同じ重みを壊滅に、苦戦は旧「壊滅」の
+# 枠をそのまま引き継ぐ。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
-             "必殺技": 3, "計略": 3, "誘発": 2, "突撃": 1, "壊滅": 4, "決着": 1,
-             "時刻": 1, "戦況": 4, "台詞": 3}
+             "必殺技": 3, "計略": 3, "誘発": 2, "突撃": 1, "苦戦": 4,
+             "壊滅": 3, "決着": 1, "時刻": 1, "戦況": 4, "台詞": 3}
 # 優先順位（小さいほど先に確保する）。**戦況は技より先に確保する**（兵数の推移が
 # 実況の背骨。テストプレイの指摘）。台詞は技と同じ組で選ばれる（mag が技と同値）。
 LINE_PRIO = {"決着": 1, "戦況": 2, "予告": 2, "結果": 2, "必殺技": 3, "計略": 3,
-             "誘発": 3, "台詞": 3, "突撃": 4, "壊滅": 4, "時刻": 4, "接敵": 5,
-             "抑制": 6, "布陣": 7}
+             "誘発": 3, "台詞": 3, "壊滅": 3, "突撃": 4, "苦戦": 4, "時刻": 4,
+             "接敵": 5, "抑制": 6, "布陣": 7}
 LINE_BUDGET = 20
-ROUT_UNIT = 0.15        # 一枚が「壊滅」と見なされる残存率（表示のみ）
+ROUT_UNIT = 0.15        # 一枚が「苦戦」に陥ったと見なす残存率（表示のみ）
+ANNIHIL_UNIT = 0.005    # 一枚が真に「壊滅」したと見なす残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
 # 実況の時間表現。**盤面の1ティックを戦場の 1.35 分として読ませる。**
 #
@@ -3808,15 +3824,27 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
                     "{}、{}に間近まで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
                         _who(u), _who(near), 100 * sup), side=_side_of(u)))
-    # 壊滅
+    # 苦戦（ROUT_UNIT=15%。ペナルティなし・隊はそのまま戦い続ける。§7.49後記）
     for u in list(ua) + list(ub):
-        k = ("滅", id(u))
+        k = ("苦", id(u))
         if k not in seen and u.ratio() < ROUT_UNIT:
             seen.add(k)
             own = ua if u.side > 0 else ub
             rest = sum(x.men for x in own) / sum(x.men0 for x in own)
+            ev.append(Event(t, "苦戦", LINE_PRIO["苦戦"],
+                "{}の隊、大きく崩れながらも踏みとどまる（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                    _who(u), u.men0 - u.men,
+                    _JP["A" if u.side > 0 else "B"], 100 * rest),
+                side=_side_of(u)))
+    # 壊滅（ANNIHIL_UNIT=0.5%。真に隊が尽きた節目。苦戦とは別枠・§7.49後記）
+    for u in list(ua) + list(ub):
+        k = ("滅", id(u))
+        if k not in seen and u.ratio() < ANNIHIL_UNIT:
+            seen.add(k)
+            own = ua if u.side > 0 else ub
+            rest = sum(x.men for x in own) / sum(x.men0 for x in own)
             ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
-                "{}の隊、支えきれず崩れ立つ（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                "{}の隊、ついに壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
                     _who(u), u.men0 - u.men,
                     _JP["A" if u.side > 0 else "B"], 100 * rest),
                 side=_side_of(u)))
@@ -3894,7 +3922,7 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
 
     # 挿絵を差す場所を決める（§9.3 の三幕）。序＝布陣、破＝いちばん大きい出来事、
     # 急＝決着。**大きさで選ぶのは「破」だけ**で、序と急は位置で決まっている。
-    mid = [e for e in kept if e.kind in ("必殺技", "計略", "誘発", "壊滅")]
+    mid = [e for e in kept if e.kind in ("必殺技", "計略", "誘発", "苦戦", "壊滅")]
     art = {id(e) for e in kept if e.kind in ("布陣", "決着")}
     if mid:
         art.add(id(max(mid, key=lambda e: e.mag)))

@@ -742,6 +742,7 @@ button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
 .log .foe-name { color: #9fc9f4; font-weight: 600; }
 .log .mine-name { color: #ffe19a; font-weight: 600; }
 .fell { color: #e08a5a; }
+.wiped { color: var(--lose); }
 .replay-controls { display: flex; gap: 8px; margin: 10px 0; align-items: center;
   flex-wrap: wrap; }
 .chart-panel h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .1em; }

@@ -487,6 +487,51 @@ def readonly_checks(page, rep):
               "魏の枠色 #46689c が残っている（{}）".format(gi))
 
 
+def rout_badges_check(page, rep, datadir):
+    """苦戦（崩・ROUT_UNIT=15%）と真の壊滅（壊・ANNIHIL_UNIT=0.5%）が
+    リプレイ画面で別バッジとして両方出るか（§7.49後記）。
+
+    以前は両方とも「戦場を去る」の一枚看板で、生きて崩れただけの隊が必殺技を
+    撃つとバグ報告になった。表示を直した後も「なぜ生きているのに崩れた表記が
+    付くのか」で二度目の報告が来たため、崩＝苦戦（ペナルティ無し・戦い続ける）
+    と壊＝真の壊滅を別バッジに分けた。構文検査はテンプレートの描き分けを
+    保証しない（§7.90）ので、ここは実ブラウザでDOMまで見る。
+    """
+    import json
+    import sim.players as P, sim.match as M, sim.play as PL, sim.field as F
+    me = page.evaluate("() => fetch('/api/state').then(r => r.json())").get("me")
+    if not rep.check(me is not None, "崩・壊バッジ確認用のログイン済みプレイヤーが取れる"):
+        return
+    cx = P.connect(os.path.join(datadir, "players.db"))
+    cards = {c.name: c for c in M._roster_cards()}
+    # 陸抗側が圧倒し、敵側に「生きて崩れただけ」と「真に壊滅」の両方を
+    # 確実に出すための組み合わせ（tools/test_restraint.py と同じ札）。
+    strong = F.Army(tuple(cards[n] for n in (
+        "陸抗〔羊陸之交〕", "賀斉〔山越討伐〕", "華雄〔汜水関〕",
+        "郭淮〔雍涼〕", "周瑜〔赤壁〕", "荀彧〔王佐〕")), F.FORM_WIDE)
+    weak = F.Army(tuple(cards[n] for n in (
+        "夏侯淵〔神速〕", "趙雲〔長坂坡〕", "関平〔麒麟児〕",
+        "韓当〔老弓〕", "馬謖〔幼常〕", "諸葛恪〔元遜〕")), F.FORM_WIDE)
+    mid = P.record_battle(
+        cx, "ranked", "赤壁", me["id"], me["id"], 1,
+        json.dumps(PL.snap_army(strong), ensure_ascii=False),
+        json.dumps(PL.snap_army(weak), ensure_ascii=False),
+        "smoke", int(time.time()), "○")
+    page.goto(BASE + "/replay?id={}".format(mid), wait_until="domcontentloaded")
+    # 合戦詳録は既定で畳んだ <details> の中にある。開かないと中の表は
+    # 存在しても不可視のまま（truce編集欄と同じ罠・§7.132の教訓）。
+    page.wait_for_selector(".battle-detail", timeout=60000)
+    page.evaluate("() => { document.querySelector('.battle-detail').open = true; }")
+    page.wait_for_selector(".detail-table", timeout=60000)
+    page.wait_for_timeout(500)
+    fell_n = page.eval_on_selector_all(".fell", "es => es.length")
+    wiped_n = page.eval_on_selector_all(".wiped", "es => es.length")
+    rep.check(fell_n > 0, "「崩」バッジ（苦戦・15%）がリプレイ画面に出る（{}件）".format(fell_n))
+    rep.check(wiped_n > 0, "「壊」バッジ（真の壊滅・0.5%）がリプレイ画面に出る（{}件）".format(wiped_n))
+    rep.check(fell_n >= wiped_n,
+              "崩の件数（{}）が壊の件数（{}）以上（壊は必ず崩を経由する）".format(fell_n, wiped_n))
+
+
 # ── リプレイの陣営札（同じ武将が両軍にいる場合）───────────
 def detail_check(rep):
     """合戦詳録（§7.94）の帳簿が回っているか。数字は盤面の実測で釣り合いを見る。"""
@@ -576,6 +621,7 @@ def run():
                 council_check(page, rep, label)
                 if not mob:
                     readonly_checks(page, rep)
+                    rout_badges_check(page, rep, datadir)
                 rep.check(not errs, "[{}] 画面の例外なし{}".format(
                     label, "：" + "／".join(errs) if errs else ""))
                 ctx.close()
