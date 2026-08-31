@@ -701,21 +701,21 @@ const GUIDE_HTML = `
           <dd>鶴翼＝前4・弓2（近接が主役）／魚鱗＝前3・弓3（半々）／
             雁行＝前2・弓4（射撃が主役）。矢を増やすほど、壁は薄くなる。</dd>
           <dt>弓の弱点</dt>
-          <dd>肉薄されると矢も必殺技も鈍る。射手を守る壁を惜しむな。</dd>
+          <dd>肉薄されると矢も兵法も鈍る。射手を守る壁を惜しむな。</dd>
           <dt>槍の使い道</dt>
           <dd>槍持ちの歩兵は後衛にも置ける。回り込む騎馬は、槍が突き止める。</dd>
           <dt>前衛の積み方</dt>
           <dd>高く積め——最も安い札が矢面に立ち、高い札が長く戦う。
             ただし一枚の柱に頼る軍は、柱を失えば崩れる。</dd>
-          <dt>同じ技は重ならない</dt>
-          <dd><b>同じ名の技の効果は積み上がらない</b>——強いほう一つだけが効く。
-            同じ札を二度撃っても、同じ技を持つ二人が並んでも同じこと。
-            <b>違う名の技どうしなら足し合わさる</b>。ただし一つの能力への合計は
-            上下とも五割で頭打ちになる。守りを固めるなら、同じ技を重ねるより
-            <b>別々の技を並べよ</b>。</dd>
+          <dt>同じ兵法は重ならない</dt>
+          <dd><b>同じ名の兵法の効果は積み上がらない</b>——強いほう一つだけが効く。
+            同じ札を二度撃っても、同じ兵法を持つ二人が並んでも同じこと。
+            <b>違う名の兵法どうしなら足し合わさる</b>。ただし一つの能力への合計は
+            上下とも五割で頭打ちになる。守りを固めるなら、同じ兵法を重ねるより
+            <b>別々の兵法を並べよ</b>。</dd>
           <dt>細かい得</dt>
           <dd>余った点は開戦の気勢に変わる。本陣を預かる将が崩れれば全軍が
-            動揺する。必殺技は消費が軽いほど数を撃ち、重いほど一撃に懸ける。</dd>
+            動揺する。兵法は消費が軽いほど数を撃ち、重いほど一撃に懸ける。</dd>
         </dl>
         <h3 class="guide-sub">用語</h3>
         <p class="guide-note">札の効果文と軍功帳・合戦詳録に出る語。
@@ -743,21 +743,21 @@ const GUIDE_HTML = `
           <dd>一定時間の増減。<b>同じ名の効果は重ならず、強いほう一つだけ</b>が効く。
             違う名どうしなら足し合わさるが、一つの能力への合計は上下とも
             五割で頭打ち。</dd>
-          <dt>必殺技防御・通常攻撃防御</dt>
+          <dt>兵法防御・通常攻撃防御</dt>
           <dd>受ける損害そのものを減らす。減らした分は軍功帳に<b>軽減</b>として出る。</dd>
-          <dt>必殺技反射</dt>
-          <dd>受けた必殺技の一部を撃ち手へ返す。返した分は<b>反射</b>として出る。</dd>
+          <dt>兵法反射</dt>
+          <dd>受けた兵法の一部を撃ち手へ返す。返した分は<b>反射</b>として出る。</dd>
           <dt>打消し</dt>
-          <dd>構えた隊を狙う敵の必殺技を<b>丸ごと無効</b>にする。軽減と違い、
+          <dd>構えた隊を狙う敵の兵法を<b>丸ごと無効</b>にする。軽減と違い、
             当たらなかったことになる。</dd>
           <dt>代償</dt>
-          <dd>放つたびに<b>自分の隊の残り兵</b>を割合で失う。強い技ほど重い。</dd>
+          <dd>放つたびに<b>自分の隊の残り兵</b>を割合で失う。強い兵法ほど重い。</dd>
           <dt>ゲージ付与</dt>
-          <dd>味方の必殺技のたまり具合を進める。早く二撃目を出させる。</dd>
+          <dd>味方の兵法のたまり具合を進める。早く二撃目を出させる。</dd>
           <dt>気勢</dt>
-          <dd>必殺技のたまる速さ。編成で余った点はここに変わる。</dd>
+          <dd>兵法のたまる速さ。編成で余った点はここに変わる。</dd>
           <dt>抑制</dt>
-          <dd>弓兵は<b>肉薄されると矢も必殺技も鈍る</b>。射手を守る壁が要る理由。</dd>
+          <dd>弓兵は<b>肉薄されると矢も兵法も鈍る</b>。射手を守る壁が要る理由。</dd>
           <dt>迂回</dt>
           <dd>騎兵が敵陣の外を回り、前衛を素通りして後衛を襲う。
             <b>敵の削りの出どころが後ろに偏っているときほど回り込む</b>。
@@ -1324,7 +1324,7 @@ async function viewSenkiPrep(i) {
   cur = { reg: p.board, form: start.form || p.enemy.form,
           slots: slotsFromCards(start.cards) };
   const foeSummary = armySummary(p.enemy.cards, p.enemy.form, p.enemy.cost, null, "foe");
-  // 敵札の中身（兵力・攻勢・必殺技・特性）。**盤面は配置しか語らない** —
+  // 敵札の中身（兵力・攻勢・兵法・特性）。**盤面は配置しか語らない** —
   // 見立てが「重い1枚は壁で受けよ」と言っても、どれが重い1枚かはここでしか
   // 読めない（§7.62 の詰将棋の可読性）。盤面の下に畳んで置く。
   const foe = p.enemy.cards.map((c, k) => `
@@ -1365,7 +1365,7 @@ async function viewSenkiPrep(i) {
           <div id="foe-board"></div>
         </section>
         <details class="foe-detail" open>
-          <summary>敵札の中身<span class="muted">　兵力・攻勢・必殺技・特性</span></summary>
+          <summary>敵札の中身<span class="muted">　兵力・攻勢・兵法・特性</span></summary>
           ${foe}
         </details>
         ${p.enemy.taunt ? `<div class="ci-quote">「${esc(p.enemy.taunt)}」<span class="muted">— ${esc(p.enemy.lead)}</span></div>` : ""}
@@ -1811,7 +1811,7 @@ function drawDraft() {
     ).join("")}</span></div>`;
   el.innerHTML = `
     <div class="side-label">─ 軍師に相談（たたき台） ─</div>
-    ${q("style", "戦い方", ["力押し", "必殺技", "守り", "おまかせ"])}
+    ${q("style", "戦い方", ["力押し", "兵法", "守り", "おまかせ"])}
     ${q("typ", "主役", ["歩兵", "騎兵", "弓兵", "おまかせ"])}
     ${q("faction", "勢力", ["魏", "蜀", "呉", "群雄", "おまかせ"])}
     ${q("form", "陣形", ["鶴翼", "魚鱗", "雁行", "おまかせ"])}
@@ -2104,12 +2104,12 @@ function showCardInfo(name) {
       　攻勢 毎分約${c.atk_pm.toLocaleString()}人を削る
       　守勢 実効${c.eff_men.toLocaleString()}人ぶんを受ける</div>
     <div class="ci-row">
-      <span class="tag skill-tag">必殺技</span>
+      <span class="tag skill-tag">兵法</span>
       <b>【${esc(c.skill)}】</b> <span class="muted">対象 ${esc(c.skill_target)}｜</span>${esc(c.skill_desc)}${
         /損害|延焼/.test(c.skill_desc) ? '<span class="muted">　※損害は敵の守りで目減りする</span>' : ""}
     </div>
     ${c.cadence ? `<div class="ci-row">
-      <span class="tag skill-tag">技の巡り</span> <b>${esc(c.cadence.tier_jp)}</b>
+      <span class="tag skill-tag">兵法の巡り</span> <b>${esc(c.cadence.tier_jp)}</b>
       <span class="muted">　初動：${esc(c.cadence.first_label)}（自然蓄積 約${c.cadence.first_m}分）
       　再発：${esc(c.cadence.repeat_label)}（自然蓄積 約${c.cadence.repeat_m}分）</span>
       <div class="muted" style="font-size:.85em">※自然蓄積の目安。攻撃・被弾により早まります
@@ -2161,7 +2161,7 @@ function showTip(e, name) {
     <b>${esc(c.name)}</b>
     <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
     <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
-    <span class="muted">【${esc(c.skill)}】${c.cadence ? "　技の巡り " + esc(c.cadence.tier_jp) : ""}　特性: ${c.traits.length
+    <span class="muted">【${esc(c.skill)}】${c.cadence ? "　兵法の巡り " + esc(c.cadence.tier_jp) : ""}　特性: ${c.traits.length
       ? c.traits.map((t) => t.name).join("・") : "─（持たない）"}</span><br>
     <span class="tip-hint">クリックで詳細</span>`;
   tip.style.display = "block";
@@ -2454,16 +2454,16 @@ async function viewReplays(state) {
 const WAR_TIPS = [
   "三すくみを覚えておけ——歩は騎を受け止め、騎は弓を蹴散らし、弓は歩を射抜く。",
   "陣形は弓の数を決める。鶴翼は弓二・魚鱗は弓三・雁行は弓四。矢を増やすほど、壁は薄くなる。",
-  "弓は肉薄されると矢も技も鈍る。射手を守る壁を惜しむな。",
+  "弓は肉薄されると矢も兵法も鈍る。射手を守る壁を惜しむな。",
   "槍持ちの歩兵は後衛にも置ける。回り込む騎馬は、槍が突き止める。",
   "前衛は高く積め。最も安い札が矢面に立ち、高い札が長く戦う。",
   "一枚の柱に頼る軍は、柱を失えば崩れる。敵の柱は壁で受け、脇の小勢から崩せ。",
   "使い切れなかった点は、開戦の気勢に変わる。無駄にはならぬが、兵にもならぬ。",
   "本陣を預かる将が崩れれば、全軍が動揺する。本陣は置き所が肝心よ。",
-  "必殺技は消費が軽いほど数を撃ち、重いほど一撃に懸ける。技の巡りも編成のうち。",
+  "兵法は消費が軽いほど数を撃ち、重いほど一撃に懸ける。兵法の巡りも編成のうち。",
   "敗れた戦こそ実況を読み返せ。どの隊が先に崩れたかに、次の布陣の答えがある。",
-  "同じ名の技は重ならぬ。強いほう一つだけが効く。守りを固めるなら、別々の技を並べよ。",
-  "違う名の技どうしなら効果は足し合わさる。ただし一つの能力への合計は、上下とも五割で頭打ちよ。",
+  "同じ名の兵法は重ならぬ。強いほう一つだけが効く。守りを固めるなら、別々の兵法を並べよ。",
+  "違う名の兵法どうしなら効果は足し合わさる。ただし一つの能力への合計は、上下とも五割で頭打ちよ。",
 ];
 
 function replayOutcome(g, d, isParticipant) {
@@ -2810,8 +2810,8 @@ async function viewReplay(state) {
         // 見えにくい効き（§7.88）: 軽減・反射・同士討ち。**出た時だけ**添える
         const k = (v) => (v / 1000).toFixed(1) + "千";
         const marks = [
-          (u.cut || 0) >= 300 ? `<span class="fx cut" title="必殺技防御・通常攻撃防御で減らした被害">軽減 ${k(u.cut)}</span>` : "",
-          (u.refl || 0) >= 300 ? `<span class="fx refl" title="必殺技反射で撃ち手へ返した被害">反射 ${k(u.refl)}</span>` : "",
+          (u.cut || 0) >= 300 ? `<span class="fx cut" title="兵法防御・通常攻撃防御で減らした被害">軽減 ${k(u.cut)}</span>` : "",
+          (u.refl || 0) >= 300 ? `<span class="fx refl" title="兵法反射で撃ち手へ返した被害">反射 ${k(u.refl)}</span>` : "",
           (u.ff || 0) >= 300 ? `<span class="fx ff" title="混乱で味方へ回してしまった被害">同士討ち ${k(u.ff)}</span>` : "",
           (u.heal || 0) >= 300 ? `<span class="fx heal" title="味方へ入れた回復の総量">癒し ${k(u.heal)}</span>` : "",
           (u.lost || 0) >= 300 ? `<span class="fx lost" title="弱体を受けて出せなかった火力">封じられ ${k(u.lost)}</span>` : "",
@@ -2823,12 +2823,12 @@ async function viewReplay(state) {
             <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
             ${marks ? `<span class="fx-row">${marks}</span>` : ""}
           </span>
-          <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（技${(sk / 1000).toFixed(1)}）</small></span>
+          <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（兵法${(sk / 1000).toFixed(1)}）</small></span>
           <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}${
             u.wiped ? ` <span class="wiped">・${u.wiped}壊</span>` : ""}</span>
         </div>`;
       }).join("");
-    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=必殺技・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
+    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=兵法・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
       side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
   }
 
@@ -2841,7 +2841,7 @@ async function viewReplay(state) {
     const table = (label, us) => `
       <div class="side-label">${label}</div>
       <div class="detail-scroll"><table class="detail-table num">
-        <thead><tr><th>武将</th><th>与ダメ</th><th>うち技</th><th>被ダメ</th>
+        <thead><tr><th>武将</th><th>与ダメ</th><th>うち兵法</th><th>被ダメ</th>
           <th>軽減</th><th>癒し</th><th>発動</th><th>阻害</th>
           <th title="・壊＝真に壊滅した時刻（残0.5%割れ）。表示のみ">残存</th></tr></thead>
         <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
@@ -2873,16 +2873,16 @@ async function viewReplay(state) {
       if ((u.ff || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　混乱し、味方へ ${k(u.ff)}千の流れ矢</div>`);
       if ((u.refl || 0) >= 300)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技を跳ね返し ${k(u.refl)}千</div>`);
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　兵法を跳ね返し ${k(u.refl)}千</div>`);
       if ((u.lost || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　弱体で ${k(u.lost)}千ぶんの火力を封じられる</div>`);
-      /* 構えの帳簿（§7.126）: 打ち消した数と技名・必殺技防御の軽減・空振り */
+      /* 構えの帳簿（§7.126）: 打ち消した数と兵法名・兵法防御の軽減・空振り */
       if ((u.null_blocked || 0) > 0)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えで敵の必殺技を ${u.null_blocked}回 打ち消す（${(u.null_names || []).map(esc).join("・")}）</div>`);
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えで敵の兵法を ${u.null_blocked}回 打ち消す（${(u.null_names || []).map(esc).join("・")}）</div>`);
       if ((u.scut_saved || 0) >= 300)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　必殺技防御で ${k(u.scut_saved)}千を軽減</div>`);
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　兵法防御で ${k(u.scut_saved)}千を軽減</div>`);
       if ((u.guard_idle || 0) > 0)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回張ったが、${u.guard_idle}回は敵の技が来なかった</div>`);
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回張ったが、${u.guard_idle}回は敵の兵法が来なかった</div>`);
       /* 余勢の帳簿（§7.76 後記）: 討ち取りの余りが隣へ抜けた分 */
       if ((u.spill_n || 0) > 0)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　余勢 ${k(u.spill_dealt)}千（${u.spill_n}回・超過 ${k(u.spill_over)}千）</div>`);

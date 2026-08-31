@@ -165,7 +165,7 @@ def _trait_names():
 
 _MOD_JP = {"攻撃力": "攻撃力", "命中率": "攻撃力（命中）", "防御力": "防御力",
            "移動速度": "移動速度", "気勢": "気勢",
-           "必殺技防御": "必殺技防御", "必殺技反射": "必殺技反射",
+           "兵法防御": "兵法防御", "兵法反射": "兵法反射",
            "通常攻撃防御": "通常攻撃防御",
            # 畏怖は攻撃力マイナスの呼び名（§7.64）。札の文言は「畏怖」の
            # ままにし、括弧で機構を添える — 名前で雰囲気、括弧で読める量
@@ -217,10 +217,10 @@ def _skill_display(g, sk_row) -> str:
     raw = sk_row.get("効果", "")
     # 畏怖（§7.64）は攻撃力マイナスの呼び名で、符号を文に持たない書式
     # （「畏怖 -12%（30秒・知力比）」）。**語彙から漏らすと二重に壊れる** —
-    # 単独持ちは raw フォールバックで生の「秒」が出て、ダメージ技に付いた
+    # 単独持ちは raw フォールバックで生の「秒」が出て、ダメージ兵法に付いた
     # ものは行そのものが消える（実際に徐盛・闞沢と張飛ら4枚で踏んだ）。
     # 「・知力比」の接尾（§7.67）も両方の書式で受ける。
-    for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢|必殺技防御|必殺技反射|通常攻撃防御|畏怖)"
+    for m in _re.finditer(r"(攻撃力|命中率|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃防御|畏怖)"
                           r"\s*([+-]?\d+)%（(\d+)秒(・知力比)?）", raw):
         # 符号の無い書式は畏怖だけ（常に弱体）。他は CSV が必ず符号を持つ
         sign = (m.group(2) if m.group(2)[0] in "+-"
@@ -247,9 +247,9 @@ def _skill_display(g, sk_row) -> str:
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
         parts.append("代償 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
-    m = _re.search(r"必殺技打消し（(\d+)秒）", raw)
+    m = _re.search(r"兵法打消し（(\d+)秒）", raw)
     if m:
-        parts.append("打消し 構えた隊を狙う敵の必殺技を丸ごと無効化（{:.0f}分間）"
+        parts.append("打消し 構えた隊を狙う敵の兵法を丸ごと無効化（{:.0f}分間）"
                      .format(F.mins(float(m.group(1)))))
     m = _re.search(r"ゲージ付与", raw)
     if m:
@@ -260,14 +260,14 @@ def _skill_display(g, sk_row) -> str:
 _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
                 "enemy_retreat": "敵の隊が崩れた時",
                 "self_low_hp": "自身の兵が減った時",
-                "ally_skill": "味方が必殺技を放った時",
+                "ally_skill": "味方が兵法を放った時",
                 # 自身の**全滅**（§7.113）。「崩れた」（残存30%割れ）とは別で、
                 # 兵が一人も残らなかった時。書き分けないと self_low_hp と
                 # 同じ条件に読める。
                 "self_dead": "自身の隊が全滅した時",
-                # 敵の攻め技（§7.129）。強化・回復・構えには反応しない旨を
-                # 短く言い切る — 「必殺技を受けた時」だと構えにも見える。
-                "foe_skill": "敵が攻め技を放った時"}
+                # 敵の攻め兵法（§7.129）。強化・回復・構えには反応しない旨を
+                # 短く言い切る — 「兵法を受けた時」だと構えにも見える。
+                "foe_skill": "敵が攻め兵法を放った時"}
 
 
 def _trait_brief(g, key, t):
@@ -286,7 +286,7 @@ def _trait_brief(g, key, t):
             cond += "・1戦{}回まで".format(m.group(1))
         elif "上限なし" in note:
             cond += "・回数の上限なし"
-        # 効果は必殺技と**同じ器で発動する**ので、表示も同じ換算を通す:
+        # 効果は兵法と**同じ器で発動する**ので、表示も同じ換算を通す:
         # 回復は実数、時間は分、命中率は攻撃力（命中）。対象が自分以外なら
         # 明示する — 書かないと全部が自分バフに読める（テストプレイの指摘）。
         m = _re.search(r"対象 ([^/]+)", note)
@@ -305,7 +305,7 @@ def _trait_brief(g, key, t):
                 "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
                 ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
     elif key == "restraint":
-        desc = ("自身が初めて必殺技を放った後、敵味方の各武将は"
+        desc = ("自身が初めて兵法を放った後、敵味方の各武将は"
                 "初回発動後の自然ゲージ増加 -{:.0%}"
                 "（一発目・初期・与ダメージ・被弾の獲得は不変）"
                 .format(1.0 - F.RESTRAINT_NATURAL_MULT))
@@ -318,7 +318,7 @@ def _trait_brief(g, key, t):
 def _roster_json(only=None):
     """武将一覧（§7.47 の開示設計）。
 
-    見せるのは**プレイヤーが支払う・選ぶ判断に使う量**だけ: 能力値・技の中身・
+    見せるのは**プレイヤーが支払う・選ぶ判断に使う量**だけ: 能力値・兵法の中身・
     特性の中身・ゲージ。内部帳簿（能力値コスト・効果予算・総合値・実力比・
     値段表）は出さない — 正解表になって編成の探索が死ぬため。
 
@@ -326,16 +326,16 @@ def _roster_json(only=None):
     戦記で出会うのが初対面になる）。
     """
     if not F.SKILL_INFO:
-        # 技の中身（発動型の自動判定に使う）が未読込なら積む（§7.127）
+        # 兵法の中身（発動型の自動判定に使う）が未読込なら積む（§7.127）
         R.load_skills_into_field()
-    sk = {s["技名"]: s for s in R.skills()}
+    sk = {s["兵法名"]: s for s in R.skills()}
     tr = {t["キー"]: t for t in R.traits()}
     names_jp = _trait_names()
     out = []
     for g in R.generals():
         if only is not None and g["人物"] not in only:
             continue
-        s = sk.get(g["必殺技"], {})
+        s = sk.get(g["兵法"], {})
         traits = []
         for k in R.traits_of(g):
             t = tr.get(k, {})
@@ -364,11 +364,11 @@ def _roster_json(only=None):
             "atk": round(float(g["攻撃力"])),
             "dfn": round(float(g["防御力"])),
             "spear": bool((g.get("槍") or "").strip()),
-            "skill": g["必殺技"], "skill_desc": _skill_display(g, s),
+            "skill": g["兵法"], "skill_desc": _skill_display(g, s),
             "skill_target": s.get("対象", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
             "gauge_init": g["初期ゲージ"],
-            # 技の巡り（§7.127）: 発動型と自然蓄積の目安。秒はサーバで計算して
+            # 兵法の巡り（§7.127）: 発動型と自然蓄積の目安。秒はサーバで計算して
             # 渡す（GAUGE_PER_SEC をフロントへ重複記載しない）。
             "cadence": _cadence(g, s),
             "traits": traits, "trait": g["固有特性"],
@@ -381,13 +381,13 @@ _TIER_JP = {"手数": "連発型", "標準": "標準型", "大技": "決戦型"}
 
 
 def _cadence(g, srow) -> dict:
-    """技の巡り（§7.127）。発動型と、自然蓄積だけで見た初動・再発の目安。
+    """兵法の巡り（§7.127）。発動型と、自然蓄積だけで見た初動・再発の目安。
 
     目安の式: 初動 (消費−初期)÷(自然増加×上昇率)、再発 消費÷(同)。上昇率は
     100表記を1.00に直す。実際は攻撃・被弾・気勢・恩賞で早まるので
     「自然蓄積の目安」（討ち取り給は未配線 — field.GAUGE_ON_ROUT の注記）。
     **表示は戦場の分**（§7.47 の規約: 時間は実況と同じ「分」で語る。盤面の
-    秒を出すと技説明の「81分間」や実況の時刻と物差しが揃わない）。5分丸め。
+    秒を出すと兵法説明の「81分間」や実況の時刻と物差しが揃わない）。5分丸め。
     早い/普通/遅いの敷居は内部秒のまま — 表示単位と判定を絡ませない。"""
     gc = float(g["消費ゲージ%"])
     gi = float(g["初期ゲージ"])
@@ -395,7 +395,7 @@ def _cadence(g, srow) -> dict:
     per = F.GAUGE_PER_SEC * rate
     first = max(gc - gi, 0.0) / per
     rep = gc / per
-    tier = R.tier_for(srow, F.SKILL_INFO.get(g["必殺技"]))
+    tier = R.tier_for(srow, F.SKILL_INFO.get(g["兵法"]))
     m5 = lambda x: int(round(F.mins(x) / 5.0) * 5)
     f_lbl = "早い" if first < 45.0 else ("普通" if first <= 65.0 else "遅い")
     r_lbl = "早い" if rep < 60.0 else ("遅い" if rep <= 120.0 else "かなり遅い")

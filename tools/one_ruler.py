@@ -168,13 +168,13 @@ def measure(job):
 
 
 def targets(rows):
-    sk = {r["技名"]: r["効果"] for r in csv.DictReader(
+    sk = {r["兵法名"]: r["効果"] for r in csv.DictReader(
         open(CSV.replace("generals", "skills"), encoding="utf-8-sig"))}
     out = []
     for n, g in rows.items():
         if set((g["固有特性"] or "").split("、")) & SKIP_TRAITS:
             continue
-        if "打消し" in sk.get(g["必殺技"], ""):
+        if "打消し" in sk.get(g["兵法"], ""):
             continue
         # 槍持ちの歩兵は前後どちらにも置けるが、物差しは前衛側で当てる
         out.append(n)

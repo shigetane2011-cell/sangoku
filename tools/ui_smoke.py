@@ -464,9 +464,9 @@ def readonly_checks(page, rep):
     rep.check(page.eval_on_selector_all(
         "#foe-board .fb-name", "es => es.map(e => e.textContent)") == before,
         "敵陣は押しても動かない")
-    # 敵札の中身（必殺技・特性）が読める
+    # 敵札の中身（兵法・特性）が読める
     rep.check(page.eval_on_selector_all(".foe-detail .fc-skill", "e => e.length") == 6,
-              "敵札の必殺技が6枚ぶん読める")
+              "敵札の兵法が6枚ぶん読める")
     # 自軍・敵軍が同時に出ていて、線種で見分けられる（色だけに頼らない）
     rep.check(page.eval_on_selector_all(".army-zone.mine, .army-zone.foe", "e => e.length") >= 2,
               "自軍と敵軍の枠が同時に出る")
@@ -491,7 +491,7 @@ def rout_badges_check(page, rep, datadir):
     """真の壊滅（壊・ANNIHIL_UNIT=0.5%）だけが軍功帳のバッジに出て、苦戦
     （15%割れ）の時刻は詳報から外れているか（§7.49後記2・後記3）。
 
-    経緯: 生きて崩れただけの隊が必殺技を撃つとバグ報告になり（後記1）、崩
+    経緯: 生きて崩れただけの隊が兵法を撃つとバグ報告になり（後記1）、崩
     （苦戦）と壊（真の壊滅）を別バッジにしたら今度は「15%割れの時刻に攻略的
     意味がないなら詳報に要るのか」と再指摘があり（後記2）、詳報からは壊だけ
     残して崩を外した（後記3）。苦戦の実況行（「大きく崩れながらも踏みとどまる」）
@@ -559,7 +559,7 @@ def detail_check(rep):
     taken = sum(u["taken"] for u in rows)
     rep.check(taken >= given > 0,
               "矛先の合計 {:.0f} ≦ 被ダメの合計 {:.0f}（帳尻が合う）".format(given, taken))
-    rep.check(any(u["fires"] > 0 for u in rows), "必殺技の発動回数が数えられている")
+    rep.check(any(u["fires"] > 0 for u in rows), "兵法の発動回数が数えられている")
 
 
 def replay_side_check(rep):

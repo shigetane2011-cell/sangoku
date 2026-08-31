@@ -339,8 +339,8 @@ def cmd_roster(args) -> None:
         print("{}（上限 {:g}点・6枚・弓は後衛だけ・同一人物は3部隊で1枚）"
               .format(args.reg, cap))
     for g in sorted(gs, key=lambda g: (-float(g["コスト"]), g["名前"])):
-        print("  {:>2}点 {:<3} {:<14} 技:{} 特性:{}".format(
-            g["コスト"], g["兵種"], g["名前"], g["必殺技"], g["固有特性"] or "-"))
+        print("  {:>2}点 {:<3} {:<14} 兵法:{} 特性:{}".format(
+            g["コスト"], g["兵種"], g["名前"], g["兵法"], g["固有特性"] or "-"))
 
 
 def cmd_deck(args) -> None:
@@ -525,7 +525,7 @@ def army_boost(army: F.Army, mult: float) -> F.Army:
     men×atk 比例なので耐久と火力が同率で上がる。
 
     当初の「+N点を cost/stat_cost へ等分」は棄却した — コスト曲線は兵力に
-    対して極端に平ら（値段の大半は技が占める）な上、技は足せないので、
+    対して極端に平ら（値段の大半は兵法が占める）な上、兵法は足せないので、
     雑兵構成のボスでは+30点でも脅威にならなかった（実測）。乗算なら
     どの構成にも同じ率で効き、飽和しない。"""
     import dataclasses
@@ -1321,7 +1321,7 @@ def draft_deck(cards, reg_name: str, form_name: str, style: str, typ: str,
     from . import dummies as DM
     role_w = {
         "力押し":  {F.TANK: 1.6, F.BAL: 1.6, F.DPS: 2.0, F.BURST: 0.5, F.SUP: 0.6},
-        "必殺技":  {F.TANK: 0.6, F.BAL: 0.8, F.DPS: 1.3, F.BURST: 2.4, F.SUP: 1.4},
+        "兵法":  {F.TANK: 0.6, F.BAL: 0.8, F.DPS: 1.3, F.BURST: 2.4, F.SUP: 1.4},
         "守り":    {F.TANK: 2.6, F.BAL: 1.0, F.DPS: 0.5, F.BURST: 0.4, F.SUP: 1.8},
     }.get(style, {F.TANK: 1.0, F.BAL: 1.2, F.DPS: 1.0, F.BURST: 0.8, F.SUP: 0.8})
     note_head = ""
@@ -1475,7 +1475,7 @@ def battle_notes(ua, ub, r, series, me_first: bool) -> List[str]:
                 "押し負けた" if lost else "押し切った",
                 m_n / 1e4, f_n / 1e4))
         elif ds / base_s > 0.15:
-            causes.append("必殺技の応酬で{}（技の与ダメ {:.1f}万 対 {:.1f}万）".format(
+            causes.append("兵法の応酬で{}（兵法の与ダメ {:.1f}万 対 {:.1f}万）".format(
                 "撃ち負けた" if lost else "撃ち勝った", m_s / 1e4, f_s / 1e4))
     if len(causes) < 2 and lost and series:
         early = [row for row in mine_r
@@ -1530,8 +1530,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                             sorted(pair.items(), key=lambda kv: -kv[1])
                             if v >= 0.02 * max(d, 1.0)],
                 "detour": round(det) if det is not None else None,
-                # 構えの帳簿（§7.126）: 打消し回数と技名・必殺技防御の軽減
-                # （cut は通常攻撃防御と混みなので技ぶんを別に）・張り/空振り
+                # 構えの帳簿（§7.126）: 打消し回数と兵法名・兵法防御の軽減
+                # （cut は通常攻撃防御と混みなので兵法ぶんを別に）・張り/空振り
                 "null_blocked": nb, "null_names": list(nn),
                 "scut_saved": round(ss),
                 "guard_casts": gw[0], "guard_idle": gw[1],
@@ -1596,7 +1596,7 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
                 extra += " 癒{:.1f}".format(hl / 1000.0)
             if al >= 300.0:
                 extra += " 封{:.1f}".format(al / 1000.0)
-            cells.append("{}({}) 与{:.1f}(技{:.1f}) 残{}{}{}".format(
+            cells.append("{}({}) 与{:.1f}(兵法{:.1f}) 残{}{}{}".format(
                 M.person_of(F.Card(0, typ, name=name)) or F.TYPE_JP[typ],
                 F.TYPE_JP[typ][0], dealt / 1000.0, sd / 1000.0, state, when,
                 extra))

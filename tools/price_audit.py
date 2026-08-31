@@ -20,8 +20,8 @@
 反対称化した matchup_cost をとる。＋なら設計式の想定より強い。
 
 併記する列:
-  払った  … CSV の効果予算（技＋特性、ゲージ割引込み）
-  素値    … ゲージ割引前の技の値段（消費100%・初期0 とみなした値）
+  払った  … CSV の効果予算（兵法＋特性、ゲージ割引込み）
+  素値    … ゲージ割引前の兵法の値段（消費100%・初期0 とみなした値）
 仮説「ゲージ割引が過大」なら、残差は（素値−払った）に相関するはず。
 """
 import sys, csv, json
@@ -69,8 +69,8 @@ if __name__ == "__main__":
     out = []
     for n, v in res.items():
         g = ROWS[n]
-        sk = F.SKILL_INFO[g["必殺技"]]
-        tgt = R._skill_target(g["必殺技"])
+        sk = F.SKILL_INFO[g["兵法"]]
+        tgt = R._skill_target(g["兵法"])
         naive = D.effect_value(sk, tgt)          # 割引前
         paid = float(g["効果予算"])               # 割引後（特性込み）
         tr = sum(D.trait_value(k) for k in R.traits_of(g))
@@ -78,7 +78,7 @@ if __name__ == "__main__":
                     "gauge": float(g["消費ゲージ%"]), "trait": g["固有特性"],
                     "resid": round(v, 3), "paid": round(paid, 3),
                     "naive": round(naive, 3), "trait_val": round(tr, 3),
-                    "skill": g["必殺技"]})
+                    "skill": g["兵法"]})
     json.dump(out, open("price_audit.json", "w"), ensure_ascii=False, indent=1)
     out.sort(key=lambda r: -r["resid"])
     print("残差の上位（強すぎ）と下位（弱すぎ）")

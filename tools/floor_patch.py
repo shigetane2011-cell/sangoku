@@ -4,7 +4,7 @@
     python3 tools/floor_patch.py          # 測る→書く→同期→もう一周（計2周）
     python3 tools/floor_patch.py --check  # 測って一覧だけ（書かない）
 
-方針（テストプレイの決定・2026-08-22）: 必殺技・固有特性・素の能力の
+方針（テストプレイの決定・2026-08-22）: 兵法・固有特性・素の能力の
 **総合**が、コストに対して -0.5 点より弱い札を作らない。単価の再較正
 （task #20）が完了するまでの繋ぎで、補正は「床調整」列（兵力の上乗せ・
 0以上・上限10%）としてシートに見える形で置く。手で書かない — この道具が
@@ -13,7 +13,7 @@
 計器の癖で測れない札は触らない:
 - 本陣（command）: 総崩れの罰だけが素で出る。値段は勝率通貨で較正済み（§7.52）。
 - 対勢力（vs_魏/蜀/呉）: 相手が合成カードだと空撃ちで安く見える。
-- 必殺技打消し（田豊）: 相手が合成カードだと打ち消す価値のある大技が
+- 兵法打消し（田豊）: 相手が合成カードだと打ち消す価値のある大技が
   飛んでこず、式の19%しか実測に出ない（実デッキでこそ光る）。
 """
 import sys, os, csv, io, json
@@ -132,12 +132,12 @@ def main():
     targets = [n for n, g in rows.items()
                if not (set(g["固有特性"].split("、")) & SKIP_TRAITS
                        if g["固有特性"] else False)
-               and "打消し" not in (g.get("必殺技") or "")]
-    # 技名でなく効果で見る（打消しは技名に出ないことがある）
+               and "打消し" not in (g.get("兵法") or "")]
+    # 兵法名でなく効果で見る（打消しは兵法名に出ないことがある）
     import io as _io
-    sk = {r["技名"]: r["効果"] for r in csv.DictReader(
+    sk = {r["兵法名"]: r["効果"] for r in csv.DictReader(
         open(CSV.replace("generals", "skills"), encoding='utf-8-sig'))}
-    targets = [n for n in targets if "打消し" not in sk.get(rows[n]["必殺技"], "")]
+    targets = [n for n in targets if "打消し" not in sk.get(rows[n]["兵法"], "")]
     print("測る: %d 枚（計器の癖で除外 %d 枚）" % (len(targets), len(rows) - len(targets)),
           flush=True)
     res = audit(targets)

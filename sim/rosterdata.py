@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""sim/data/*.csv（武将・必殺技・固有特性）の読み込みと検算。
+"""sim/data/*.csv（武将・兵法・固有特性）の読み込みと検算。
 
 **使う前に必ず `python3 sim/rosterdata.py` を通すこと。** データが狂っていると、
 その上で測る勝率も値付けも全部嘘になる（§13 の「測定が嘘をついた」事例と同じ形）。
@@ -34,7 +34,7 @@ def generals() -> List[Dict[str, str]]:
 
 
 def skills() -> List[Dict[str, str]]:
-    return [r for r in _load("skills.csv") if r.get("技名")]
+    return [r for r in _load("skills.csv") if r.get("兵法名")]
 
 
 def traits() -> List[Dict[str, str]]:
@@ -104,25 +104,25 @@ def check() -> int:
         g["_cost"] = int(g["コスト"])
         g["_power"] = power(g)
     bad = 0
-    print(f"武将 {len(G)}枚 / 必殺技 {len(S)}種 / 固有特性 {len(T)}種")
+    print(f"武将 {len(G)}枚 / 兵法 {len(S)}種 / 固有特性 {len(T)}種")
 
     # --- 参照の整合 -------------------------------------------------------
-    sk = {s["技名"]: s for s in S}
+    sk = {s["兵法名"]: s for s in S}
     tk = {t["キー"]: t for t in T}
-    miss_s = [g["名前"] for g in G if g["必殺技"] not in sk]
+    miss_s = [g["名前"] for g in G if g["兵法"] not in sk]
     # 特性なし（空欄）は正常。空文字を「未定義」に数えると検算が常に NG 1 になる。
     # **1枚が複数持てる**（「、」区切り・§7.113）ので、キーごとにばらして見る。
     miss_t = sorted({k for g in G for k in traits_of(g) if k not in tk})
-    unused = [s["技名"] for s in S if s["技名"] not in {g["必殺技"] for g in G}]
-    cost_ng = [(g["名前"], g["コスト"], sk[g["必殺技"]]["コスト"])
-               for g in G if g["必殺技"] in sk
-               and g["コスト"] != sk[g["必殺技"]]["コスト"]]
+    unused = [s["兵法名"] for s in S if s["兵法名"] not in {g["兵法"] for g in G}]
+    cost_ng = [(g["名前"], g["コスト"], sk[g["兵法"]]["コスト"])
+               for g in G if g["兵法"] in sk
+               and g["コスト"] != sk[g["兵法"]]["コスト"]]
     cnt = Counter(k for g in G for k in traits_of(g))
     cnt_ng = [(k, tk[k]["採用枚数"], cnt.get(k, 0)) for k in tk
               if int(tk[k]["採用枚数"]) != cnt.get(k, 0)]
-    for label, v in (("必殺技が未定義", miss_s), ("固有特性が未定義", miss_t),
-                     ("使われていない必殺技", unused),
-                     ("必殺技とコストが不一致", cost_ng),
+    for label, v in (("兵法が未定義", miss_s), ("固有特性が未定義", miss_t),
+                     ("使われていない兵法", unused),
+                     ("兵法とコストが不一致", cost_ng),
                      ("固有特性の採用枚数が不一致", cnt_ng)):
         print(f"  {label}: {v if v else 'なし'}")
         bad += len(v)
@@ -176,7 +176,7 @@ def check() -> int:
         if v["効果超過"] > 1e-9:
             need = v["効果予算"] + v["効果超過"]
             fit = math.ceil(need / D.EFFECT_CAP * 100.0 - 1e-6) / 100.0
-            over.append((g["名前"], g["必殺技"], g["固有特性"], v["効果超過"],
+            over.append((g["名前"], g["兵法"], g["固有特性"], v["効果超過"],
                          float(g["コスト"]), fit))
     ng = [r for r in over if r[3] > D.EFFECT_OVER_OK]
     print("  効果予算の超過: {}（許容 {:.1f}点を超えるもの {}）".format(
@@ -190,7 +190,7 @@ def check() -> int:
 
     # --- 能力値 + 効果 = コスト か（§4.6 の本体） --------------------------
     # **総合値そのものを ±8% で見てはいけない。** 効果予算を導入した以上、同じ
-    # コストでも技の強い札は能力値が低いのが正しい。見るべきは
+    # コストでも兵法の強い札は能力値が低いのが正しい。見るべきは
     # 「能力値コスト + 効果予算 = 表示コスト」であり、これは上限に当たった札を
     # 除いて厳密に成り立つ。
     worst = ("", 0.0)
@@ -270,10 +270,10 @@ TYPE_MAP = {"歩兵": "inf", "騎兵": "cav", "弓兵": "arc"}
 # ---------------------------------------------------------------------------
 # 知力の傾き — カード表記の 武勇・知略 から出す（§7.106）
 # ---------------------------------------------------------------------------
-# **傾きは総合値を動かさない**（design.py の検算[1]）。効くのは必殺技の係数と、
+# **傾きは総合値を動かさない**（design.py の検算[1]）。効くのは兵法の係数と、
 # 知力が守りに効く場面（混乱の抵抗・状態効果・「知略が最高/最低」の狙い撃ち）。
 #
-# 以前は5段階の名前で、しかも人物指定は16名だけ、残りは**必殺技の種別**から
+# 以前は5段階の名前で、しかも人物指定は16名だけ、残りは**兵法の種別**から
 # 自動で決めていた（計略を持つ札は自動で知力寄り）。その結果:
 #
 #   - 呂布（武勇100・知略26）と 張飛（武勇98・知略45）が同じ「勇将」に潰れる
@@ -320,7 +320,7 @@ def tilt_reset() -> None:
 
 def _skill_target(name: str) -> str:
     for s in skills():
-        if s["技名"] == name:
+        if s["兵法名"] == name:
             return s["対象"]
     return ""
 
@@ -353,9 +353,9 @@ def to_design(g: Dict[str, str]):
     from . import field as F
     gc = float(g["消費ゲージ%"])
     gi = float(g["初期ゲージ"])
-    sk = F.SKILL_INFO.get(g["必殺技"])
-    # 技の値段ぶんは能力値から引く（§7.5）。技が読み込まれていなければ 0 のまま。
-    eff = (D.effect_value(sk, _skill_target(g["必殺技"]), gc, gi,
+    sk = F.SKILL_INFO.get(g["兵法"])
+    # 兵法の値段ぶんは能力値から引く（§7.5）。兵法が読み込まれていなければ 0 のまま。
+    eff = (D.effect_value(sk, _skill_target(g["兵法"]), gc, gi,
                           kisei=float(g["ゲージ上昇率"]) / 100.0,
                           cost=float(g["コスト"]), typ=TYPE_MAP[g["兵種"]],
                           tilt=tilt_of(g)) if sk else 0.0)
@@ -394,7 +394,7 @@ def to_cards(names=None):
         typ=TYPE_MAP[g["兵種"]], role=ROLE_MAP[g["役割"]], name=g["名前"],
         trait=g["固有特性"], faction=g["勢力"], quote=g.get("台詞", ""),
         might=float(g["武力"]), wits=float(g["知力"]),
-        fame_wits=float(g.get("知略") or 0.0), skill=g["必殺技"],
+        fame_wits=float(g.get("知略") or 0.0), skill=g["兵法"],
         lean=float(g.get("役割寄せ") or 0.0),
         def_lean=float(g.get("防御寄せ") or 0.0),
         spd_lean=float(g.get("速度寄せ") or 0.0),
@@ -452,7 +452,7 @@ def on_curve() -> int:
 # 「実力比% を再現できるか」の検算まで通ってしまうので、質が悪い。落とす。
 COLUMNS = ["名前", "人物", "字号", "勢力", "コスト", "帯", "兵種", "役割",
            "兵力", "武力", "知力", "攻撃力", "防御力",
-           "必殺技", "消費ゲージ%", "ゲージ上昇率", "初期ゲージ", "固有特性",
+           "兵法", "消費ゲージ%", "ゲージ上昇率", "初期ゲージ", "固有特性",
            "知力傾き", "効果予算", "能力値コスト", "総合値", "実力比%",
            # 演出列（§7.47・§9.4）。盤面は読まないが**表示の一次データ**なので
            # 書き出しで落とさない。⑤の書き戻しで一度落として Web の武将一覧を
@@ -514,9 +514,9 @@ def regenerate() -> int:
 # 他ファイルの集計を手で合わせることになり、枚数が増えるほど破綻する。
 #
 #   手で書く（設計者の選択）
-#     generals.csv  名前 人物 字号 勢力 コスト 兵種 役割 必殺技 固有特性
+#     generals.csv  名前 人物 字号 勢力 コスト 兵種 役割 兵法 固有特性
 #                   知力傾き ゲージ上昇率
-#     skills.csv    技名 武将 対象 効果
+#     skills.csv    兵法名 武将 対象 効果
 #     traits.csv    キー 名前 型 効果 備考
 #
 #   `sync()` が決める（手で触らない）
@@ -550,7 +550,7 @@ def sync() -> Dict[str, int]:
     """導出値をすべて引き直す。**カードを増やしたら最初にこれ。**
 
     generals.csv だけでなく skills.csv・traits.csv の集計列も直す。片方だけ直すと
-    `check()` が「必殺技とコストが不一致」「固有特性の採用枚数が不一致」を出すが、
+    `check()` が「兵法とコストが不一致」「固有特性の採用枚数が不一致」を出すが、
     それはデータの誤りではなく**同期していないだけ**なので、人手で追わせない。
 
     戻り値は書き直した行数（generals / skills / traits）。
@@ -560,12 +560,12 @@ def sync() -> Dict[str, int]:
     load_traits_into_field()
 
     G = generals()
-    owner = {g["必殺技"]: g for g in G if g.get("必殺技")}
+    owner = {g["兵法"]: g for g in G if g.get("兵法")}
 
     # --- skills.csv: コスト・消費ゲージ%・効果数 は武将側と段から決まる -------
     S = skills()
     for r in S:
-        g = owner.get(r["技名"])
+        g = owner.get(r["兵法名"])
         if g is not None:
             r["コスト"] = g["コスト"]
         r["効果数"] = str(_effect_count(r.get("効果", "")))
@@ -577,10 +577,10 @@ def sync() -> Dict[str, int]:
     load_skills_into_field()
 
     # --- generals.csv: 帯・ゲージ・能力値一式 -------------------------------
-    smap = {r["技名"]: r for r in S}
+    smap = {r["兵法名"]: r for r in S}
     for g in G:
         g["帯"] = band_of(float(g["コスト"]))
-        r = smap.get(g.get("必殺技", ""))
+        r = smap.get(g.get("兵法", ""))
         if r is not None:
             sk = _parse_for_tier(r)
             if sk is not None:
@@ -656,10 +656,10 @@ def _retire_gauge(text: str) -> str:
 
 
 def tier_of(skill) -> str:
-    """必殺技をゲージの段へ割り当てる（`design.GAUGE_TIER`）。
+    """兵法をゲージの段へ割り当てる（`design.GAUGE_TIER`）。
 
     **中身で決める。** 打撃は「1発を大きく、遅く、1回だけ」にしたいので大技へ。
-    強化・妨害・回復は掛かっている時間が価値なので標準へ。ゲージ付与だけの技は
+    強化・妨害・回復は掛かっている時間が価値なので標準へ。ゲージ付与だけの兵法は
     早く何度も回らないと意味がないので手数へ。
     """
     if skill.power > 0.0:
@@ -667,7 +667,7 @@ def tier_of(skill) -> str:
     if skill.heal > 0.0:
         return "標準"
     # ゲージ付与は**手数の段に置いてはいけない**。安く何度も撃てる札が高い札の
-    # ゲージを進めると、進めたぶんがまた技になって返ってくる。実測で「消費の40%を
+    # ゲージを進めると、進めたぶんがまた兵法になって返ってくる。実測で「消費の40%を
     # 味方全体へ」を手数の段（4回）に置くと 5.80コスト点、80%なら 21.8 まで飛んだ。
     # 標準（2回）に置き、割合を小さく持つ。
     return "標準"
@@ -678,7 +678,7 @@ TIER_NAMES = ("手数", "標準", "大技")
 
 def tier_for(row, sk) -> str:
     """段の解決（§7.127）。skills.csv の「発動型」が明示されていればそれを使い、
-    空欄なら従来どおり中身から決める（tier_of）。ダメージ技を手数へ置くのは
+    空欄なら従来どおり中身から決める（tier_of）。ダメージ兵法を手数へ置くのは
     明示のときだけ — 自動判定は従来の分類を守る。消費ゲージの数値から段を
     推測する経路（design.GAUGE_TIER_NAME）は値段側の後方互換にとどめる。"""
     t = ((row.get("発動型") or "").strip() if row else "")
@@ -719,7 +719,7 @@ def _scale_effect(text: str, m: float) -> str:
                                              float(mo.group(2)) * m)
 
     def mod(mo):
-        # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ技を何度撃っても
+        # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ兵法を何度撃っても
         # 効果は重ならず「大きい方」だけが残る。だから回数を減らしたぶん量を
         # 増やすと二重取りになる（実測で堅忍 +0.28・一喝 +0.33 コスト点ぶん強く
         # なった）。価値は「どれだけの時間かかっていたか」なので、秒数で払う。
@@ -739,10 +739,10 @@ def _scale_effect(text: str, m: float) -> str:
 
 
 def retier() -> int:
-    """必殺技をゲージの段へ割り当て直し、威力を予算が変わらないように直す。
+    """兵法をゲージの段へ割り当て直し、威力を予算が変わらないように直す。
 
     **予算 = 発動回数 × 効果量 を保つ。** 回数が半分になるなら効果量を倍にする。
-    変わるのは刻みだけで、技の総価値は動かない。
+    変わるのは刻みだけで、兵法の総価値は動かない。
 
     これをやる理由は見せ方である。1発が相手の 1〜6% しか削らないと、実況で
     「呂布〔飛将〕、無双乱舞。敵3隊に299人の損害。」と出て名前負けする（§7.12）。
@@ -751,13 +751,13 @@ def retier() -> int:
     from . import field as F
     load_skills_into_field()
     rows = skills()
-    gs = {g["必殺技"]: g for g in generals()}
+    gs = {g["兵法"]: g for g in generals()}
     n = 0
     for r in rows:
         # 旧「ゲージ付与」を気勢へ移してから段を決める（§7.18）
         r["効果"] = _retire_gauge(r["効果"])
         sk = F._parse_skill(r["効果"], r["対象"])
-        F.SKILL_INFO[r["技名"]] = sk
+        F.SKILL_INFO[r["兵法名"]] = sk
         t = tier_for(r, sk)
         gc, gi = D.GAUGE_TIER[t]
         old_w = D.tier_weight(float(r["消費ゲージ%"]))
@@ -774,9 +774,9 @@ def retier() -> int:
     # 武将側の消費ゲージ・初期ゲージも段に合わせる
     load_skills_into_field()
     gen = generals()
-    smap2 = {r["技名"]: r for r in rows}
+    smap2 = {r["兵法名"]: r for r in rows}
     for g in gen:
-        t = tier_for(smap2.get(g["必殺技"]), F.SKILL_INFO[g["必殺技"]])
+        t = tier_for(smap2.get(g["兵法"]), F.SKILL_INFO[g["兵法"]])
         gc, gi = D.GAUGE_TIER[t]
         g["消費ゲージ%"] = "{:.0f}".format(gc)
         g["初期ゲージ"] = "{:.0f}".format(gi)
@@ -789,8 +789,8 @@ def retier() -> int:
 
 
 # 大技の目標値段（コスト点）。**枠の基礎価値 + コスト比例分**の形にする（§4.6 と同じ）。
-# コスト比例だけにすると、コスト1の技が 0.074 まで削られて「安い札の個性は技」という
-# 性格が消える。基礎価値を置くと、安い札は今の値段のまま、高い札ほど技が主役になる。
+# コスト比例だけにすると、コスト1の兵法が 0.074 まで削られて「安い札の個性は兵法」という
+# 性格が消える。基礎価値を置くと、安い札は今の値段のまま、高い札ほど兵法が主役になる。
 #
 #   コスト1  0.27   コスト5  0.75   コスト10  1.35
 #
@@ -801,11 +801,11 @@ BIG_SLOPE = 0.12
 
 
 def _skill_target_value(g: Dict[str, str], cost: float) -> float:
-    """その札の必殺技に持たせたい値段（コスト点）。
+    """その札の兵法に持たせたい値段（コスト点）。
 
     **固有特性のぶんを先に引く。** 特性は札ごとに固定のデータなので、あふれたときに
-    譲れるのは技の側しかない。陣頭（1.35コスト点）を持つコスト3の札は、上限
-    （0.45×3 ＋ 許容0.5 ＝ 1.85）のうち技に回せるのが 0.50 しかない。
+    譲れるのは兵法の側しかない。陣頭（1.35コスト点）を持つコスト3の札は、上限
+    （0.45×3 ＋ 許容0.5 ＝ 1.85）のうち兵法に回せるのが 0.50 しかない。
     ここを見ないと、引き直したあとに予算超過が出る（実測で陳到が +0.51 で超えた）。
     """
     from . import design as D
@@ -820,7 +820,7 @@ def rebalance_big() -> int:
     """大技40種の威力を、人物の格（コスト）に見合う値へ引き直す。
 
     **予算は自動で釣り合う。** 威力を上げたぶん効果予算が増え、その分だけ能力値が
-    下がる（§7.8）。強さは動かず、技と能力値の配分だけが変わる。
+    下がる（§7.8）。強さは動かず、兵法と能力値の配分だけが変わる。
 
     値段は威力について線形なので、状態効果ぶんを引いてから割れば解ける。
     """
@@ -828,12 +828,12 @@ def rebalance_big() -> int:
     from . import field as F
     load_skills_into_field()
     rows = skills()
-    G = {g["必殺技"]: g for g in generals()}
+    G = {g["兵法"]: g for g in generals()}
     gc, gi = D.GAUGE_TIER["大技"]
     fr = D.tier_weight(gc, gi)
     n = 0
     for r in rows:
-        name = r["技名"]
+        name = r["兵法名"]
         sk = F.SKILL_INFO[name]
         if tier_for(r, sk) != "大技" or name not in G:
             continue
@@ -871,7 +871,7 @@ def rebalance_big() -> int:
 def rebalance_std() -> int:
     """標準の段（強化・妨害・回復）の効果量を、大技と同じ線へ乗せる。
 
-    段ごとに別の線を引くと、段をまたいだところで値段が不連続になる。技の値段は
+    段ごとに別の線を引くと、段をまたいだところで値段が不連続になる。兵法の値段は
     **段によらず 0.15 + 0.12 × コスト** に揃える。
 
     解くのは秒数（と回復量）。**％ではなく秒数で払う**のは §7.13 と同じ理由で、
@@ -881,11 +881,11 @@ def rebalance_std() -> int:
     from . import field as F
     load_skills_into_field()
     rows = skills()
-    G = {g["必殺技"]: g for g in generals()}
+    G = {g["兵法"]: g for g in generals()}
     gc, gi = D.GAUGE_TIER["標準"]
     n = 0
     for r in rows:
-        name = r["技名"]
+        name = r["兵法名"]
         sk = F.SKILL_INFO[name]
         if tier_for(r, sk) != "標準" or name not in G:
             continue
@@ -924,7 +924,7 @@ def retire_gauge_traits() -> int:
 
 
 def load_traits_into_field() -> int:
-    """固有特性を field.py へ読み込む。**必殺技とまったく同じ器を使う。**
+    """固有特性を field.py へ読み込む。**兵法とまったく同じ器を使う。**
 
     CSV の効果文が同じ文法（「攻撃力 +12%（20秒）」「回復 攻撃力の130%」
     「ゲージ付与 自然増加の2秒ぶん」）なので、専用の表を持つ理由が無い。
@@ -946,7 +946,7 @@ def load_traits_into_field() -> int:
         target = m.group(1).strip() if m else "自分"
         m = re.search(r"1戦(\d+)回", note)
         # 「上限なし」は回数で縛らない特性（§7.129 の持重）。回復の総量を
-        # 敵の攻め技の数に比例させる形なので、**上限を置くと density へ
+        # 敵の攻め兵法の数に比例させる形なので、**上限を置くと density へ
         # 効かなくなる**（上限5では手数4枚への抑制が±0だった）。
         cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
         F.TRAITS[t["キー"]] = (cond, target, cap,
@@ -956,12 +956,12 @@ def load_traits_into_field() -> int:
 
 
 def load_skills_into_field() -> int:
-    """必殺技の威力・種別・対象を field.py へ読み込む。"""
+    """兵法の威力・種別・対象を field.py へ読み込む。"""
     from . import field as F
     n = 0
     for sk in skills():
-        F.SKILL_INFO[sk["技名"]] = F._parse_skill(sk["効果"], sk["対象"])
-        F.SKILL_TARGET[sk["技名"]] = sk["対象"]
+        F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(sk["効果"], sk["対象"])
+        F.SKILL_TARGET[sk["兵法名"]] = sk["対象"]
         n += 1
     return n
 
@@ -976,7 +976,7 @@ if __name__ == "__main__":
     # 引数なし … 検算だけ（データは書き換えない）。
     if len(_sys.argv) > 1 and _sys.argv[1] == "sync":
         n = sync()
-        print("同期した: 武将{generals}枚 / 必殺技{skills}種 / 固有特性{traits}種"
+        print("同期した: 武将{generals}枚 / 兵法{skills}種 / 固有特性{traits}種"
               .format(**n))
         raise SystemExit(1 if _main() else 0)
     raise SystemExit(1 if _main() else 0)

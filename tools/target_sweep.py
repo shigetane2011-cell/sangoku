@@ -5,7 +5,7 @@
     python3 tools/target_sweep.py --new      # 新しい選択子と錨だけ（速い）
 
 なぜ「代表的な1戦」で測らないか。§7.20 で段ごとの値段を測ったときと同じ理由で、
-**同じ技が相手しだいで何倍も開く**。特に狙い撃ちの選択子（知略が最高／最低・
+**同じ兵法が相手しだいで何倍も開く**。特に狙い撃ちの選択子（知略が最高／最低・
 兵力が最少）は、相手に突出した札が居るかどうかで値打ちが変わる——1戦で測って
 決め打つと、いちばん値付けしたい相手のときにいちばん外れる。
 
@@ -26,7 +26,7 @@ from multiprocessing import Pool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-TEST = "＿試験技"
+TEST = "＿試験兵法"
 NF = {"鶴翼": 4, "魚鱗": 3, "雁行": 2}
 # 相手の性格（前衛に置く役割の並び）
 PERSONA = {
@@ -76,9 +76,9 @@ def _army(G, persona, form_name, wise, with_skill, target):
         cards = [replace(c, might=80.0, wits=85.0 + 6.0 * i,
                          fame_wits=35.0 + 11.0 * i)
                  for i, c in enumerate(cards)]
-    # **対照は「技なし」でなければならない。** 合成カードは既定で標準技を
-    # 持っているので、撃ち手だけ差し替えるときに対照側の技を消し忘れると、
-    # 「試験技 対 標準技」を測ることになる（実際それで弱体の値段が負に出た）。
+    # **対照は「兵法なし」でなければならない。** 合成カードは既定で標準兵法を
+    # 持っているので、撃ち手だけ差し替えるときに対照側の兵法を消し忘れると、
+    # 「試験兵法 対 標準兵法」を測ることになる（実際それで弱体の値段が負に出た）。
     # 能力値の払い（stat_cost）も両方 0 に揃える。
     cards[0] = replace(cards[0], skill=(TEST if with_skill is not None else ""),
                        stat_cost=0.0)
