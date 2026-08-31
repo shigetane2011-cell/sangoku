@@ -488,14 +488,16 @@ def readonly_checks(page, rep):
 
 
 def rout_badges_check(page, rep, datadir):
-    """苦戦（崩・ROUT_UNIT=15%）と真の壊滅（壊・ANNIHIL_UNIT=0.5%）が
-    リプレイ画面で別バッジとして両方出るか（§7.49後記）。
+    """真の壊滅（壊・ANNIHIL_UNIT=0.5%）だけが軍功帳のバッジに出て、苦戦
+    （15%割れ）の時刻は詳報から外れているか（§7.49後記2・後記3）。
 
-    以前は両方とも「戦場を去る」の一枚看板で、生きて崩れただけの隊が必殺技を
-    撃つとバグ報告になった。表示を直した後も「なぜ生きているのに崩れた表記が
-    付くのか」で二度目の報告が来たため、崩＝苦戦（ペナルティ無し・戦い続ける）
-    と壊＝真の壊滅を別バッジに分けた。構文検査はテンプレートの描き分けを
-    保証しない（§7.90）ので、ここは実ブラウザでDOMまで見る。
+    経緯: 生きて崩れただけの隊が必殺技を撃つとバグ報告になり（後記1）、崩
+    （苦戦）と壊（真の壊滅）を別バッジにしたら今度は「15%割れの時刻に攻略的
+    意味がないなら詳報に要るのか」と再指摘があり（後記2）、詳報からは壊だけ
+    残して崩を外した（後記3）。苦戦の実況行（「大きく崩れながらも踏みとどまる」）
+    自体は残っているので、そちらも消えていないか確認する。構文検査は
+    テンプレートの描き分けを保証しない（§7.90）ので、ここは実ブラウザで
+    DOMまで見る。
     """
     import json
     import sim.players as P, sim.match as M, sim.play as PL, sim.field as F
@@ -524,12 +526,17 @@ def rout_badges_check(page, rep, datadir):
     page.evaluate("() => { document.querySelector('.battle-detail').open = true; }")
     page.wait_for_selector(".detail-table", timeout=60000)
     page.wait_for_timeout(500)
-    fell_n = page.eval_on_selector_all(".fell", "es => es.length")
     wiped_n = page.eval_on_selector_all(".wiped", "es => es.length")
-    rep.check(fell_n > 0, "「崩」バッジ（苦戦・15%）がリプレイ画面に出る（{}件）".format(fell_n))
     rep.check(wiped_n > 0, "「壊」バッジ（真の壊滅・0.5%）がリプレイ画面に出る（{}件）".format(wiped_n))
-    rep.check(fell_n >= wiped_n,
-              "崩の件数（{}）が壊の件数（{}）以上（壊は必ず崩を経由する）".format(fell_n, wiped_n))
+    detail_txt = page.eval_on_selector(".detail-table", "e => e.textContent") or ""
+    rep.check("崩" not in detail_txt,
+              "詳報の軍功帳に「崩」（苦戦の時刻）は出ない（攻略的意味がないため）")
+    report_txt = page.eval_on_selector("#report", "e => e.textContent") or ""
+    rep.check("崩" not in report_txt,
+              "戦果の一覧カードにも「崩」は出ない（詳報と同じ扱い）")
+    log_txt = page.eval_on_selector("#log", "e => e.textContent") or ""
+    rep.check("踏みとどまる" in log_txt,
+              "苦戦の実況行は詳報から独立して残っている")
 
 
 # ── リプレイの陣営札（同じ武将が両軍にいる場合）───────────
