@@ -66,10 +66,6 @@ DUMMY_DOMAIN = "example.invalid"
 
 RATING_START = 1500.0
 
-# 1枚の武将にセットできる固有特性の数（§7.37）。**生まれつきの特性とは別枠。**
-# 盤面（field.Unit）はまだ1つしか読まないので、いまは器だけを用意している。
-TRAIT_SLOTS = 3
-
 # プランごとの権利。`rated_per_day` は §3.1 の「レート変動上限」に当たる。
 # 有料で増えるが、**増えるのは挑戦できる回数であって点数ではない**（上の注記）。
 PLANS: Dict[str, Dict[str, int]] = {
@@ -533,87 +529,10 @@ def forget(cx: sqlite3.Connection, player_id: str) -> None:
                    (player_id,))
 
 
-def grant_trait(cx: sqlite3.Connection, player_id: str, key: str) -> int:
-    """特性を1つ渡す（1日1つの獲得）。**未セットの状態で積む。**"""
-    with cx:
-        cur = cx.execute(
-            "INSERT INTO owned_traits (player_id, trait_key) VALUES (?,?)",
-            (player_id, key))
-    return cur.lastrowid
-
-
-def pick_onsho(cx: sqlite3.Connection, player_id: str, key: str,
-               candidates, today: str) -> bool:
-    """本日の恩賞を**選んで**授かる（§7.70）。1日1回・候補の中からだけ。"""
-    if key not in {k for _t, k in candidates}:
-        return False
-    r = cx.execute(
-        # **地元の日付で数える**（§7.84）。gained_at は datetime('now')＝UTC
-        # なので、そのまま比べると UTC と地元の日付がずれる時間帯（日本なら
-        # 0時〜9時）に「本日はまだ」と誤判定し、恩賞を何度でも選べてしまう。
-        "SELECT 1 FROM owned_traits WHERE player_id=?"
-        " AND date(gained_at,'localtime')=?",
-        (player_id, today)).fetchone()
-    if r is not None:
-        return False
-    grant_trait(cx, player_id, key)
-    return True
-
-
-def owned_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
-    """獲得済みの恩賞ぜんぶ（セット状況つき）。"""
-    return [dict(r) for r in cx.execute(
-        "SELECT id, trait_key, general_name, slot, gained_at"
-        " FROM owned_traits WHERE player_id=? ORDER BY id", (player_id,))]
-
-
-def free_slot(cx: sqlite3.Connection, player_id: str,
-              general_name: str) -> Optional[int]:
-    """その武将の空いている軍功枠。無ければ None。"""
-    used = {r["slot"] for r in cx.execute(
-        "SELECT slot FROM owned_traits WHERE player_id=? AND general_name=?",
-        (player_id, general_name))}
-    for i in range(TRAIT_SLOTS):
-        if i not in used:
-            return i
-    return None
-
-
-def set_trait(cx: sqlite3.Connection, player_id: str, owned_id: int,
-              general_name: str, slot: int) -> None:
-    """獲得済みの特性を武将の枠へセットする。
-
-    **枠は 0..TRAIT_SLOTS-1。** 同じ武将の同じ枠は UNIQUE 制約が止める。
-    表計算では張れない種類の制約で、二重セットは静かに起きる。
-    """
-    if general_name == "":
-        slot = None                      # 外す（未セットへ戻す）
-    elif not 0 <= slot < TRAIT_SLOTS:
-        raise ValueError("枠は 0〜{} まで".format(TRAIT_SLOTS - 1))
-    with cx:
-        cx.execute(
-            "UPDATE owned_traits SET general_name=?, slot=?"
-            " WHERE id=? AND player_id=?",
-            (general_name, slot, owned_id, player_id))
-
-
-def traits_on(cx: sqlite3.Connection, player_id: str,
-              general_name: str) -> List[str]:
-    """その武将にセットされている特性（枠の順）。"""
-    return [r["trait_key"] for r in cx.execute(
-        "SELECT trait_key FROM owned_traits"
-        " WHERE player_id=? AND general_name=? ORDER BY slot",
-        (player_id, general_name))]
-
-
-def unset_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
-    """まだどの武将にも付けていない特性。"""
-    return [dict(r) for r in cx.execute(
-        "SELECT id, trait_key, gained_at FROM owned_traits"
-        " WHERE player_id=? AND general_name='' ORDER BY id", (player_id,))]
-
-
 # ── 宝物（§7.138・恩賞の後継）─────────────────────────────
+# 旧・恩賞の関数群（grant_trait / pick_onsho / owned_traits / free_slot /
+# set_trait / traits_on / unset_traits）は §7.138 で削除した。旧テーブル
+# owned_traits の DDL だけ墓標として上に残る（データは捨ててよい）。
 
 
 def grant_treasure(cx: sqlite3.Connection, player_id: str, key: str) -> bool:
@@ -666,7 +585,7 @@ def set_treasure(cx: sqlite3.Connection, player_id: str, key: str,
 
 def treasures_on(cx: sqlite3.Connection, player_id: str,
                  general_name: str) -> List[str]:
-    """その武将が持っている宝物のキー（0〜1個だが、形は traits_on と揃える）。"""
+    """その武将が持っている宝物のキー（0〜1個だが、呼び元の都合でリスト）。"""
     return [r["key"] for r in cx.execute(
         "SELECT key FROM owned_treasures"
         " WHERE player_id=? AND general_name=? ORDER BY id",

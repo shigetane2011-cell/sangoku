@@ -87,95 +87,6 @@ def parse_deck(cards, names_raw: str, form_name: str
     return F.Army(tuple(picked), form), errs
 
 
-# 軍功予算（§7.61）。恩賞のセットはデッキ本体の点でなく**専用の別予算**を
-# 消費する。単位は「功」＝0.01コスト点の整数（表示に小数点を出さない）。
-# 全員一律なので、古参と新規の差は強さでなく品揃え（選択肢の数）だけになる
-# （§3.1: 在席時間を強さにしない）。値付けは従来の実測表のまま。
-# 予算は**戦場比例**: コスト上限×5功（汜水関90・官渡150・赤壁200）。
-
-
-def onsho_budget_kou(cap: float) -> int:
-    return int(round(cap * 5))
-
-
-# ── 恩賞の品揃え（§7.70）────────────────────────
-#
-# **一様抽選をやめた**（20種一様だと55%の日が10功以下の小物＝ハズレ日）。
-# 日替わりで 小・中・大 から1つずつの3候補を出し、1つ選ぶ。候補は
-# (プレイヤーID, 日付, 段) から決定的 — 読み直しで引き直せないのは従来通り。
-#
-# 2〜4功の攻バフ小物5種（呼応・号令・弔い合戦・遺志・弔旗）は**恩賞の
-# プールから外した**（生まれつきの特性としては健在）。効果が薄く重複していて、
-# 引いた日の喜びが無い。
-#
-# 寄せの書（§7.66 の防御寄せ・速度寄せを動かす書物）は**恩賞にしか無い**
-# 品。交換レートは実測で釣り合い済みなので功は0 — 強さでなく形を変える
-# サイドグレード。速度は値段0・±0.3制限（§7.66）の範囲でだけ動かす。
-ONSHO_BOOKS = {
-    "book_kenjin": ("堅陣の書", "防御寄せ +0.3 — 鎧が2割方厚くなり、そのぶん兵が薄くなる（釣り合いは§7.66の実測）", 0.3, 0.0),
-    "book_keisou": ("軽装の書", "防御寄せ -0.3 — 鎧を軽くして兵を厚くする", -0.3, 0.0),
-    "book_shikku": ("疾駆の書", "速度寄せ +0.3 — 足が1割方速くなる（強さは動かない・演出の書）", 0.0, 0.3),
-}
-ONSHO_TIERS = {
-    "大": ("command", "vanguard", "vs_wei", "vs_shu", "vs_go"),
-    "中": ("disrupt", "laststand", "cheer", "diehard"),
-    "小": ("relief", "bloodpath", "sustain", "double", "rearguard", "pursuit",
-           "book_kenjin", "book_keisou", "book_shikku"),
-}
-
-
-def onsho_candidates(player_id: str, today: str):
-    """本日の3候補（小・中・大から1つずつ）。決定的で引き直せない。"""
-    import zlib
-    out = []
-    for tier in ("小", "中", "大"):
-        pool = ONSHO_TIERS[tier]
-        k = pool[zlib.crc32((player_id + today + tier).encode()) % len(pool)]
-        out.append((tier, k))
-    return out
-
-
-def kou_of(key: str) -> int:
-    """特性1つの値段（功・整数）。実測値段 × 100 の丸め。書は0（釣り合い済み）。"""
-    if key in ONSHO_BOOKS:
-        return 0
-    from . import design as D
-    return int(round(D.trait_value(key) * 100))
-
-
-def _apply_onsho(cx, player_id: str, army: F.Army) -> Tuple[F.Army, int]:
-    """セット済みの恩賞（軍功枠・§7.43）を札へ合流し、功の合計を返す。
-
-    盤面は card.trait の「、」区切りを複数特性として読む（§7.37）。値段は
-    実測表 `design.trait_value` を功に丸めたもの — **タダ盛りにはしない**が、
-    デッキ本体の上限でなく軍功予算（ONSHO_BUDGET_KOU）から払う（§7.61。
-    「ご褒美を付けたら編成が崩れる」体験を避ける）。生まれつきの特性は
-    効果予算で支払い済みなので数えない。"""
-    import dataclasses
-    extra = 0
-    out = []
-    for c in army.cards:
-        keys = [k for k in P.traits_on(cx, player_id, c.name)
-                if k not in F.trait_keys(c.trait)]
-        books = [k for k in keys if k in ONSHO_BOOKS]
-        keys = [k for k in keys if k not in ONSHO_BOOKS]
-        if keys:
-            extra += sum(kou_of(k) for k in keys)
-            c = dataclasses.replace(
-                c, trait=F.TRAIT_SEP.join(list(F.trait_keys(c.trait)) + keys),
-                hidden_trait=F.TRAIT_SEP.join(keys))
-        if books:
-            # 寄せの書（§7.70）: 特性でなくカードの枠を動かす。対価は盤面が
-            # lean_men_comp で自動で払う（功0）。積み過ぎは寄せの上限で頭打ち。
-            dd = sum(ONSHO_BOOKS[k][2] for k in books)
-            ds = sum(ONSHO_BOOKS[k][3] for k in books)
-            c = dataclasses.replace(
-                c, def_lean=max(-1.0, min(1.0, c.def_lean + dd)),
-                spd_lean=max(-1.0, min(1.0, c.spd_lean + ds)))
-        out.append(c)
-    return dataclasses.replace(army, cards=tuple(out)), extra
-
-
 # ── 宝物（§7.138・恩賞の後継）────────────────────────
 #
 # 品揃えは sim/data/treasures.csv（18種・帯=大7/中6/小5・**数値は全部仮**）。
@@ -224,7 +135,12 @@ def treasure_kou(key: str) -> int:
 
 
 def treasure_budget_kou(cap: float) -> int:
-    """軍功予算（§7.61 のまま・戦場比例 cap×5功）。宝物もここから払う。"""
+    """軍功予算（§7.61 のまま・戦場比例 cap×5功 — 汜水関90・官渡150・赤壁200）。
+
+    宝物のセットはデッキ本体の点でなく**専用の別予算**を消費する（「ご褒美を
+    付けたら編成が崩れる」体験を避ける）。単位は「功」＝0.01コスト点の整数
+    （表示に小数点を出さない）。全員一律なので、古参と新規の差は強さでなく
+    品揃え（選択肢の数）だけになる（§3.1: 在席時間を強さにしない）。"""
     return int(round(cap * 5))
 
 
@@ -1006,7 +922,8 @@ def tick(cx, cards, now: int) -> None:
     # (0c) 素の初期状態への揃え直し（1回だけ・公開前の手元専用 2026-08-20）。
     #      テストプレイの指示: 「初期状態は初期武将＋恩賞未取得。UXを新規と
     #      揃える」— 全人間を初期セット40人・恩賞ゼロ・戦記未進行へ戻す。
-    #      全部持ちの状態は試験用ボタン（dev_senki / dev_onsho）で1押しで
+    #      全部持ちの状態は試験用ボタン（dev_senki / 当時 dev_onsho・現
+    #      dev_treasure）で1押しで
     #      再現できるので救済は不要になった。**公開後はこの手の一斉リセットを
     #      してはならない**（(0b) の注のとおり揉める。手元だから許される）。
     if not P.ledger_get(cx, "fresh_start_v2"):
