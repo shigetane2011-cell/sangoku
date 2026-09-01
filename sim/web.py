@@ -485,6 +485,10 @@ def _formation_board_json(army, brief=None):
             "role": row["role"],
             "cost": row["cost"],
             "faction": faction.get(row["faction"], "gunyu"),
+            # 札の公開情報（§7.47 の開示範囲そのまま — 宝物・隠し特性は含まない）。
+            # リプレイの盤面で駒に触れたとき、編成画面と同じ詳細を出すために
+            # 運ぶ（§7.141）。
+            "card": row,
         }
     return {"formation": formation, "slots": slots, "units": units}
 

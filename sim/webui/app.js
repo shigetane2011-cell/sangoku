@@ -231,7 +231,10 @@ class FormationBoard {
     const selected = index === this.selectedIndex;
     const candidate = index === this.keyboardTargetIndex && selected === false;
     const faction = unit ? (FACTION_CLASS[unit.faction] || unit.faction || "gunyu") : "";
-    const disabled = this.props.interactive ? "" : " disabled";
+    // 読み取り専用でも onPieceTap があれば駒に触れて詳細を出せる（§7.141・
+    // リプレイの両軍盤面）。選択・入れ替え・ドラッグは起きない — 触れて知らせるだけ。
+    const peek = !this.props.interactive && typeof this.props.onPieceTap === "function";
+    const disabled = (this.props.interactive || peek) ? "" : " disabled";
     const state = [unit ? "occupied" : "empty", unit && unit.unknown ? "unknown" : "",
                    selected ? "selected" : "",
                    candidate ? "key-target" : ""].filter(Boolean).join(" ");
@@ -276,7 +279,8 @@ class FormationBoard {
         </div>
       </div>`;
     };
-    this.root.className = `formation-board ${this.props.interactive ? "interactive" : "readonly"}`;
+    this.root.className = `formation-board ${this.props.interactive ? "interactive" : "readonly"}${
+      !this.props.interactive && typeof this.props.onPieceTap === "function" ? " peek" : ""}`;
     // 読み上げ欄は**作り直さない**。支援技術が拾うのは「既にある live 領域の
     // 中身が変わったとき」で、領域ごと差し替えると読まれない。行だけ描き替え、
     // 文言は textContent で入れる。
@@ -304,7 +308,17 @@ class FormationBoard {
     this.rows.innerHTML = `${row(true)}${row(false)}${bar}`;
     if (this.live.textContent !== this.announcement) this.live.textContent = this.announcement;
     this.root.querySelectorAll(".fb-piece").forEach((button) => {
-      if (!this.props.interactive) return;
+      if (!this.props.interactive) {
+        // 読み取り専用の「覗き見」（§7.141）: click だけ通す。キーボードの
+        // Enter/Space も button の click として届くので別配線は要らない。
+        if (typeof this.props.onPieceTap === "function") {
+          button.addEventListener("click", () => {
+            const name = normalizeSlots(this.props.slots)[+button.dataset.slotIndex];
+            if (name) this.props.onPieceTap(name);
+          });
+        }
+        return;
+      }
       button.addEventListener("pointerdown", (e) => this.onPointerDown(e));
       button.addEventListener("keydown", (e) => this.onKeyDown(e));
     });
@@ -1543,7 +1557,14 @@ async function viewDeck(state) {
   STATE = state;
   PREP = null;
   D = await api("/api/deckdata");
-  const reg = D.regs[0].name;
+  // 軍議演習からの往復（§7.141）: ?back=council&source=ID&reg=戦場 で来たら、
+  // 登録後に同じ陣容へ戻る口を出し、戦場の札もその戦場を開く。
+  const qsd = new URLSearchParams(location.search);
+  const backCouncil = qsd.get("back") === "council"
+    ? "/council" + (qsd.get("source") ? "?source=" + encodeURIComponent(qsd.get("source")) : "")
+    : null;
+  const wantReg = qsd.get("reg");
+  const reg = (wantReg && D.regs.some((r) => r.name === wantReg)) ? wantReg : D.regs[0].name;
   const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
   cur = { reg, form: saved.form, slots: slotsFromCards(saved.cards) };
   $("#app").innerHTML = `
@@ -1554,6 +1575,7 @@ async function viewDeck(state) {
       </div>
       <button class="primary" id="save">この編成を登録</button>
       <button class="ghost" id="fight2">この編成で出陣</button>
+      ${backCouncil ? `<a class="btn ghost" id="back-council" href="${backCouncil}">軍議演習へ戻る</a>` : ""}
     </div>
     <div class="reg-tabs" id="regtabs"></div>
     <div id="setpanel"></div>
@@ -2080,8 +2102,9 @@ function drawRoster() {
   });
 }
 
-function showCardInfo(name) {
-  const c = D.roster.find((x) => x.name === name);
+function showCardInfo(name, card) {
+  // 編成画面は D.roster から、リプレイは盤面が運んできた札（§7.141）から引く
+  const c = card || (D && D.roster ? D.roster.find((x) => x.name === name) : null);
   if (!c) return;
   const traits = (c.traits || []).length ? (c.traits || []).map((t) => `
     <div class="ci-row">
@@ -2276,7 +2299,7 @@ async function viewCouncil(_state) {
       <td><button class="council-go primary mini" data-source="${x.id}"
           data-board="${esc(x.board)}" data-foe="${esc(x.foe)}"
           ${!x.ready || t.count <= 0 ? "disabled" : ""}>この布陣と演習</button>
-          ${!x.ready ? '<small class="warn">登録デッキ要確認</small>' : ""}</td>
+          ${!x.ready ? `<small class="warn"><a href="/deck?back=council&source=${x.id}&reg=${encodeURIComponent(x.board)}">登録デッキ要確認（編成へ）</a></small>` : ""}</td>
     </tr>`).join("");
   $("#app").innerHTML = `
     <section class="panel council-hero fade-in">
@@ -2299,7 +2322,7 @@ async function viewCouncil(_state) {
         <thead><tr><td>日時</td><td>種別</td><td>戦場</td><td>相手</td><td>当時</td><td></td></tr></thead>
         <tbody>${rows || '<tr><td colspan="6" class="muted">まず対戦か在野戦を行うと、敵布陣の陣容がここへ残ります。</td></tr>'}</tbody>
       </table></div>
-      <p class="muted council-note">編成を変えるときは「編成」で登録し直してから戻る。敵側はこの対戦時点の布陣のまま変わらない。</p>
+      <p class="muted council-note">編成を変えるときは<a href="/deck?back=council${chosen ? "&source=" + chosen : ""}">編成へ</a>行って登録し直し、「軍議演習へ戻る」で戻る。敵側はこの対戦時点の布陣のまま変わらない。</p>
     </section>`;
 
   let wait = t.next_in;
@@ -2522,7 +2545,9 @@ async function viewReplay(state) {
         `<button data-i="${i}" class="${i === 0 ? "on" : ""}">
           第${i + 1}戦 ${esc(g.label)} <b>${g.verdict}</b></button>`).join("")}</div>`
     : "";
-  const fightBack = FIGHT && FIGHT.kind === "council" ? "/council"
+  // 軍議演習からの往復は source を持ち回る（§7.141）— 戻った先で同じ陣容の
+  // 行が選ばれたままになり、「もう一度」「編成を直して戻る」が一周で回る。
+  const fightBack = FIGHT && FIGHT.kind === "council" ? "/council?source=" + FIGHT.source_id
     : (FIGHT && FIGHT.kind === "ladder" ? "/" : (FIGHT ? "/senki" : "/replays"));
   const fightBackLabel = FIGHT && FIGHT.kind === "council" ? "← 軍議演習へ"
     : (FIGHT && FIGHT.kind === "ladder" ? "← 対戦へ" : (FIGHT ? "← 戦記へ" : "← 戦歴へ"));
@@ -2533,7 +2558,7 @@ async function viewReplay(state) {
       <span class="muted">${FIGHT ? "戦況を見届けよ" : esc(d.when || "")}
         ${d.games.length > 1 && !FIGHT ? `・${wins}勝${losses}敗 ${overall}` : ""}
         ${d.rule_version ? `<span class="rule-ver" title="対戦当時の戦闘ルール版（§7.135）">ルール${esc(d.rule_version)}</span>` : ""}</span></div>
-      ${d.can_council ? `<a class="btn council-shortcut" href="/council?source=${d.battle_id}">軍議演習で再戦</a>` : ""}
+      ${d.can_council && !FIGHT ? `<a class="btn council-shortcut" href="/council?source=${d.battle_id}">軍議演習で再戦</a>` : ""}
     </div>
     <div class="battle-card">
       <div class="battle-side mine"><span>${mineSide}</span><b>${esc(d.mine_name)}</b></div>
@@ -2543,14 +2568,15 @@ async function viewReplay(state) {
     ${tabs}
     <div class="replay-armies" aria-label="両軍の布陣">
       <section class="army-zone mine replay-army" aria-label="${mineSide}の盤面">
-        <div class="army-zone-label"><b>${mineSide}</b><span>${esc(d.mine_name)}・読み取り専用</span></div>
+        <div class="army-zone-label"><b>${mineSide}</b><span>${esc(d.mine_name)}・駒に触れると詳細</span></div>
         <div id="replay-mine-board"></div>
       </section>
       <section class="army-zone foe replay-army" aria-label="${foeSide}の盤面">
-        <div class="army-zone-label"><b>${foeSide}</b><span>${esc(d.foe_name)}・読み取り専用</span></div>
+        <div class="army-zone-label"><b>${foeSide}</b><span>${esc(d.foe_name)}・駒に触れると詳細</span></div>
         <div id="replay-foe-board"></div>
       </section>
     </div>
+    <div id="cardinfo" class="cardinfo replay-info muted">駒に触れると武将の詳細（両軍とも見られる。宝物は見えない）</div>
     <div class="replay-controls">
       <button id="play" class="primary">▶ 再生</button>
       <button id="skip">${FIGHT ? "結末まで飛ばす" : "全部表示"}</button>
@@ -2602,7 +2628,8 @@ async function viewReplay(state) {
     if (FIGHT.kind === "council") {
       drawFightBar(r, null);
       showBattleResult(FIGHT.label, r, {
-        hideReplay: true, closeLabel: "軍議演習へ戻る", close: to("/council"),
+        hideReplay: true, closeLabel: "軍議演習へ戻る",
+        close: to("/council?source=" + FIGHT.source_id),
         review: () => {
           const bar = $("#fight-actions");
           if (bar) bar.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -2648,7 +2675,7 @@ async function viewReplay(state) {
         <span class="fa-verdict">${esc(r.win)}</span>
         <span class="muted">敵の陣容は固定。編成を変えれば同じ条件で研究できる</span>
         <button class="primary" id="fa-council-again">同じ陣容でもう一度</button>
-        <a class="btn ghost" href="/deck">編成を見直す</a>
+        <a class="btn ghost" href="/deck?back=council&source=${FIGHT.source_id}&reg=${encodeURIComponent(FIGHT.board || "")}">編成を見直す</a>
         <a class="btn ghost" href="/council?source=${FIGHT.source_id}">軍議演習へ戻る</a>`;
       $("#fa-council-again").onclick = () =>
         doCouncil(FIGHT.source_id, FIGHT.board, FIGHT.foe);
@@ -2667,11 +2694,21 @@ async function viewReplay(state) {
 
   function loadGame(g) {
     clearInterval(timer);
+    // 駒に触れると詳細（§7.141）。札の公開情報は盤面データが運んでくる
+    // （宝物・隠し特性は含まない — 見えるのは編成画面と同じ範囲）。
+    const cardOf = (name) => {
+      for (const b of [g.mine_board, g.foe_board]) {
+        const u = b && b.units && b.units[name];
+        if (u && u.card) return u.card;
+      }
+      return null;
+    };
+    const peek = (name) => showCardInfo(name, cardOf(name));
     if (g.mine_board) mountFormationBoard($("#replay-mine-board"), {
-      ...g.mine_board, interactive: false, onSlotsChange: () => {},
+      ...g.mine_board, interactive: false, onSlotsChange: () => {}, onPieceTap: peek,
     });
     if (g.foe_board) mountFormationBoard($("#replay-foe-board"), {
-      ...g.foe_board, interactive: false, onSlotsChange: () => {},
+      ...g.foe_board, interactive: false, onSlotsChange: () => {}, onPieceTap: peek,
     });
     mineNames = g.mine_names || [];
     foeNames = g.foe_names || [];
@@ -2805,13 +2842,23 @@ async function viewReplay(state) {
   }
 
   function drawReport(g) {
+    // 軍功帳（§7.141 で作り直し）。値は**棒の直前**に、数字は明るく大きく。
+    // 「（兵法0.0）」を全行に出すのをやめ、兵法で損害を与えた隊にだけ一行添える
+    // （支援型の発動回数は詳録の「発動」列に残る — 全行に「0.0千・4発」を
+    // 並べたら旧と同じ3段の柱に戻る）。
+    // 顔絵を先頭に置いて、どの武将の行かを名前を読む前に分からせる。
     const maxD = Math.max(1, ...g.mine.map((u) => u.dealt), ...g.foe.map((u) => u.dealt));
-    const side = (label, us) => `<div class="side-label">${label}</div>` +
-      us.map((u, i) => {
+    const k = (v) => (v / 1000).toFixed(1) + "千";
+    const side = (label, us) => {
+      const dealt = us.reduce((s, u) => s + (u.dealt || 0), 0);
+      const men = us.reduce((s, u) => s + (u.men || 0), 0);
+      const men0 = us.reduce((s, u) => s + (u.men0 || 0), 0);
+      const sum = `<span class="side-sum num">与 ${k(dealt)}・残 ${men0 ? Math.round(men / men0 * 100) : 0}%</span>`;
+      return `<div class="side-label">${label}${sum}</div>` + us.map((u, i) => {
         const hp = u.men0 ? u.men / u.men0 : 0;
         const sk = u.skill_dealt || 0;
+        const gone = hp <= 0.005;
         // 見えにくい効き（§7.88）: 軽減・反射・同士討ち。**出た時だけ**添える
-        const k = (v) => (v / 1000).toFixed(1) + "千";
         const marks = [
           (u.cut || 0) >= 300 ? `<span class="fx cut" title="兵法防御・通常攻撃防御で減らした被害">軽減 ${k(u.cut)}</span>` : "",
           (u.refl || 0) >= 300 ? `<span class="fx refl" title="兵法反射で撃ち手へ返した被害">反射 ${k(u.refl)}</span>` : "",
@@ -2819,20 +2866,27 @@ async function viewReplay(state) {
           (u.heal || 0) >= 300 ? `<span class="fx heal" title="味方へ入れた回復の総量">癒し ${k(u.heal)}</span>` : "",
           (u.lost || 0) >= 300 ? `<span class="fx lost" title="弱体を受けて出せなかった火力">封じられ ${k(u.lost)}</span>` : "",
         ].join("");
-        return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""} ${i % 2 ? "alt" : ""}">
+        const face = `/portrait/${encodeURIComponent(u.person || u.name)}`;
+        return `<div class="unit-row ${gone ? "dead" : ""} ${i % 2 ? "alt" : ""}">
+          <img class="u-face" src="${face}" alt="">
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
           <span class="bars">
+            <span class="lab">与</span><span class="val num">${k(u.dealt)}</span>
             <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
-            <span class="val">与${(u.dealt / 1000).toFixed(1)}千<small>（兵法${(sk / 1000).toFixed(1)}）</small></span>
-            <span class="bar hp"><i style="width:${hp * 100}%"></i></span>
-            <span class="val">${hp <= 0.005 ? "壊滅" : "残" + Math.round(hp * 100) + "%"}${
-              u.wiped ? ` <span class="wiped">・${u.wiped}壊</span>` : ""}</span>
+            <span class="lab">残</span><span class="val num ${gone ? "gone" : (hp < 0.3 ? "low" : "")}">${
+              gone ? "壊滅" : Math.round(hp * 100) + "%"}</span>
+            ${u.wiped
+              ? `<span class="wiped-cell"><span class="wiped">・${u.wiped}壊</span></span>`
+              : `<span class="bar hp"><i style="width:${hp * 100}%"></i></span>`}
+            ${sk >= 50 ? `<span class="sk-note">兵法 ${k(sk)}${u.fires ? `・${u.fires}発` : ""}</span>` : ""}
             ${marks ? `<span class="fx-row">${marks}</span>` : ""}
           </span>
         </div>`;
       }).join("");
-    $("#report").innerHTML = '<div class="side-label">─ 軍功帳（朱=兵法・橙=通常／軽減・反射・同士討ちは出た時だけ） ─</div>' +
-      side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
+    };
+    $("#report").innerHTML = '<div class="side-label">─ 軍功帳 ─</div>'
+      + '<div class="legend">朱＝兵法ぶん・橙＝通常／緑＝残り兵力。軽減・反射などは出た時だけ</div>'
+      + side("自軍（" + esc(d.mine_name) + "）", g.mine) + side("敵軍（" + esc(d.foe_name) + "）", g.foe);
   }
 
   /* ── 合戦詳録（§7.94）: 軍師の見立て → 軍功帳 → 詳録 の三段目。

@@ -759,13 +759,23 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   margin: 4px 0; background: rgba(217, 172, 79, .07);
 }
 .notes .note-line .t { color: var(--gold-hi); font-weight: 600; }
+/* 軍功帳の行（§7.141 で作り直し）: 顔絵 → 名前 → [与 値 棒 / 残 値 棒]。
+   値は棒の**直前**に置き、数字は明るく大きく（旧: 棒の右に 11.5px の薄い
+   文字で、全行に「（兵法0.0）」が付いて3段になっていた）。 */
 .unit-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
-  padding: 3px 6px; border-radius: 8px; }
+  padding: 4px 6px; border-radius: 8px; }
 /* 武将ごとの座布団（§7.94後記2）: 行の帰属が読めるよう1行おきに敷く */
 .unit-row.alt { background: rgba(255, 255, 255, .04); }
-.unit-row .uname { width: 6.5em; white-space: nowrap; }
-.unit-row .bars { flex: 1; display: grid;
-  grid-template-columns: 1fr 4.5em; align-items: center; gap: 3px 8px; }
+.unit-row .u-face { width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
+  object-position: top; border: 1px solid var(--line2); flex: none; }
+.unit-row .uname { width: 5.4em; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.unit-row .bars { flex: 1; min-width: 0; display: grid;
+  grid-template-columns: 1.1em 4.4em minmax(0, 1fr); align-items: center; gap: 3px 6px; }
+.unit-row .lab { font-size: 11px; color: var(--sub); }
+.unit-row .sk-note { grid-column: 1 / -1; font-size: 11px; color: #ffb08a; }
+.report .legend { font-size: 11px; color: var(--faint); margin: -2px 0 6px; line-height: 1.5; }
+.side-label .side-sum { margin-left: 8px; letter-spacing: 0; color: var(--ink); font-size: 12px; }
 .bar { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 4px; }
 .bar.dmg { display: flex; }
@@ -775,8 +785,13 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 .bar.dmg i:last-child { border-radius: 0 4px 4px 0; }
 .bar.hp i { background: var(--shu); }
 .unit-row.dead .uname { color: var(--faint); text-decoration: line-through; }
-.unit-row .val { text-align: right; color: var(--sub);
-  font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.unit-row.dead .u-face { filter: grayscale(1) brightness(.6); }
+.unit-row .val { text-align: right; color: var(--ink);
+  font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+.unit-row .val.low { color: #d98b6a; }
+.unit-row .val.gone { color: var(--accent-hi); }
+/* 壊滅した隊は残兵の棒が空なので、その位置に壊滅時刻（壊の印）を置く */
+.unit-row .wiped-cell { font-size: 11px; color: var(--sub); white-space: nowrap; }
 .side-label { margin: 10px 0 4px; color: var(--sub); font-size: 12px; letter-spacing: .15em; }
 
 /* ── 軍師に相談・宝物・保存庫 ─────────────── */
@@ -1175,6 +1190,11 @@ body.suspense .chart-panel h3 small { visibility: hidden; }
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 12px;
 }
 .replay-army { margin: 0; }
+/* 読み取り専用盤面の覗き見（§7.141）: 駒に触れると詳細。押せることを手で示す */
+.formation-board.peek .fb-piece.occupied { cursor: pointer; }
+.formation-board.peek .fb-piece.occupied:hover,
+.formation-board.peek .fb-piece.occupied:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+.cardinfo.replay-info { position: static; box-shadow: none; margin: 0 0 12px; }
 
 /* 武将一覧も実体をbuttonに統一。既存カード外観は維持する。 */
 button.card { width: 100%; min-height: 0; color: var(--ink); letter-spacing: normal; }
