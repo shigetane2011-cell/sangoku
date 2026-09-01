@@ -562,6 +562,8 @@ class App(BaseHTTPRequestHandler):
                 return self._icon(url.path[len("/icons/"):])
             if url.path.startswith("/art/"):
                 return self._art(url.path[len("/art/"):])
+            if url.path.startswith("/treasure_art/"):
+                return self._treasure_art(url.path[len("/treasure_art/"):])
             if url.path.startswith("/portrait/"):
                 return self._portrait(
                     urllib.parse.unquote(url.path[len("/portrait/"):]))
@@ -797,6 +799,24 @@ class App(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[a-z0-9_-]+\.(png|webp|jpg|svg)", name):
             return self._send(b"not found", 404, "text/plain")
         path = os.path.join(self._ART_DIR, name)
+        if not os.path.exists(path):
+            return self._send(b"not found", 404, "text/plain")
+        ctype = {"png": "image/png", "webp": "image/webp",
+                 "jpg": "image/jpeg", "svg": "image/svg+xml"}[
+                     name.rsplit(".", 1)[1]]
+        self._send_file(path, ctype)
+
+    # 宝物絵（§7.140後記）。icons・art と同じ**差し替え式**:
+    # sim/webui/treasures/ に「キー.png」（例 t_sekitoba.png・webp/jpg/svg可）
+    # を置けばそれを出す。無ければ404 — 画面側は絵を隠して文字だけになる
+    # （読み込めた絵だけ現れる）ので、絵が1枚も無くても今まで通り読める。
+    _TREASURE_ART_DIR = os.path.join(WEBUI, "treasures")
+
+    def _treasure_art(self, name: str):
+        name = os.path.basename(urllib.parse.unquote(name))
+        if not re.fullmatch(r"[a-z0-9_-]+\.(png|webp|jpg|svg)", name):
+            return self._send(b"not found", 404, "text/plain")
+        path = os.path.join(self._TREASURE_ART_DIR, name)
         if not os.path.exists(path):
             return self._send(b"not found", 404, "text/plain")
         ctype = {"png": "image/png", "webp": "image/webp",

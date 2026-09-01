@@ -922,6 +922,8 @@ async function viewHome(state, options = {}) {
       <div class="treasure-pick-head">本日の宝物 — 一つを選んで賜る（日替わり・同じ宝は二つと出ない）</div>
       <div class="treasure-pick">${state.treasure.choices.map((c) => `
         <button class="treasure-choice" data-k="${esc(c.key)}">
+          <img class="tr-art" src="/treasure_art/${esc(c.key)}.png" alt="" hidden
+               onload="this.hidden=false" onerror="this.remove()">
           <span class="oc-tier">${esc(c.tier)}</span>
           <span class="oc-name">【${esc(c.name)}】</span>
           <span class="oc-kou">${c.kou ? c.kou + "功" : "功いらず"}</span>
@@ -1941,6 +1943,8 @@ function drawTreasures() {
   const rows = (D.treasures || []).map((o) => `
       <div class="treasure-row">
         <div class="treasure-line1">
+          <img class="tr-art-s" src="/treasure_art/${esc(o.key)}.png" alt="" hidden
+               onload="this.hidden=false" onerror="this.remove()">
           <span class="oname">【${esc(o.name)}】</span>
           <span class="val num">${o.kou ? o.kou + "功" : "功いらず"}</span>
           ${o.general ? `<span class="treasure-set num">${esc(o.general)}
