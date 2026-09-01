@@ -759,7 +759,9 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 }
 .notes .note-line .t { color: var(--gold-hi); font-weight: 600; }
 .unit-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
-  padding: 3px 0; }
+  padding: 3px 6px; border-radius: 8px; }
+/* 武将ごとの座布団（§7.94後記2）: 行の帰属が読めるよう1行おきに敷く */
+.unit-row.alt { background: rgba(255, 255, 255, .04); }
 .unit-row .uname { width: 6.5em; white-space: nowrap; }
 .unit-row .bars { flex: 1; display: grid;
   grid-template-columns: 1fr 4.5em; align-items: center; gap: 3px 8px; }

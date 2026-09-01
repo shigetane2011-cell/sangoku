@@ -2805,7 +2805,7 @@ async function viewReplay(state) {
   function drawReport(g) {
     const maxD = Math.max(1, ...g.mine.map((u) => u.dealt), ...g.foe.map((u) => u.dealt));
     const side = (label, us) => `<div class="side-label">${label}</div>` +
-      us.map((u) => {
+      us.map((u, i) => {
         const hp = u.men0 ? u.men / u.men0 : 0;
         const sk = u.skill_dealt || 0;
         // 見えにくい効き（§7.88）: 軽減・反射・同士討ち。**出た時だけ**添える
@@ -2817,7 +2817,7 @@ async function viewReplay(state) {
           (u.heal || 0) >= 300 ? `<span class="fx heal" title="味方へ入れた回復の総量">癒し ${k(u.heal)}</span>` : "",
           (u.lost || 0) >= 300 ? `<span class="fx lost" title="弱体を受けて出せなかった火力">封じられ ${k(u.lost)}</span>` : "",
         ].join("");
-        return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""}">
+        return `<div class="unit-row ${hp <= 0.005 ? "dead" : ""} ${i % 2 ? "alt" : ""}">
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>
           <span class="bars">
             <span class="bar dmg"><i class="skillpart" style="width:${sk / maxD * 100}%"></i><i style="width:${(u.dealt - sk) / maxD * 100}%"></i></span>
