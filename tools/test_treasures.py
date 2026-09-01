@@ -335,7 +335,10 @@ def http_checks() -> bool:
     check("外れて未装備に戻る", row["general"] == "")
 
     print("[19] 軍功予算の超過が entry_errors に出る")
-    # 官渡へデッキを組み、高額の宝物3つ（80+70+70=220功 > 予算150功）を積む
+    # 官渡へデッキを組み、CSV の高額順（装備制限なしの宝物だけ）に
+    # 予算を超えるまで積む。値段は実測で変わるので決め打ちにしない —
+    # 6個積んでも超えられない値付けになったら、ここで声を出して落ちる
+    # （そのときはこの試験の前提ごと考え直すこと）。
     used = set()
     front, rear = [], []
     for c in sorted((x for x in D["roster"] if x["typ"] != "弓兵"),
@@ -350,8 +353,18 @@ def http_checks() -> bool:
     r, d = req("POST", "/api/deck", cookie=sid,
                body={"reg": "官渡", "form": "魚鱗", "cards": deck})
     check("（準備）官渡へデッキ登録", json.loads(d).get("ok"), d)
-    for key, gen in (("t_gyokuji", deck[0]), ("t_iten", deck[1]),
-                     ("t_sonshi", deck[2])):
+    budget = PL.treasure_budget_kou(30.0)          # 官渡
+    rich = sorted(((PL.treasure_kou(k), k)
+                   for k, row in PL.treasure_rows().items()
+                   if not row["装備制限"]), reverse=True)
+    picked, total = [], 0
+    for kou, k in rich:
+        if total > budget or len(picked) >= len(deck):
+            break
+        picked.append(k); total += kou
+    check("（前提）積める宝物で予算を超えられる", total > budget,
+          "上位{}個でも {}功 ≦ 予算{}功".format(len(picked), total, budget))
+    for key, gen in zip(picked, deck):
         r, d = req("POST", "/api/treasure", cookie=sid,
                    body={"key": key, "general": gen})
         check("（準備）{} を装備".format(key), json.loads(d).get("ok"), d)
