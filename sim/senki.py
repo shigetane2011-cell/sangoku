@@ -337,10 +337,10 @@ def check_deck(cx, cards, me, b: Dict, names, form):
         errs.append("合計 {:g}点 が持ち込み上限 {:g}点 を超えている".format(
             army.total_cost(), cap))
     errs += M.placement_errors(army)
-    army, kou = PL._apply_onsho(cx, me.id, army)
-    if kou > PL.onsho_budget_kou(cap):
+    army, kou = PL._apply_treasures(cx, me.id, army)
+    if kou > PL.treasure_budget_kou(cap):
         errs.append("軍功 {}功 が予算 {}功 を超えている".format(
-            kou, PL.onsho_budget_kou(cap)))
+            kou, PL.treasure_budget_kou(cap)))
     honjin = [c for c in army.cards if "command" in F.trait_keys(c.trait)]
     if len(honjin) > 1:
         errs.append("本陣は1部隊に1人まで")

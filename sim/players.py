@@ -128,8 +128,8 @@ CREATE TABLE IF NOT EXISTS identities (
 CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_email ON identities(email);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_sub
   ON identities(provider, subject) WHERE provider IS NOT NULL;
--- 獲得した固有特性（1日1つ）。**どの武将へセットしたかは別の列で持つ。**
--- 未セットなら general_name が空。取り外しを許すかは未決なので、履歴は残す。
+-- 旧・恩賞（§7.43）。**§7.138 で宝物（owned_treasures）に置き換わり、
+-- もう読まない。** 既存DBのため表定義だけ残す（データは捨ててよい・墓標）。
 CREATE TABLE IF NOT EXISTS owned_traits (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   player_id     TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -138,11 +138,24 @@ CREATE TABLE IF NOT EXISTS owned_traits (
   slot          INTEGER,
   gained_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
--- **同じ武将の同じ枠には1つまで。** 枠は 0..TRAIT_SLOTS-1。
 CREATE UNIQUE INDEX IF NOT EXISTS ix_owned_slot
   ON owned_traits(player_id, general_name, slot)
   WHERE general_name <> '';
 CREATE INDEX IF NOT EXISTS ix_owned_player ON owned_traits(player_id);
+-- 宝物（§7.138・恩賞の後継）。同じ宝物は1人1個・1武将に1個。
+-- 未装備は general_name が空。日替わりの獲得ガードは gained_at の地元日付で見る。
+CREATE TABLE IF NOT EXISTS owned_treasures (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id     TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  key           TEXT NOT NULL,
+  general_name  TEXT NOT NULL DEFAULT '',
+  gained_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_treasure_one ON owned_treasures(player_id, key);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_treasure_gen
+  ON owned_treasures(player_id, general_name)
+  WHERE general_name <> '';
+CREATE INDEX IF NOT EXISTS ix_treasure_player ON owned_treasures(player_id);
 -- 順位表ごとのレート（§7.35: BO1の3レギュ + BO3 で別々）。順位は表示時に
 -- 現在レート順で付ける。games は可変K（§7.38）の入力。
 CREATE TABLE IF NOT EXISTS ratings (
@@ -598,6 +611,66 @@ def unset_traits(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
     return [dict(r) for r in cx.execute(
         "SELECT id, trait_key, gained_at FROM owned_traits"
         " WHERE player_id=? AND general_name='' ORDER BY id", (player_id,))]
+
+
+# ── 宝物（§7.138・恩賞の後継）─────────────────────────────
+
+
+def grant_treasure(cx: sqlite3.Connection, player_id: str, key: str) -> bool:
+    """宝物を1つ授ける。**同じ宝物は1人1個** — 既に持っていれば False。"""
+    try:
+        with cx:
+            cx.execute(
+                "INSERT INTO owned_treasures (player_id, key) VALUES (?,?)",
+                (player_id, key))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def pick_treasure(cx: sqlite3.Connection, player_id: str, key: str,
+                  candidates, today: str) -> bool:
+    """本日の宝物を**選んで**授かる（§7.70 の器・§7.138）。1日1回・候補から。"""
+    if key not in {k for _t, k in candidates}:
+        return False
+    r = cx.execute(
+        # **地元の日付で数える**（§7.84）。gained_at は UTC なので、そのまま
+        # 比べると日付がずれる時間帯に「本日はまだ」と誤判定する。
+        "SELECT 1 FROM owned_treasures WHERE player_id=?"
+        " AND date(gained_at,'localtime')=?",
+        (player_id, today)).fetchone()
+    if r is not None:
+        return False
+    return grant_treasure(cx, player_id, key)
+
+
+def owned_treasures(cx: sqlite3.Connection, player_id: str) -> List[Dict]:
+    """所持している宝物ぜんぶ（装備先つき・獲得順）。"""
+    return [dict(r) for r in cx.execute(
+        "SELECT id, key, general_name, gained_at FROM owned_treasures"
+        " WHERE player_id=? ORDER BY id", (player_id,))]
+
+
+def set_treasure(cx: sqlite3.Connection, player_id: str, key: str,
+                 general_name: str) -> None:
+    """宝物を武将へ持たせる（'' で外す）。付け替えは UPDATE 1本。
+
+    **1武将に1個**は ix_treasure_gen（UNIQUE）が最終防衛。先に読める形の
+    エラー文を出すのは web 層の仕事で、ここは黙って制約に任せる。"""
+    with cx:
+        cx.execute(
+            "UPDATE owned_treasures SET general_name=?"
+            " WHERE player_id=? AND key=?",
+            (general_name, player_id, key))
+
+
+def treasures_on(cx: sqlite3.Connection, player_id: str,
+                 general_name: str) -> List[str]:
+    """その武将が持っている宝物のキー（0〜1個だが、形は traits_on と揃える）。"""
+    return [r["key"] for r in cx.execute(
+        "SELECT key FROM owned_treasures"
+        " WHERE player_id=? AND general_name=? ORDER BY id",
+        (player_id, general_name))]
 
 
 def board_ratings(cx: sqlite3.Connection, board: str

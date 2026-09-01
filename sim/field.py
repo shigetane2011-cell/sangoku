@@ -1140,6 +1140,25 @@ COMMAND_ROUT = 0.40
 COMMAND_COLLAPSE = 1.0
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 
+# 宝物（§7.138・恩賞の後継）。キーは treasures.csv の t_ 名前空間で、
+# card.trait / hidden_trait に生来特性と同じ形で乗る（§7.136 の秘匿も同経路）。
+# **数値は全部仮** — 実測（§7.53 の帯合わせ・値付け）は別タスク。
+TREASURE_SEKITOBA_MEN = 0.02   # 赤兎馬: 兵力+2%（速度寄せ+0.3は play.py の札モッド側）
+TREASURE_MOTOKU_SCUT = 0.15    # 孟徳新書: 兵法防御+15%（敵の手を書物で見抜く）
+TREASURE_RENDO_ATK = 0.08      # 諸葛連弩: 通常攻撃+8%（弓兵限定はセット時検証）
+TREASURE_MOKGYU_DEF = 0.08     # 木牛流馬: 後衛に置いた時だけ守り+8%（輜重の余裕）
+# 勢力の宝（大・利用条件つき）: 同じ部隊にその勢力の武将が TREASURE_FACTION_NEED
+# 人以上（持ち主含む）いるときだけ全軍へ効く。条件は**戦闘時に数えるだけ**
+# （陣頭の is_front と同型・セット時検証なし）。キー → (勢力, 器, 量)。
+# 器は "men" だけ men0 直掛け、他は perm_* への加算。
+TREASURE_FACTION_NEED = 3
+TREASURE_FACTION = {
+    "t_gyokuji": ("群雄", "rate", 0.08),   # 伝国玉璽: 全軍の気勢+8%
+    "t_iten": ("魏", "atk", 0.03),          # 倚天剣: 全軍の攻撃+3%
+    "t_sonshi": ("呉", "def", 0.03),        # 孫子十三篇: 全軍の守り+3%
+    "t_shokkin": ("蜀", "men", 0.02),       # 蜀錦: 全軍の兵力+2%
+}
+
 # 1枚が複数の固有特性を持てる（生まれつきの複数持ち＋獲得してセットした分・§7.37）。
 # Card.trait は CSV の「固有特性」列そのまま（「、」区切り）。**区切りの定義は
 # ここ1箇所**で、rosterdata.traits_of もこれを使う（同じ量の定義を2箇所に持たない）。
@@ -1587,6 +1606,7 @@ class Unit:
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits",
+        "perm_atk", "perm_def", "perm_rate", "perm_scut",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -1646,11 +1666,30 @@ class Unit:
         self.atk = (self.might * (1.0 - w) + self.wits * w) / f
         # 常在型の固有特性（§6.6）。戦闘中の瞬間を持たないので実況には出ない。
         self.traits = trait_keys(card.trait)
-        # 恩賞で付けたキー（§7.43・§7.136）。実況の名指しをここだけ避ける。
+        # 宝物で付けたキー（§7.136・§7.138）。実況の名指しをここだけ避ける。
         self.hidden_traits = trait_keys(card.hidden_trait)
+        # 宝物の恒久項（§7.138）。時限効果と別枠で持つ — _recalc_mods は倍率を
+        # **代入**で作り直すので、倍率へ直接足すと最初の再計算で消える。
+        # 常在なので MOD_CAP（±50%）の山には数えない（陣頭の兵力と同じ扱い）。
+        self.perm_atk = 0.0
+        self.perm_def = 0.0
+        self.perm_rate = 0.0
+        self.perm_scut = 0.0
         if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
             self.men = self.men0
+        if TRAITS_ON:
+            # 宝物の常在（§7.138・数値は全部仮）。置き場所は陣頭と同じ —
+            # atk 算出（上の f）より後・boost より前。
+            if "t_sekitoba" in self.traits:      # 赤兎馬: 兵力+2%
+                self.men0 *= 1.0 + TREASURE_SEKITOBA_MEN
+                self.men = self.men0
+            if "t_motoku" in self.traits:        # 孟徳新書: 兵法防御+15%
+                self.perm_scut += TREASURE_MOTOKU_SCUT
+            if "t_rendo" in self.traits:         # 諸葛連弩: 通常攻撃+8%
+                self.perm_atk += TREASURE_RENDO_ATK
+            if "t_mokgyu" in self.traits and not is_front:
+                self.perm_def += TREASURE_MOKGYU_DEF   # 木牛流馬: 後衛のみ
         # 周回スケーリング（§7.60）。atk 算出（上の f）より後に掛けること —
         # 先に掛けると per-man の atk が薄まって出力が上がらない。
         if card.boost != 1.0:
@@ -1689,10 +1728,12 @@ class Unit:
         self.quote = card.quote
         self.fame_wits = card.fame_wits
         self.faction = card.faction
-        self.atk_mult = 1.0
-        self.def_mult = 1.0
+        # 倍率は恒久項（宝物・§7.138）込みで初期化する。時限効果が動くと
+        # _recalc_mods が同じ式で作り直す（恒久項はそこでも足し直される）。
+        self.atk_mult = 1.0 + self.perm_atk
+        self.def_mult = 1.0 + self.perm_def
         self.spd_mult = 1.0
-        self.rate_mult = 1.0
+        self.rate_mult = 1.0 + self.perm_rate
         self.fired = {}     # 誘発型が何回発火したか（特性キーごと・§7.37）
         # (失効時刻, 種別, 量, 出どころ)。出どころは §6.5 の同名判定に使う。
         self.effects: List[Tuple[float, str, float, str]] = []
@@ -1722,7 +1763,8 @@ class Unit:
         self.stun_time = 0.0    # 行動阻害で立ちすくんでいた秒数
         self.sup_lost = 0.0     # 接敵抑制で失った矢の量（撃ち手側で数える）
         self.pair = {}          # 矛先: 敵の名前 -> 与えた被害（通常・兵法・延焼）
-        self.scut_mult = 1.0    # 兵法被害の倍率（1=素通し・§7.51）
+        # 兵法被害の倍率（1=素通し・§7.51）。恒久項（孟徳新書・§7.138）込み。
+        self.scut_mult = max(0.0, 1.0 - self.perm_scut)
         self.refl = 0.0         # 兵法反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
         self.nullify = False    # 兵法打消しの構え（§7.51 機構5）
@@ -2478,8 +2520,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 構えは§7.126の二段化で**同じティックの先行段**にも立つ — 両軍の
         # 構えを反映してから攻め兵法を解くので、同期した斉射にも噛み合う。
         # 味方対象の兵法は敵を含まず、素通しになる — 打消しは攻め兵法への備え。
+        # 七星宝刀（§7.138）: 持ち主の兵法は構えに阻まれない。**貫通は語らない** —
+        # 実況も打消しの帳簿も触れない（語ると宝物の存在が割れる。相手には
+        # 「構えたのに通った」という類推だけが残る＝§7.136 の許容範囲）。
         blocker = next((f for f in tgts
                         if f.side != u.side and f.nullify), None)
+        if "t_shichisei" in u.traits:
+            blocker = None
         if blocker is not None:
             blocker.null_blocked += 1          # 帳簿（§7.126・表示専用）
             if name and name not in blocker.null_names:
@@ -2861,13 +2908,17 @@ def _recalc_mods(u: Unit) -> None:
     for k in tot:
         tot[k] = min(MOD_CAP, max(-MOD_CAP, tot[k]))
     # 行動阻害は能力補正ではないので ±50% の丸めを受けない（§6.5 は別項）。
-    u.atk_mult = 0.0 if stun else 1.0 + tot["atk"]
+    # 宝物の恒久項（perm_*・§7.138）は時限効果の山の**外**で足す — 常在で
+    # あって「効果の重複」ではないから ±50% の丸めにも同名判定にも数えない
+    # （陣頭の兵力と同じ扱い）。ここで足し直すので、__init__ の初期値が
+    # 再計算で消えることもない。
+    u.atk_mult = 0.0 if stun else 1.0 + tot["atk"] + u.perm_atk
     u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
-    u.def_mult = 1.0 + tot["def"]
-    u.rate_mult = 1.0 + tot["rate"]
+    u.def_mult = 1.0 + tot["def"] + u.perm_def
+    u.rate_mult = 1.0 + tot["rate"] + u.perm_rate
     # 兵法防御（§7.51・コンセプトカード「兵法メタ」）。兵法と延焼の
     # 被害だけを減らす。通常攻撃には効かない。
-    u.scut_mult = max(0.0, 1.0 - tot["scut"])
+    u.scut_mult = max(0.0, 1.0 - tot["scut"] - u.perm_scut)
     # 兵法反射（§7.51 機構2）。受けた兵法直撃の一部を撃ち手へ返す。
     u.refl = max(0.0, tot["refl"])
     # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
@@ -3034,6 +3085,31 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
     return sup
 
 
+def _apply_faction_treasures(us) -> None:
+    """勢力の宝（§7.138・数値は全部仮）を1軍へ入れる。simulate が build 直後に呼ぶ。
+
+    同じ部隊にその勢力の武将が TREASURE_FACTION_NEED 人以上いて、かつ宝物の
+    持ち主がいるとき、全軍へ常在の底上げ。条件は**戦闘時に数えるだけ**
+    （陣頭の is_front と同型・セット時検証なし）。合成カードは faction が
+    空なので測定系は素通り。恒久項を足したら _recalc_mods で倍率へ写す
+    （効果の山はまだ空なので、写し直すだけ）。"""
+    cnt = Counter(u.faction for u in us if u.faction)
+    dirty = False
+    for tkey, (fac, kind, amt) in TREASURE_FACTION.items():
+        if (cnt.get(fac, 0) >= TREASURE_FACTION_NEED
+                and any(tkey in u.traits for u in us)):
+            for u in us:
+                if kind == "men":
+                    u.men0 *= 1.0 + amt
+                    u.men = u.men0
+                else:
+                    setattr(u, "perm_" + kind, getattr(u, "perm_" + kind) + amt)
+                    dirty = True
+    if dirty:
+        for u in us:
+            _recalc_mods(u)
+
+
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
              repulse: float = 0.0, damage: bool = True,
              events: "List[Event] | None" = None,
@@ -3083,6 +3159,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             for u in us:
                 u.men0 *= 1.0 + COMMAND_MEN
                 u.men = u.men0
+    # 勢力の宝（§7.138）。build 直後・ティック開始前に1軍ずつ。
+    if TRAITS_ON:
+        _apply_faction_treasures(ua)
+        _apply_faction_treasures(ub)
     cmd_fell = [False, False]     # 動揺は1回だけ（指揮官は一度しか倒れない）
     if seed is not None and (RAND_SIGMA > 0.0 or SKILL_JITTER > 0.0):
         # **部隊ごとに独立の流れを持たせる。** 1本の流れを共有すると、引く順序が
@@ -3733,6 +3813,19 @@ def _log_open(ev, seen, a: Army, b: Army, ua, ub) -> None:
         if vg:
             line += "{}軍は{}が自ら陣頭に立つ。".format(_JP[side], "・".join(vg))
     ev.append(Event(-1.0, "布陣", LINE_PRIO["布陣"], line))
+    # 杜康の酒（§7.138・演出のみ）: 持ち主の決めゼリフを開幕で必ず語る。
+    # 「必ず」の担保は二段: ref を布陣行（必ず生き残る）へ紐づけて刈り込みに
+    # 耐えさせ、mag=inf で台詞枠（3本・大きい順）の選抜も必ず勝つ。prio は
+    # 布陣の1つ後ろ — 台詞の素の prio(3) だと t=-1 どうしの並べ替えで布陣(7)
+    # より前に出て、誰の声かわからないまま口上が始まってしまう。
+    # 「声」の印で兵法発動時の通常経路との二重発声を防ぐ。
+    opening = ev[-1]
+    for u in list(ua) + list(ub):
+        if "t_toko" in u.traits and u.quote and ("声", id(u)) not in seen:
+            seen.add(("声", id(u)))
+            ev.append(Event(-1.0, "台詞", LINE_PRIO["布陣"] + 1,
+                            "{}「{}」".format(_who(u), u.quote),
+                            float("inf"), ref=id(opening), side=_side_of(u)))
     # 迂回の予告。所要時間も捨てる攻撃量も経路長から確定している（§9.3）
     bets = [u for u in list(ua) + list(ub)
             if u.typ == CAV and u.detour > DETOUR_SHOW and u.total_len > 1.0]

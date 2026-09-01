@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""恩賞で足した固有特性は、対戦相手にも名指しされないことの回帰（§7.136）。
+"""宝物で足したキーは、対戦相手にも名指しされないことの回帰（§7.136・§7.138）。
 
-生まれつきの特性はこれまで通り実況に名前が出て、恩賞（軍功枠）で後から
-足した特性だけ名前を伏せる — その境目を、誘発型・常在型（陣頭・本陣）の
-3経路それぞれで確かめる。数値・勝敗が変わらないことまでは見ない（§7.136の
-狙いは表示だけで、そちらは既存の回帰が担保する）。
+生まれつきの特性はこれまで通り実況に名前が出て、宝物（旧・恩賞）で後から
+足したキーだけ名前を伏せる — その境目を、誘発型・常在型（陣頭・本陣）の
+3経路それぞれで確かめる。数値・勝敗が変わらないことまでは見ない（狙いは
+表示だけで、そちらは既存の回帰が担保する）。
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from sim import players as P      # noqa: E402
 from sim import rosterdata as R   # noqa: E402
 
 
-class OnshoPrivacyTest(unittest.TestCase):
+class TreasurePrivacyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not F.TRAITS:
@@ -37,7 +37,7 @@ class OnshoPrivacyTest(unittest.TestCase):
     def tearDownClass(cls):
         F.TRAITS_ON = cls._traits_on
 
-    # ---- 誘発型（背水など10種）: _fire_traits と同じ経路を直接叩く ----
+    # ---- 誘発型（背水など）: _fire_traits と同じ経路を直接叩く ----
 
     def _fire_laststand(self, hidden: bool) -> str:
         cond, target, cap, sk, jp = F.TRAITS["laststand"]
@@ -115,46 +115,45 @@ class OnshoPrivacyTest(unittest.TestCase):
         line = next(l for l in text.split("\n") if "本陣、破られる" in l)
         self.assertIn("本陣次郎", line)
 
-    # ---- _apply_onsho（sim/play.py）・陣容の保存/復元 ----
+    # ---- _apply_treasures（sim/play.py）・陣容の保存/復元 ----
 
-    def _onshoed_army(self):
-        """貂蝉に「背水」を恩賞でセットした状態を、実際の恩賞DBを通して作る。
+    def _treasured_army(self):
+        """貂蝉に的盧（t_teki）を持たせた状態を、実際の宝物DBを通して作る。
 
-        _apply_onsho は他プレイヤー・DBの実データを読むので、ここだけは
-        players.py の使い捨てDBを本物どおりに経由する。
+        _apply_treasures は DB の実データを読むので、ここだけは players.py の
+        使い捨てDBを本物どおりに経由する。貂蝉〔傾国〕は生まれつきの特性を
+        持たない — 宝物で足した分だけを見たいので、その前提を assert で守る。
         """
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         cx = P.connect(os.path.join(d.name, "t.db"))
         self.addCleanup(cx.close)
         pid = P.register(cx, "テスト太郎").id
-        oid = P.grant_trait(cx, pid, "laststand")
-        # 貂蝉〔傾国〕は生まれつきの特性を持たない — 恩賞で足した分だけを
-        # 見たいので、ここでは素の札に何も乗っていないことが前提になる。
+        self.assertTrue(P.grant_treasure(cx, pid, "t_teki"))
         general = "貂蝉〔傾国〕"
         roster = {c.name: c for c in M._roster_cards()}
         assert roster[general].trait == "", "この武将は生まれつきの特性を前提にした選択"
-        P.set_trait(cx, pid, oid, general, 0)
+        P.set_treasure(cx, pid, "t_teki", general)
         base = F.Army((roster[general],), F.FORM_STANDARD)
-        return PL._apply_onsho(cx, pid, base)[0], roster
+        return PL._apply_treasures(cx, pid, base)[0], roster
 
-    def test_apply_onsho_marks_added_key_hidden(self):
-        army, _ = self._onshoed_army()
+    def test_apply_treasures_marks_key_hidden(self):
+        army, _ = self._treasured_army()
         c = army.cards[0]
-        self.assertIn("laststand", F.trait_keys(c.trait))
-        self.assertEqual(F.trait_keys(c.hidden_trait), ("laststand",))
+        self.assertIn("t_teki", F.trait_keys(c.trait))
+        self.assertEqual(F.trait_keys(c.hidden_trait), ("t_teki",))
 
     def test_snapshot_round_trip_preserves_hidden_trait(self):
-        # リプレイの実況は保存済みの陣容から**組み直す**ので、恩賞の隠し
-        # 特性キーが魚拓の往復を生き延びないと、対戦直後は隠れていても
+        # リプレイの実況は保存済みの陣容から**組み直す**ので、宝物の隠し
+        # キーが陣容の往復を生き延びないと、対戦直後は隠れていても
         # リプレイを開き直すと名前が漏れる（§7.136）。
-        army, roster = self._onshoed_army()
+        army, roster = self._treasured_army()
         snap = PL.snap_army(army)
-        self.assertEqual(snap["cards"][0].get("h"), "laststand")
+        self.assertEqual(snap["cards"][0].get("h"), "t_teki")
         rebuilt = PL.army_from_snap(list(roster.values()), snap)
         c = rebuilt.cards[0]
-        self.assertIn("laststand", F.trait_keys(c.trait))
-        self.assertEqual(F.trait_keys(c.hidden_trait), ("laststand",))
+        self.assertIn("t_teki", F.trait_keys(c.trait))
+        self.assertEqual(F.trait_keys(c.hidden_trait), ("t_teki",))
 
     def test_snapshot_of_native_card_has_no_hidden_key(self):
         roster = {c.name: c for c in M._roster_cards()}

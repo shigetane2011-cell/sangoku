@@ -112,8 +112,8 @@ def _deck_records(cx, pid):
     その編成のものとして残る）。
 
     数えるのは**レート対象だけ**（ranked / tenka）。稽古（free / room）を
-    混ぜると「試しに10連敗」が看板の数字を汚す。恩賞（trait）は無視して
-    札の並びと陣形だけで一致を取る — 恩賞替えは同じデッキの調整と見なす。
+    混ぜると「試しに10連敗」が看板の数字を汚す。宝物（trait）は無視して
+    札の並びと陣形だけで一致を取る — 宝物替えは同じデッキの調整と見なす。
 
     戻り: {(レギュ名, 札名タプル, 陣形名): {"n":出陣, "w":勝, "l":負}}
     """
@@ -182,7 +182,7 @@ def _skill_display(g, sk_row) -> str:
     import re as _re
     sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
     v = F.SKILL_WITS.get(sk.kind, 0.0)
-    # g が無い（恩賞パネルなど、まだ持ち主が決まっていない）ときは実数に
+    # g が無い（宝物パネルなど、まだ持ち主が決まっていない）ときは実数に
     # できないので、量がセット先しだいであることを言う。
     coef = (float(g["武力"]) * (1.0 - v) + float(g["知力"]) * v) if g else None
     parts = []
@@ -315,6 +315,46 @@ def _trait_brief(g, key, t):
     return desc, cond
 
 
+def _treasure_brief(key, row):
+    """宝物1つの表示説明（§7.138）。誘発型は特性と同じ文法なので
+    _trait_brief を素通しし、常在・演出型は盤面の定数から組む
+    （定義を2箇所に持たない）。数値は全部仮 — 実測は別タスク。"""
+    if row.get("型") == "誘発":
+        desc, cond = _trait_brief(None, key, row)
+        return desc + ("（{}）".format(cond) if cond else "")
+    if key == "t_sekitoba":
+        return "速度寄せ +0.3、自分の隊の兵力 +{:.0%}（騎兵のみ）".format(
+            F.TREASURE_SEKITOBA_MEN)
+    if key == "t_motoku":
+        return "兵法の被害 -{:.0%}（敵の手を書物で見抜く）".format(
+            F.TREASURE_MOTOKU_SCUT)
+    if key == "t_rendo":
+        return "通常攻撃の攻撃力 +{:.0%}（弓兵のみ）".format(F.TREASURE_RENDO_ATK)
+    if key in F.TREASURE_FACTION:
+        fac, kind, amt = F.TREASURE_FACTION[key]
+        what = {"rate": "気勢", "atk": "攻撃", "def": "守り", "men": "兵力"}[kind]
+        return "同じ部隊に{}の武将が{}人以上いるときだけ、全軍の{} +{:.0%}".format(
+            fac, F.TREASURE_FACTION_NEED, what, amt)
+    if key == "t_seiryu":
+        return "武力 +{:.0f}（通常も兵法も出力が少し上がる）".format(
+            PL.TREASURE_CARD_MODS[key]["might"])
+    if key == "t_hakuusen":
+        return "知力 +{:.0f}（計略の効きと混乱への耐えが上がる）".format(
+            PL.TREASURE_CARD_MODS[key]["wits"])
+    if key == "t_gentetsu":
+        return "防御寄せ +0.3 — 鎧が厚くなり、そのぶん兵が薄くなる"
+    if key == "t_keiki":
+        return "防御寄せ -0.3 — 鎧を軽くして兵を厚くする"
+    if key == "t_shichisei":
+        return "この武将の兵法は打消しの構えに阻まれない"
+    if key == "t_mokgyu":
+        return "後衛に置いた時だけ守り +{:.0%}（輜重の余裕）".format(
+            F.TREASURE_MOKGYU_DEF)
+    if key == "t_toko":
+        return "強さは変わらない。この将の決めゼリフが必ず実況に出る（演出の宝）"
+    return row.get("備考", "")
+
+
 def _roster_json(only=None):
     """武将一覧（§7.47 の開示設計）。
 
@@ -389,7 +429,7 @@ def _cadence(g, srow) -> dict:
     """兵法の巡り（§7.127）。発動型と、自然蓄積だけで見た初動・再発の目安。
 
     目安の式: 初動 (消費−初期)÷(自然増加×上昇率)、再発 消費÷(同)。上昇率は
-    100表記を1.00に直す。実際は攻撃・被弾・気勢・恩賞で早まるので
+    100表記を1.00に直す。実際は攻撃・被弾・気勢・宝物で早まるので
     「自然蓄積の目安」（討ち取り給は未配線 — field.GAUGE_ON_ROUT の注記）。
     **表示は戦場の分**（§7.47 の規約: 時間は実況と同じ「分」で語る。盤面の
     秒を出すと兵法説明の「81分間」や実況の時刻と物差しが揃わない）。5分丸め。
@@ -589,38 +629,38 @@ class App(BaseHTTPRequestHandler):
                 SK.set_cleared(cx, me.id, len(SK.battles()))
                 P.unlock(cx, me.id, [g["人物"] for g in R.generals()], "dev")
                 return self._json({"ok": True})
-            if url.path == "/api/dev_onsho":
+            if url.path == "/api/dev_treasure":
                 if not DEV_DOORS:
                     return self._send(b"not found", 404, "text/plain")
-                # 手元の試験用: 全種の恩賞を1つずつ獲得（未所持ぶんだけ）。
+                # 手元の試験用: 全種の宝物を獲得（未所持ぶんだけ・§7.138）。
                 # 公開版では消す（dev_heifu / dev_tenka / dev_senki と同じ口）。
                 cx = self._cx()
                 me = self._me(cx)
                 if me is None:
                     return self._json({"error": "login"}, 401)
-                have = {r["trait_key"] for r in P.owned_traits(cx, me.id)}
-                for key in list(_trait_names()) + list(PL.ONSHO_BOOKS):
-                    if key not in have:
-                        P.grant_trait(cx, me.id, key)
+                for key in PL.treasure_rows():
+                    P.grant_treasure(cx, me.id, key)
                 return self._json({"ok": True})
             if url.path == "/api/free":
                 return self._api_free(body)
             if url.path == "/api/room":
                 return self._api_room(body)
-            if url.path == "/api/onsho":
-                return self._api_onsho(body)
-            if url.path == "/api/onsho_pick":
+            if url.path == "/api/treasure":
+                return self._api_treasure(body)
+            if url.path == "/api/treasure_pick":
                 cx = self._cx()
                 me = self._me(cx)
                 if me is None:
                     return self._json({"error": "login"}, 401)
                 import datetime
                 today = datetime.date.today().isoformat()
-                ok = P.pick_onsho(cx, me.id, str(body.get("key", "")),
-                                  PL.onsho_candidates(me.id, today), today)
+                owned = {r["key"] for r in P.owned_treasures(cx, me.id)}
+                ok = P.pick_treasure(
+                    cx, me.id, str(body.get("key", "")),
+                    PL.treasure_candidates(me.id, today, owned), today)
                 return self._json({"ok": ok} if ok else
                                   {"ok": False,
-                                   "errors": ["本日の恩賞はもう受け取っている"]})
+                                   "errors": ["本日の宝物はもう受け取っている"]})
             if url.path == "/api/seen":
                 # 1回きりの案内を「見た」印。鍵は許可制 — 任意の旗を書かせない
                 cx = self._cx()
@@ -660,7 +700,7 @@ class App(BaseHTTPRequestHandler):
                 if not DEV_DOORS:
                     return self._send(b"not found", 404, "text/plain")
                 # 手元の試験用（§7.90・**今だけ**）: 自分の戦績を白紙に戻す。
-                # レート・戦数・対戦記録を消す。デッキ・登用・恩賞は残す。
+                # レート・戦数・対戦記録を消す。デッキ・登用・宝物は残す。
                 # **公開版では消すこと**（他人の記録に触れる口を残さない）。
                 cx = self._cx()
                 me = self._me(cx)
@@ -860,7 +900,7 @@ class App(BaseHTTPRequestHandler):
         entry_ok = False
         boards_ok = {}
         heifu = None
-        onsho = None
+        treasure = None
         senki_info = None
         if me:
             entry, boards_ok, errs = PL.entry_of(cx, cards, me.id,
@@ -880,27 +920,23 @@ class App(BaseHTTPRequestHandler):
             heifu = {"count": n, "cap": P.HEIFU_CAP, "next_in": wait,
                      "regen": P.HEIFU_REGEN_SEC}
             import datetime
-            names_jp = _trait_names()
             today = datetime.date.today().isoformat()
             # 授与済みの判定は**地元の日付**で（§7.84。UTC のまま比べると
             # 日本の 0〜9時に帯が消えず、何度でも選べてしまっていた）
             if not cx.execute(
-                    "SELECT 1 FROM owned_traits WHERE player_id=?"
+                    "SELECT 1 FROM owned_treasures WHERE player_id=?"
                     " AND date(gained_at,'localtime')=?",
                     (me.id, today)).fetchone():
-                cands = PL.onsho_candidates(me.id, today)
-                trs = {t["キー"]: t for t in R.traits()}
+                owned = {r["key"] for r in P.owned_treasures(cx, me.id)}
+                cands = PL.treasure_candidates(me.id, today, owned)
                 rows2 = []
                 for tier, k in cands:
-                    if k in PL.ONSHO_BOOKS:
-                        nm, desc = PL.ONSHO_BOOKS[k][0], PL.ONSHO_BOOKS[k][1]
-                    else:
-                        nm = names_jp.get(k, k)
-                        d2, cond = _trait_brief(None, k, trs.get(k, {}))
-                        desc = d2 + ("（{}）".format(cond) if cond else "")
-                    rows2.append({"key": k, "tier": tier, "name": nm,
-                                  "kou": PL.kou_of(k), "desc": desc})
-                onsho = {"choices": rows2}
+                    row = PL.treasure_rows()[k]
+                    rows2.append({"key": k, "tier": tier, "name": row["名前"],
+                                  "kou": PL.treasure_kou(k),
+                                  "desc": _treasure_brief(k, row)})
+                if rows2:       # 全部集めたら日替わりは店じまい（§7.138）
+                    treasure = {"choices": rows2}
             tenka["eligible"] = bool(boards_ok.get("天下"))
             tenka["resting"] = PL.truce_is_active(cx, me.id, at)
             tenka["auto"] = tenka["eligible"] and not tenka["resting"]
@@ -952,7 +988,7 @@ class App(BaseHTTPRequestHandler):
             # 現在の武名（§7.86）。順位表は毎時の断面なので、**自分の値だけは
             # 即時**を出す（対戦直後に動いたことが画面で分からなかった）。
             "my_rating": (_my_rating(cx, me) if me else None),
-            "heifu": heifu, "onsho": onsho, "tenka": tenka,
+            "heifu": heifu, "treasure": treasure, "tenka": tenka,
             "senki": senki_info,
             "banzuke": [{"name": names.get(r["player_id"], "?"),
                          "me": bool(me and r["player_id"] == me.id),
@@ -1041,33 +1077,18 @@ class App(BaseHTTPRequestHandler):
                           "cost": army.total_cost() if army else None}
         _, boards_ok, entry_errors = PL.entry_of(cx, cards, me.id,
                                                  me.display_name)
-        from . import design as D
-        names_jp = _trait_names()
-        trs = {t["キー"]: t for t in R.traits()}
-        # 恩賞は**種類ごとにまとめる**（毎日1つ授かるので同種が溜まる。
-        # 1行ずつ並べると同じ名前がずらり — テストプレイの指摘）
-        groups: dict = {}
-        for r in P.owned_traits(cx, me.id):
-            key = r["trait_key"]
-            g2 = groups.get(key)
-            if g2 is None:
-                if key in PL.ONSHO_BOOKS:
-                    nm, desc, cond = (PL.ONSHO_BOOKS[key][0],
-                                      PL.ONSHO_BOOKS[key][1], "")
-                else:
-                    nm = names_jp.get(key, key)
-                    desc, cond = _trait_brief(None, key, trs.get(key, {}))
-                g2 = groups[key] = {
-                    "key": key, "name": nm,
-                    "kou": PL.kou_of(key),
-                    "desc": desc + ("（{}）".format(cond) if cond else ""),
-                    "total": 0, "sets": [], "unset": []}
-            g2["total"] += 1
-            if r["general_name"]:
-                g2["sets"].append({"id": r["id"], "general": r["general_name"]})
-            else:
-                g2["unset"].append(r["id"])
-        onsho = sorted(groups.values(), key=lambda g2: -g2["kou"])
+        # 宝物（§7.138）。同じ宝物は1人1個なので、まとめずに1行ずつ。
+        treasures = []
+        for r in P.owned_treasures(cx, me.id):
+            row = PL.treasure_rows().get(r["key"])
+            if row is None:
+                continue        # 台帳から消えた旧キーは黙って出さない
+            treasures.append({
+                "key": r["key"], "name": row["名前"], "tier": row["帯"],
+                "kou": PL.treasure_kou(r["key"]),
+                "desc": _treasure_brief(r["key"], row),
+                "general": r["general_name"]})
+        treasures.sort(key=lambda t2: -t2["kou"])
         recs = _deck_records(cx, me.id)
         saved = []
         for r in P.saved_decks(cx, me.id):
@@ -1094,9 +1115,9 @@ class App(BaseHTTPRequestHandler):
             "decks": decks,
             "entry_errors": entry_errors,
             "boards_ok": boards_ok,
-            "onsho": onsho,
-            "onsho_budgets": {n: PL.onsho_budget_kou(c)
-                              for n, c in M.REGULATIONS},
+            "treasures": treasures,
+            "treasure_budgets": {n: PL.treasure_budget_kou(c)
+                                 for n, c in M.REGULATIONS},
             "saved": saved,
         })
 
@@ -1209,7 +1230,7 @@ class App(BaseHTTPRequestHandler):
                     "entry_errors": entry_errors, "boards_ok": boards_ok})
 
     def _api_deck_reset(self, body):
-        """登録デッキの一斉リセット（§7.128）。保存庫と登用・恩賞は残す。"""
+        """登録デッキの一斉リセット（§7.128）。保存庫と登用・宝物は残す。"""
         cx = self._cx()
         me = self._me(cx)
         if me is None:
@@ -1309,30 +1330,47 @@ class App(BaseHTTPRequestHandler):
             return self._json(r, 200 if "error" not in r else 400)
         self._json({"error": "action は create か join"}, 400)
 
-    def _api_onsho(self, body):
+    def _api_treasure(self, body):
+        """宝物を武将へ持たせる／外す（§7.138）。body は {key, general}。
+        同じ宝物は1人1個なのでキーがそのまま取っ手になる。"""
         cx = self._cx()
         me = self._me(cx)
         if me is None:
             return self._json({"error": "login"}, 401)
-        oid = int(body.get("owned_id", 0))
+        key = str(body.get("key", ""))
         gen = (body.get("general") or "").strip()
-        mine = {r["id"]: r for r in P.owned_traits(cx, me.id)}
-        if oid not in mine:
-            return self._json({"ok": False, "errors": ["その恩賞は持っていない"]})
+        mine = {r["key"] for r in P.owned_treasures(cx, me.id)}
+        if key not in mine:
+            return self._json({"ok": False, "errors": ["その宝物は持っていない"]})
+        row = PL.treasure_rows().get(key)
+        if row is None:
+            return self._json({"ok": False, "errors": ["その宝物は台帳にない"]})
         if not gen:
-            P.set_trait(cx, me.id, oid, "", None)
+            P.set_treasure(cx, me.id, key, "")
             return self._json({"ok": True})
         gr = next((g for g in R.generals() if g["名前"] == gen), None)
         if gr is None:
             return self._json({"ok": False, "errors": ["その武将はいない"]})
         if gr["人物"] not in PL.ensure_unlocks(cx, me.id):
             return self._json({"ok": False,
-                               "errors": ["まだ登用していない武将には付けられない"]})
-        slot = P.free_slot(cx, me.id, gen)
-        if slot is None:
-            return self._json({"ok": False,
-                               "errors": ["{} の軍功枠は3つとも埋まっている".format(gen)]})
-        P.set_trait(cx, me.id, oid, gen, slot)
+                               "errors": ["まだ登用していない武将には持たせられない"]})
+        # 装備制限（騎兵のみ・弓兵のみ）。効果側でなくセット時に弾く —
+        # 「持たせたのに働かない」を作らない（§7.138）。
+        limit = row.get("装備制限") or ""
+        jp_typ = {"歩兵": "歩兵", "騎兵": "騎兵", "弓兵": "弓兵"}
+        if limit and gr["兵種"] != limit:
+            return self._json({"ok": False, "errors": [
+                "【{}】は{}にしか持たせられない（{} は{}）".format(
+                    row["名前"], limit, gen, jp_typ.get(gr["兵種"], gr["兵種"]))]})
+        # 1武将に宝物は1つ（ix_treasure_gen が最終防衛・ここは読める文で先に）
+        held = [r for r in P.owned_treasures(cx, me.id)
+                if r["general_name"] == gen and r["key"] != key]
+        if held:
+            hr = PL.treasure_rows().get(held[0]["key"], {})
+            return self._json({"ok": False, "errors": [
+                "{} はすでに【{}】を持っている（1武将に宝物は1つ）".format(
+                    gen, hr.get("名前", held[0]["key"]))]})
+        P.set_treasure(cx, me.id, key, gen)
         self._json({"ok": True})
 
     def _api_draft(self, body):

@@ -909,7 +909,7 @@ async function viewHome(state, options = {}) {
       ${heifuGauge}
       <span class="muted num">季節 ${esc(state.season || "")}・順位は毎時更新</span>
       ${state.me ? `<button class="mini ghost dev-only" id="reset-record"
-        title="試験用: 自分の武名と戦績を白紙に戻す（デッキ・登用・恩賞は残る）"
+        title="試験用: 自分の武名と戦績を白紙に戻す（デッキ・登用・宝物は残る）"
         >戦績リセット</button>` : ""}
     </div>
     ${myRating}
@@ -918,17 +918,17 @@ async function viewHome(state, options = {}) {
       <b>戦記</b> ${state.senki.cleared}／${state.senki.total}戦
       　次は「<b>${esc(state.senki.next)}</b>」
       <a href="/senki">進む →</a></div>` : ""}
-    ${state.onsho && state.onsho.choices ? `<div class="onsho-banner fade-in">
-      <div class="onsho-pick-head">本日の恩賞 — 三つのうち一つを選んで賜る（日替わり）</div>
-      <div class="onsho-pick">${state.onsho.choices.map((c) => `
-        <button class="onsho-choice" data-k="${esc(c.key)}">
+    ${state.treasure && state.treasure.choices ? `<div class="treasure-banner fade-in">
+      <div class="treasure-pick-head">本日の宝物 — 一つを選んで賜る（日替わり・同じ宝は二つと出ない）</div>
+      <div class="treasure-pick">${state.treasure.choices.map((c) => `
+        <button class="treasure-choice" data-k="${esc(c.key)}">
           <span class="oc-tier">${esc(c.tier)}</span>
           <span class="oc-name">【${esc(c.name)}】</span>
           <span class="oc-kou">${c.kou ? c.kou + "功" : "功いらず"}</span>
           <span class="oc-desc">${esc(c.desc || "")}</span>
         </button>`).join("")}</div>
-      <div class="muted" style="font-size:11.5px">選んだものだけが手に入る。残り二つは流れる。
-        セットは<a href="/deck">編成画面の軍功枠</a>で。</div>
+      <div class="muted" style="font-size:11.5px">選んだものだけが手に入る。残りは流れる。
+        どの武将に持たせるかは<a href="/deck">編成画面の宝物欄</a>で。</div>
     </div>` : ""}
     <div class="boards fade-in">${boards}${(state.banzuke || []).length ? `
       <div class="panel">
@@ -945,12 +945,12 @@ async function viewHome(state, options = {}) {
     ${free}`;
   const rr = $("#reset-record");
   if (rr) rr.onclick = async () => {
-    if (!confirm("武名と戦績を白紙に戻す。デッキ・登用・恩賞は残る。よい？")) return;
+    if (!confirm("武名と戦績を白紙に戻す。デッキ・登用・宝物は残る。よい？")) return;
     try { await api("/api/dev_reset_record", {}); location.reload(); }
     catch (e) { alert("戻せなかった: " + e.message); }
   };
-  $$(".onsho-choice").forEach((b) => b.onclick = async () => {
-    const r = await api("/api/onsho_pick", { key: b.dataset.k });
+  $$(".treasure-choice").forEach((b) => b.onclick = async () => {
+    const r = await api("/api/treasure_pick", { key: b.dataset.k });
     if (r.ok) location.reload(); else alert((r.errors || ["受け取れなかった"])[0]);
   });
   $$("button.attack").forEach((b) => b.onclick = () => doAttack(b.dataset.reg));
@@ -1598,7 +1598,7 @@ async function viewDeck(state) {
         <div class="entry-state" id="entrystate"></div>
         <div class="draft-panel" id="draft"></div>
         <div class="library" id="library"></div>
-        <div class="onsho-panel" id="onsho"></div>
+        <div class="treasure-panel" id="treasure"></div>
       </div>
     </div>
 `;
@@ -1700,9 +1700,9 @@ function drawAll() {
   // 一覧クリックの経路が全部ここを通るので、出陣可否の判定を一本化できる
   if (PREP) return drawPrep();
   // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
-  // 後続の枠（軍師に相談・保存庫・軍功枠…）を巻き添えにしないように。
+  // 後続の枠（軍師に相談・保存庫・宝物…）を巻き添えにしないように。
   for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary, drawEntryState, drawDraft,
-                   drawLibrary, drawOnsho, drawSortieBar, drawScout, drawSetPanel]) {
+                   drawLibrary, drawTreasures, drawSortieBar, drawScout, drawSetPanel]) {
     try { f(); } catch (e) { console.error("drawAll:", f.name, e); }
   }
 }
@@ -1783,7 +1783,7 @@ async function registerSet() {
 }
 
 async function resetAllDecks() {
-  if (!confirm("登録デッキを3面とも空にする（保存庫・登用・恩賞は残る）。よい？")) return;
+  if (!confirm("登録デッキを3面とも空にする（保存庫・登用・宝物は残る）。よい？")) return;
   const j = await api("/api/deck_reset", {});
   if (j.ok) {
     D = await api("/api/deckdata");
@@ -1932,46 +1932,44 @@ function deckGenerals() {
   return [...set];
 }
 
-function drawOnsho() {
-  const el = $("#onsho");
-  const budget = (D.onsho_budgets || {})[cur.reg] || 100;
-  const head = `<div class='side-label'>─ 軍功枠（恩賞のセット）　${onshoKou()}／${budget}功
-    <button class="mini ghost dev-only" id="dev-onsho" title="試験用: 全種の恩賞を1つずつ獲得">全恩賞</button> ─</div>`;
+function drawTreasures() {
+  const el = $("#treasure");
+  const budget = (D.treasure_budgets || {})[cur.reg] || 100;
+  const head = `<div class='side-label'>─ 宝物（どの武将に持たせるか）　${treasureKou()}／${budget}功
+    <button class="mini ghost dev-only" id="dev-treasure" title="試験用: 全種の宝物を獲得">全宝物</button> ─</div>`;
   const gens = deckGenerals();
-  const rows = (D.onsho || []).map((o) => `
-      <div class="onsho-row">
-        <div class="onsho-line1">
+  const rows = (D.treasures || []).map((o) => `
+      <div class="treasure-row">
+        <div class="treasure-line1">
           <span class="oname">【${esc(o.name)}】</span>
-          <span class="val num">${o.kou}功</span>
-          <span class="muted num">×${o.total}</span>
-          ${o.sets.map((s) => `<span class="onsho-set num">${esc(s.general)}
-            <button class="mini tiny" data-id="${s.id}" data-g="">✕</button></span>`).join("")}
-          ${o.unset.length ? `
-            <select data-id="${o.unset[0]}">
-              <option value="">（セット先を選ぶ${o.unset.length > 1 ? `・残${o.unset.length}` : ""}）</option>
+          <span class="val num">${o.kou ? o.kou + "功" : "功いらず"}</span>
+          ${o.general ? `<span class="treasure-set num">${esc(o.general)}
+            <button class="mini tiny" data-k="${esc(o.key)}">✕</button></span>` : `
+            <select data-k="${esc(o.key)}">
+              <option value="">（持たせる武将を選ぶ）</option>
               ${gens.map((g) => `<option>${esc(g)}</option>`).join("")}
-            </select>` : ""}
+            </select>`}
         </div>
-        ${o.desc ? `<div class="onsho-desc muted">${esc(o.desc)}</div>` : ""}
+        ${o.desc ? `<div class="treasure-desc muted">${esc(o.desc)}</div>` : ""}
       </div>`).join("");
   el.innerHTML = head +
-    (rows || "<p class='muted'>まだ恩賞が無い。毎日1つ授かる。</p>") +
-    ((D.onsho || []).length
-      ? `<p class='muted' style='font-size:11.5px'>恩賞は軍功予算（この戦場は${budget}功・` +
-        "全員一律）から払う。デッキ本体の点は食わない。</p>" : "");
+    (rows || "<p class='muted'>まだ宝物が無い。毎日1つ授かる。</p>") +
+    ((D.treasures || []).length
+      ? `<p class='muted' style='font-size:11.5px'>宝物は軍功予算（この戦場は${budget}功・` +
+        "全員一律）から払う。デッキ本体の点は食わない。同じ宝物は1人1個・1武将に1つ。</p>" : "");
   const refresh = async () => { D = await api("/api/deckdata"); drawAll(); };
-  $$("#onsho select").forEach((sel) => sel.onchange = async () => {
+  $$("#treasure select").forEach((sel) => sel.onchange = async () => {
     if (!sel.value) return;
-    const r = await api("/api/onsho", { owned_id: +sel.dataset.id, general: sel.value });
+    const r = await api("/api/treasure", { key: sel.dataset.k, general: sel.value });
     if (!r.ok) { flashMsg(r.errors.join("／"), true); }
     refresh();
   });
-  $$("#onsho button[data-id]").forEach((b) => b.onclick = async () => {
-    await api("/api/onsho", { owned_id: +b.dataset.id, general: "" });
+  $$("#treasure button[data-k]").forEach((b) => b.onclick = async () => {
+    await api("/api/treasure", { key: b.dataset.k, general: "" });
     refresh();
   });
-  const dv = $("#dev-onsho");
-  if (dv) dv.onclick = async () => { await api("/api/dev_onsho", {}); refresh(); };
+  const dv = $("#dev-treasure");
+  if (dv) dv.onclick = async () => { await api("/api/dev_treasure", {}); refresh(); };
 }
 
 /* 一覧の札のシングル／ダブル判定（§7.119）。350ms は iOS のダブルタップ
@@ -2089,7 +2087,7 @@ function showCardInfo(name) {
     </div>`).join("")
     : `<div class="ci-row muted">
       <span class="tag trait-tag">特性</span>
-      生まれつきの特性は持たない（軍功枠の恩賞は付けられる）
+      生まれつきの特性は持たない（宝物は持たせられる）
     </div>`;
   $("#cardinfo").innerHTML = `
     <img class="ci-face" src="${c.portraitUrl || `/portrait/${encodeURIComponent(c.person)}`}" alt="">
@@ -2203,12 +2201,12 @@ function drawArmySummary() {
   el.innerHTML = armySummary(currentCards(), cur.form, deckCost(), cap, "mine");
 }
 
-function onshoKou() {
+function treasureKou() {
   // このデッキに乗っている軍功（功）。予算は別枠（§7.61）— 本体の点を食わない
-  if (!D.onsho) return 0;
+  if (!D.treasures) return 0;
   const inDeck = new Set(occupiedSlotIds());
-  return D.onsho.reduce((s, o) =>
-    s + o.kou * o.sets.filter((x) => inDeck.has(x.general)).length, 0);
+  return D.treasures.reduce((s, o) =>
+    s + (o.general && inDeck.has(o.general) ? o.kou : 0), 0);
 }
 
 function drawMeter() {
@@ -2217,8 +2215,8 @@ function drawMeter() {
   const m = $("#meter");
   m.classList.toggle("over", cost > cap + 1e-9);
   m.querySelector(".fill").style.width = Math.min(100, cost / cap * 100) + "%";
-  const kou = onshoKou();
-  const budget = (D.onsho_budgets || {})[cur.reg] || 100;
+  const kou = treasureKou();
+  const budget = (D.treasure_budgets || {})[cur.reg] || 100;
   const ex = kou ? `　軍功 ${kou}／${budget}功${kou > budget ? "（超過！）" : ""}` : "";
   m.querySelector(".label").textContent =
     `${cost} ／ ${cap}点` +

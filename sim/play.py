@@ -176,6 +176,123 @@ def _apply_onsho(cx, player_id: str, army: F.Army) -> Tuple[F.Army, int]:
     return dataclasses.replace(army, cards=tuple(out)), extra
 
 
+# ── 宝物（§7.138・恩賞の後継）────────────────────────
+#
+# 品揃えは sim/data/treasures.csv（18種・帯=大7/中6/小5・**数値は全部仮**）。
+# 同じ宝物は1人1個・1武将に1個。獲得は§7.70の日替わり3択の器のまま、
+# 候補を**未所持からだけ**引く。値段は CSV の功列（手書きの仮値 —
+# design.trait_value は新キーの実測値を持たないので通さない。実測は別タスク）。
+
+_TREASURES: "Dict[str, Dict[str, str]] | None" = None
+
+
+def treasure_rows() -> Dict[str, Dict[str, str]]:
+    """宝物の台帳（キー→行）。挿入順=CSV順を保つ — 抽選の決定性の土台。"""
+    global _TREASURES
+    if _TREASURES is None:
+        from . import rosterdata as R
+        _TREASURES = {t["キー"]: t for t in R.treasures()}
+    return _TREASURES
+
+
+def treasure_tiers() -> Dict[str, List[str]]:
+    tiers: Dict[str, List[str]] = {"小": [], "中": [], "大": []}
+    for k, t in treasure_rows().items():
+        tiers[t["帯"]].append(k)
+    return tiers
+
+
+def treasure_candidates(player_id: str, today: str, owned) -> List[Tuple[str, str]]:
+    """本日の3候補（小・中・大から1つずつ・**未所持からだけ**）。決定的で
+    引き直せない（§7.70 と同じ crc32）。帯を集めきったらその帯は候補なし —
+    全部集めたら日替わりは店じまい。所持集合は日次ガードで日内不変なので、
+    読み直しでもプールが揺れず、同じ候補が出続ける。"""
+    import zlib
+    out = []
+    for tier in ("小", "中", "大"):
+        pool = [k for k in treasure_tiers()[tier] if k not in owned]
+        if not pool:
+            continue
+        k = pool[zlib.crc32((player_id + today + tier).encode()) % len(pool)]
+        out.append((tier, k))
+    return out
+
+
+def treasure_kou(key: str) -> int:
+    """宝物1つの値段（功・整数）。CSV の手書き仮値。実測は別タスク（§7.138）。"""
+    return int(treasure_rows()[key]["功"])
+
+
+def treasure_budget_kou(cap: float) -> int:
+    """軍功予算（§7.61 のまま・戦場比例 cap×5功）。宝物もここから払う。"""
+    return int(round(cap * 5))
+
+
+# 札そのものを動かす宝物（§7.138・数値は全部仮）。効果の実体が Card の
+# フィールドにあるもの — 武具の武力・書の知力・鎧/鞍の寄せ・馬の速度寄せ。
+TREASURE_CARD_MODS: Dict[str, Dict[str, float]] = {
+    "t_seiryu": {"might": 15.0},        # 青龍偃月刀: 武力+15
+    "t_hakuusen": {"wits": 15.0},       # 白羽扇: 知力+15
+    "t_gentetsu": {"def_lean": 0.3},    # 玄鉄の鎧（堅陣の書の後継）
+    "t_keiki": {"def_lean": -0.3},      # 軽騎の鞍（軽装の書の後継）
+    "t_sekitoba": {"spd_lean": 0.3},    # 赤兎馬の足（兵力+2%は盤面の定数側）
+}
+
+
+def apply_treasure_card_mods(card: F.Card) -> F.Card:
+    """宝物の札モッドを写す（§7.138・純関数）。
+
+    **装備経路（_apply_treasures）と陣容の復元経路（army_from_snap）の両方が
+    「素の札へキーを合流した直後に1回」呼ぶ。** 陣容は名前と特性キーしか
+    持たないので、ここを復元側でも通さないと、リプレイが宝物抜きの素の
+    強さで再生されてしまう（旧・寄せの書は陣容にキーが残らず、実際この穴が
+    あった — 宝物では全キーを trait/hidden_trait に運んで塞ぐ）。"""
+    import dataclasses
+    d_might = d_wits = dd = ds = 0.0
+    for k in F.trait_keys(card.trait):
+        m = TREASURE_CARD_MODS.get(k)
+        if not m:
+            continue
+        d_might += m.get("might", 0.0)
+        d_wits += m.get("wits", 0.0)
+        dd += m.get("def_lean", 0.0)
+        ds += m.get("spd_lean", 0.0)
+    kw = {}
+    if (d_might or d_wits) and card.might > 0.0:
+        # 実カードだけ（合成カードは might=0 の指定なし運用・§6.3）。
+        # wits==0 は might へ落ちる仕様（Unit.__init__）なので先に展開して足す。
+        kw["might"] = card.might + d_might
+        kw["wits"] = (card.wits or card.might) + d_wits
+    if dd:
+        kw["def_lean"] = max(-1.0, min(1.0, card.def_lean + dd))
+    if ds:
+        kw["spd_lean"] = max(-1.0, min(1.0, card.spd_lean + ds))
+    return dataclasses.replace(card, **kw) if kw else card
+
+
+def _apply_treasures(cx, player_id: str, army: F.Army) -> Tuple[F.Army, int]:
+    """持たせた宝物（§7.138）を札へ合流し、功の合計を返す。
+
+    キーは trait と hidden_trait の**両方**へ乗せる（§7.136 の秘匿と、
+    陣容→リプレイ再構成の運搬役）。効果の実体が盤面の定数側にある宝物も、
+    札モッド側にある宝物も、演出だけの宝物も、**記録には全キーが要る**。"""
+    import dataclasses
+    extra = 0
+    out = []
+    for c in army.cards:
+        keys = [k for k in P.treasures_on(cx, player_id, c.name)
+                if k not in F.trait_keys(c.trait)]
+        if keys:
+            extra += sum(treasure_kou(k) for k in keys)
+            c = dataclasses.replace(
+                c, trait=F.TRAIT_SEP.join(list(F.trait_keys(c.trait)) + keys),
+                hidden_trait=F.TRAIT_SEP.join(
+                    list(F.trait_keys(c.hidden_trait)) + keys))
+            c = apply_treasure_card_mods(c)
+        out.append(c)
+    return dataclasses.replace(army, cards=tuple(out)), extra
+
+
 class BoardEntry:
     """レギュレーションごとの部隊の入れ物（§7.48）。
 
@@ -214,27 +331,28 @@ def entry_of(cx, cards, player_id: str, name: str
         raw, form_name = decks[reg]
         army, es = parse_deck(cards, raw, form_name)
         if army is not None and not es:
-            army, extra = _apply_onsho(cx, player_id, army)
+            army, extra = _apply_treasures(cx, player_id, army)
             if len(army.cards) != M.UNIT_SIZE:
                 es.append("{}人必要（いまは{}人）".format(
                     M.UNIT_SIZE, len(army.cards)))
             base = sum(c.cost for c in army.cards)
             if base > cap + 1e-9:
                 es.append("合計コスト {:g} が上限 {:g} を超えている".format(base, cap))
-            if extra > onsho_budget_kou(cap):
+            if extra > treasure_budget_kou(cap):
                 es.append("軍功 {}功 が予算 {}功 を超えている"
-                          "（恩賞を外すか安い物へ）".format(
-                              extra, onsho_budget_kou(cap)))
+                          "（宝物を外すか安い物へ）".format(
+                              extra, treasure_budget_kou(cap)))
             es += M.placement_errors(army)
-            # 本陣（§7.52）はデッキに1人まで。生まれつき＋恩賞の合流後に数える。
+            # 本陣（§7.52）はデッキに1人まで。宝物は command を配らないので
+            # 実質は生まれつきの数だが、防衛的に合流後へ残す（§7.138）。
             honjin = [c for c in army.cards
                       if "command" in F.trait_keys(c.trait)]
             if len(honjin) > 1:
                 es.append("本陣は1部隊に1人まで（いまは {}）"
                           .format("、".join(c.name for c in honjin)))
             # 本陣は弓兵（＝後衛）専用。前衛の本陣は実測でほぼ必ず討たれる
-            # （§7.52・戦死74〜89%）ので、恩賞でのセットも含めて registration
-            # で弾く。生まれつきの3人（袁紹・費禕・劉表）は全員弓兵。
+            # （§7.52・戦死74〜89%）ので registration で弾く。生まれつきの
+            # 3人（袁紹・費禕・劉表）は全員弓兵。
             jp_typ = {F.INF: "歩兵", F.CAV: "騎兵", F.ARC: "弓兵"}
             for c in honjin:
                 if c.typ != F.ARC:
@@ -511,13 +629,14 @@ TRUCE_DAYS_SHOWN = 7           # 画面から日別変更できる範囲
 
 
 def snap_army(army: F.Army, mult: float = 1.0) -> dict:
-    """デッキの陣容。名前と（恩賞込みの）特性・陣形だけ持てば再構成できる。
+    """デッキの陣容。名前と（宝物込みの）特性・陣形だけ持てば再構成できる。
 
     mult は戦記番付の周回スケーリング（§7.60: 敵全体の兵力×mult）。
-    陣容へ記録しないとリプレイが素の強さで再生されてしまう。h は恩賞で
-    加わった特性キー（§7.136）。実況の種明かし防止は詳報の再生時に
-    field.py 側が組み立て直すので、これも一緒に記録しておかないと
-    リプレイでだけ正体がバレてしまう。
+    陣容へ記録しないとリプレイが素の強さで再生されてしまう。h は宝物で
+    加わったキー（§7.136・§7.138）。実況の種明かし防止と札モッドの復元
+    （army_from_snap の apply_treasure_card_mods）は詳報の再生時に
+    組み立て直すので、これも一緒に記録しておかないとリプレイでだけ
+    正体がバレる／素の強さに戻ってしまう。
     """
     def _card(c: F.Card) -> dict:
         r = {"n": c.name, "t": c.trait}
@@ -565,9 +684,12 @@ def army_from_snap(cards, snap: dict) -> F.Army:
         c = idx.get(it["n"])
         if c is None:
             raise KeyError(it["n"])
-        picked.append(dataclasses.replace(
+        c = dataclasses.replace(
             c, trait=it.get("t", c.trait),
-            hidden_trait=it.get("h", c.hidden_trait)))
+            hidden_trait=it.get("h", c.hidden_trait))
+        # 宝物の札モッド（§7.138）を復元する。陣容はキーしか運ばないので、
+        # ここを通さないとリプレイが宝物抜きの素の強さで再生されてしまう。
+        picked.append(apply_treasure_card_mods(c))
     army = F.Army(tuple(picked), FORM_BY_NAME[F.FORM_ALIAS.get(
         snap["form"], snap["form"])])
     if snap.get("plus"):        # 旧形式（切り替え前の陣容）

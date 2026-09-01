@@ -73,6 +73,11 @@ def traits() -> List[Dict[str, str]]:
     return [r for r in _load("traits.csv") if r.get("キー")]
 
 
+def treasures() -> List[Dict[str, str]]:
+    """宝物の台帳（§7.138）。CSV順を保つ — 日替わり抽選の決定性の土台。"""
+    return [r for r in _load("treasures.csv") if r.get("キー")]
+
+
 def senki_start() -> List[str]:
     """初期セット（戦記・§7.60）の人物名。generals.csv と突き合わせて検証する
     — データの誤字は起動時に大声で死ぬほうが、静かに40人未満で配るより安い。"""
@@ -360,8 +365,8 @@ def _skill_target(name: str) -> str:
 # 生まれつきの固有特性。**複数持てる形で読む。**
 #
 # CSV の「固有特性」列は「、」区切りで複数書ける（1つならこれまでどおり）。
-# プレイヤーが獲得してセットする特性（`players.owned_traits`）とは別枠で、
-# こちらはカードに固定で付いているもの。
+# プレイヤーが獲得して武将へ持たせる宝物（`players.owned_treasures`・§7.138）
+# とは別枠で、こちらはカードに固定で付いているもの。
 #
 # 盤面も複数読む（`field.Unit.traits`）。区切りの定義は field.TRAIT_SEP の1箇所。
 
@@ -983,6 +988,63 @@ def load_traits_into_field() -> int:
         # 「上限なし」は回数で縛らない特性（§7.129 の持重）。回復の総量を
         # 敵の攻め兵法の数に比例させる形なので、**上限を置くと density へ
         # 効かなくなる**（上限5では手数4枚への抑制が±0だった）。
+        cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
+        F.TRAITS[t["キー"]] = (cond, target, cap,
+                               F._parse_skill(t["効果"], target), t["名前"])
+        n += 1
+    n += load_treasures_into_field()
+    return n
+
+
+# 誘発の発動条件（field._fire_traits が読む語彙）。treasures.csv の検算用。
+_TREASURE_CONDS = {"self_low_hp", "ally_retreat", "enemy_retreat",
+                   "ally_skill", "foe_skill", "self_dead"}
+
+
+def load_treasures_into_field() -> int:
+    """宝物（§7.138）の誘発型を field.py へ読み込む。器は固有特性と同一。
+
+    常在型・演出型は field.py がキーで個別に扱う（traits.csv の常在と同じ
+    分業）。あわせて台帳の検算をここで行い、不備は起動時に大声で死ぬ
+    （senki_start の流儀 — 静かに壊れた宝物を配るより安い）。
+    """
+    from . import field as F
+    rows = treasures()
+    seen_keys = set()
+    pools = {"大": 0, "中": 0, "小": 0}
+    for t in rows:
+        key = t["キー"]
+        if not key.startswith("t_"):
+            raise SystemExit("treasures.csv: キーは t_ で始めること: " + key)
+        if key in seen_keys or key in {x["キー"] for x in traits()}:
+            raise SystemExit("treasures.csv: キーが重複している: " + key)
+        seen_keys.add(key)
+        if t["帯"] not in pools:
+            raise SystemExit("treasures.csv: 帯が不正: {} ({})".format(t["帯"], key))
+        pools[t["帯"]] += 1
+        if t["装備制限"] not in ("", "騎兵", "弓兵"):
+            raise SystemExit("treasures.csv: 装備制限が不正: " + key)
+        if t["勢力"] not in ("", "魏", "蜀", "呉", "群雄"):
+            raise SystemExit("treasures.csv: 勢力が不正: " + key)
+        if not t["功"].isdigit():
+            raise SystemExit("treasures.csv: 功は非負整数: " + key)
+        if t["型"] not in ("誘発", "常在", "演出"):
+            raise SystemExit("treasures.csv: 型が不正: " + key)
+    if pools != {"大": 7, "中": 6, "小": 5}:
+        raise SystemExit("treasures.csv: 帯の枚数が設計と違う: " + str(pools))
+    n = 0
+    for t in rows:
+        if t["型"] != "誘発":
+            continue
+        note = t["備考"]
+        m = re.search(r"(\w+) で発動", note)
+        cond = m.group(1) if m else ""
+        if cond not in _TREASURE_CONDS:
+            raise SystemExit("treasures.csv: 発動条件が不明: {} ({})".format(
+                cond, t["キー"]))
+        m = re.search(r"対象 ([^/]+)", note)
+        target = m.group(1).strip() if m else "自分"
+        m = re.search(r"1戦(\d+)回", note)
         cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
         F.TRAITS[t["キー"]] = (cond, target, cap,
                                F._parse_skill(t["効果"], target), t["名前"])

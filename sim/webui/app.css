@@ -547,8 +547,8 @@ h2 button.attack { float: right; font-size: 13px; }
 .stale-banner { background: #4a1c10; border: 1px solid var(--accent);
   border-radius: 10px; padding: 10px 14px; margin: 10px 0; color: #ffd9c4;
   font-size: 13px; }
-.onsho-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.onsho-set { background: var(--panel2); border: 1px solid var(--line);
+.treasure-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.treasure-set { background: var(--panel2); border: 1px solid var(--line);
   border-radius: 14px; padding: 1px 4px 1px 10px; font-size: 12px;
   display: inline-flex; align-items: center; gap: 4px; }
 button.mini.tiny { min-height: 22px; padding: 0 6px; font-size: 11px; }
@@ -778,7 +778,7 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   font-variant-numeric: tabular-nums; font-size: 11.5px; }
 .side-label { margin: 10px 0 4px; color: var(--sub); font-size: 12px; letter-spacing: .15em; }
 
-/* ── 軍師に相談・軍功枠・保存庫 ─────────────── */
+/* ── 軍師に相談・宝物・保存庫 ─────────────── */
 .draft-panel { margin-top: 14px; }
 .draft-toggle {
   width: 100%; text-align: left; background: var(--panel2);
@@ -792,23 +792,23 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
   margin-top: 6px; font-size: 12px; padding: 4px 8px;
   border-left: 2px solid var(--gold); background: rgba(217, 172, 79, .07);
 }
-.onsho-desc { flex-basis: 100%; font-size: 11px; line-height: 1.5; padding-left: 2px; }
+.treasure-desc { flex-basis: 100%; font-size: 11px; line-height: 1.5; padding-left: 2px; }
 /* 日替わり3択（§7.70） */
-.onsho-pick-head { font-family: var(--font-min); color: var(--gold-hi);
+.treasure-pick-head { font-family: var(--font-min); color: var(--gold-hi);
   margin-bottom: 8px; letter-spacing: .08em; }
-.onsho-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.onsho-choice { display: flex; flex-direction: column; gap: 4px; text-align: left;
+.treasure-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.treasure-choice { display: flex; flex-direction: column; gap: 4px; text-align: left;
   align-items: flex-start; padding: 10px 12px; min-height: 0; }
-.onsho-choice b { font-family: var(--font-min); font-size: 15px; }
-.onsho-choice .oc-tier { font-size: 10px; letter-spacing: .2em; color: var(--sub); }
-.onsho-choice .oc-kou { color: var(--gold); font-size: 12px; }
-.onsho-choice .oc-desc { font-size: 11.5px; color: var(--sub); white-space: normal;
+.treasure-choice b { font-family: var(--font-min); font-size: 15px; }
+.treasure-choice .oc-tier { font-size: 10px; letter-spacing: .2em; color: var(--sub); }
+.treasure-choice .oc-kou { color: var(--gold); font-size: 12px; }
+.treasure-choice .oc-desc { font-size: 11.5px; color: var(--sub); white-space: normal;
   line-height: 1.5; }
-@media (max-width: 760px) { .onsho-pick { grid-template-columns: 1fr; } }
-.onsho-banner { background: linear-gradient(90deg, #3a2c14, var(--panel));
+@media (max-width: 760px) { .treasure-pick { grid-template-columns: 1fr; } }
+.treasure-banner { background: linear-gradient(90deg, #3a2c14, var(--panel));
   border: 1px solid var(--gold); border-radius: 12px; padding: 10px 16px;
   margin-bottom: 16px; color: var(--gold-hi); }
-.onsho-banner b { font-family: var(--font-min); }
+.treasure-banner b { font-family: var(--font-min); }
 .library { margin-top: 14px; }
 .lib-save { display: flex; gap: 6px; margin-bottom: 8px; }
 .lib-save input { flex: 1; font: inherit; font-size: 12.5px; background: var(--panel2);
@@ -824,12 +824,12 @@ svg.eval { width: 100%; background: #120f0b; border: 1px solid var(--line); bord
 .active-tag { font-size: 10px; color: var(--gold); border: 1px solid var(--gold);
   border-radius: 4px; padding: 0 5px; }
 .lib-btns { display: flex; gap: 4px; }
-.onsho-panel { margin-top: 14px; }
-.onsho-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px;
+.treasure-panel { margin-top: 14px; }
+.treasure-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px;
   flex-wrap: wrap; }
-.onsho-row .oname { font-family: var(--font-min); }
-.onsho-row .val { color: var(--sub); width: 4em; }
-.onsho-row select { font: inherit; font-size: 12px; background: var(--panel2);
+.treasure-row .oname { font-family: var(--font-min); }
+.treasure-row .val { color: var(--sub); width: 4em; }
+.treasure-row select { font: inherit; font-size: 12px; background: var(--panel2);
   color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 
 /* ── ログイン ───────────────────────── */
