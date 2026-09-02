@@ -47,14 +47,14 @@ print("[2] 最初の敗北の案内")
 # わざと最弱の6枚で初戦へ。負けるまで挑む（種は時刻から出るので1秒あける）
 D = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
 roster = D["roster"]
-melee = sorted([c for c in roster if c["typ"] in ("歩兵", "騎兵")],
+# **負けが確実な最安デッキ**を組む。前衛は歩兵だけにする — 騎兵を1枚でも入れると
+# 初陣（弓の多い張宝の隊）を 88〜98% で勝ってしまい（馬上回避 §7.144 の後は 98%）、
+# 12戦で1度も負けず「最初の敗北」の案内が出ない。歩兵3＋弓3 の最安は勝率 2%。
+melee = sorted([c for c in roster if c["typ"] == "歩兵"],
                key=lambda c: c["cost"])
-rear = sorted([c for c in roster if c["typ"] == "弓兵"
-               or (c["typ"] == "歩兵" and c.get("spear"))],
+rear = sorted([c for c in roster if c["typ"] == "弓兵"],
               key=lambda c: c["cost"])
-deck = [c["name"] for c in melee[:3]] + \
-       [c["name"] for c in rear if c["name"] not in
-        {x["name"] for x in melee[:3]}][:3]
+deck = [c["name"] for c in melee[:3]] + [c["name"] for c in rear[:3]]
 assert len(deck) == 6, deck
 got_first = None
 for t in range(12):

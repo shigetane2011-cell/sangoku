@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""庇護（§7.144）の受け入れ試験。隣の前衛の矢を代わりに受ける常在特性。"""
+"""馬前（§7.144・旧名 庇護）の受け入れ試験。隣の前衛の騎兵の矢を代わりに受ける常在特性。"""
 import os, sys, unittest
 from dataclasses import replace
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -34,14 +34,24 @@ class CoverTest(unittest.TestCase):
         self.assertGreater(g1[-1], 0.0, "庇う側の covered が増える")
         self.assertEqual(r0["dealt_a"][1][-1], 0.0, "特性なしでは 0")
         self.assertGreater(me1[6] or 1e9, me0[6] or 0.0, "庇われた騎兵は長く立つ")
-        mine = [e for e in ev if "【庇護】" in e.text and e.side == "A"]
+        mine = [e for e in ev if ("【" + F.COVER_NAME + "】") in e.text and e.side == "A"]
         self.assertEqual(len(mine), 1, "自軍の庇護は1戦1回だけ語る（相手の典韋・許褚は別）")
         self.assertTrue(mine[0].text.startswith("曹仁〔堅守〕"))
 
     def test_rear_guard_does_nothing(self):
         r, ev = run(army(guard_trait="", rear_guard=True))
         self.assertEqual(r["dealt_a"][3][-1], 0.0, "後衛の庇い手は働かない")
-        self.assertFalse(any("【庇護】" in e.text and e.side == "A" for e in ev))
+        self.assertFalse(any(("【" + F.COVER_NAME + "】") in e.text and e.side == "A" for e in ev))
+
+    def test_infantry_neighbor_is_not_covered(self):
+        """B案: 庇うのは隣の騎兵だけ。歩兵の隣では何も起きない（特性なしと同じ戦い）。"""
+        def inf_army(trait):
+            return F.Army(tuple([CARDS["張飛〔当陽橋〕"], replace(CARDS["曹仁〔堅守〕"], trait=trait), CARDS["郝昭〔陳倉〕"],
+                                 CARDS["文聘〔江夏〕"], CARDS["李典〔慎重〕"], CARDS["貂蝉〔傾国〕"]]), F.FORM_STANDARD)
+        r1, ev = run(inf_army("cover")); r0, _ = run(inf_army(""))
+        self.assertEqual(r1["dealt_a"][1][-1], 0.0)
+        self.assertEqual(r1["diff"], r0["diff"], "歩兵の隣では特性なしと同じ戦い")
+        self.assertFalse(any(("【" + F.COVER_NAME + "】") in e.text and e.side == "A" for e in ev))
 
     def test_no_cover_against_melee_only(self):
         melee = F.Army(tuple(CARDS[n] for n in ("張飛〔当陽橋〕", "許褚〔虎痴〕", "曹仁〔堅守〕")), F.FORM_STANDARD)

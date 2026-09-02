@@ -1010,15 +1010,19 @@ CAV_COVER = 0.30        # 接敵前の騎兵が射撃被害を免れる割合（
 CAV_COVER_SOFT = 40.0   # 射手の縁が触れる手前、この幅で滑らかに消える（m）
 CAV_COVER_SKILL = True  # 射程持ちの兵法直撃にも掛ける（延焼には掛けない）
 
-# 庇護（§7.144・テストプレイの提案「歩兵に周りをカバーする固有能力」）。
-# 常在特性 cover を持つ前衛の隊は、**隣の前衛**が受ける矢（射程持ちの通常攻撃）
-# の COVER_SHARE を代わりに受ける。射線遮蔽は後ろの味方しか守れず、前衛の
+# 馬前（§7.144・テストプレイの提案「歩兵に周りをカバーする固有能力」。旧名「庇護」）。
+# 常在特性 cover を持つ前衛の隊は、**隣の前衛の騎兵**が受ける矢（射程持ちの通常
+# 攻撃）の COVER_SHARE を代わりに受ける。射線遮蔽は後ろの味方しか守れず、前衛の
 # 騎兵は射手にいちばん近い的として先に撃たれる — その横のカバーを札の能力で
 # 足す。引き受けた分は庇う側の防御で受け直す（同じ矢を別の鎧で受ける）。
 # 隣＝同じ前衛列で x の差が COVER_ADJ 以内（標準500・鶴翼375・雁行525 を含み、
-# 2つ隣の 750 以上を含まない）。庇う側が倒れれば止まる。値は §7.144 で測る。
-COVER_SHARE = 0.30      # 引き受ける割合（仮）
+# 2つ隣の 750 以上を含まない）。庇う側が倒れれば止まる。
+# **庇うのは騎兵だけ**（テストプレイの決定・B案）: 誰でも庇う形は、丈夫な歩兵の矢まで
+# 引き受けて庇い手が先に倒れ、固定パネルの平均で ±0（狙った置き +0.77・普通置き
+# −0.71 の両刃）だった。騎兵だけにすると普通置きは 0 になり、下振れが消える。
+COVER_SHARE = 0.30      # 引き受ける割合
 COVER_ADJ = 600.0       # 「隣」の距離
+COVER_NAME = "馬前"     # 実況・詳録に出る名前（traits.csv の名前と揃える。仮）
 
 # 射線遮蔽（史実: 矢は射線の通る相手にしか当たらない）。
 # 射手と的のあいだに敵の部隊が挟まっていると、そのぶん当たらなくなる。
@@ -1792,7 +1796,7 @@ class Unit:
         self.nullify = False    # 兵法打消しの構え（§7.51 機構5）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
-        self.covered = 0.0      # 庇護で代わりに受けた被害（表示専用・§7.144）
+        self.covered = 0.0      # 馬前で代わりに受けた被害（表示専用・§7.144）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -3090,7 +3094,7 @@ def _cav_cover(shooter: "Unit", f: "Unit") -> float:
 
 
 def _cover_map(units: List["Unit"]) -> List["int | None"]:
-    """庇護（§7.144）。各隊を庇う味方の添字（無ければ None）。前衛どうしで隣だけ。"""
+    """馬前（§7.144）。各隊を庇う味方の添字（無ければ None）。前衛どうしで隣の**騎兵**だけ。"""
     out: List["int | None"] = [None] * len(units)
     if not TRAITS_ON or COVER_SHARE <= 0.0:
         return out
@@ -3099,7 +3103,7 @@ def _cover_map(units: List["Unit"]) -> List["int | None"]:
     if not guards:
         return out
     for j, f in enumerate(units):
-        if f.men <= 0.0 or not f.is_front:
+        if f.men <= 0.0 or not f.is_front or f.typ != CAV:
             continue
         best = None
         for k, c in guards:
@@ -3317,7 +3321,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         x.melee += dt
             da = [0.0] * na
             db = [0.0] * nb
-            cov_a = _cover_map(ua)      # 庇護（§7.144）: 誰が誰の矢を受けるか
+            cov_a = _cover_map(ua)      # 馬前（§7.144）: 誰が誰の矢を受けるか
             cov_b = _cover_map(ub)
             for i, u in enumerate(ua):
                 ws = _weights(u, ub, gap[i])
@@ -3354,7 +3358,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
                     if cov_b[j] is not None and u.rng > 0.0:
-                        # 庇護（§7.144）: 隣の前衛が矢の一部を代わりに受ける
+                        # 馬前（§7.144）: 隣の前衛の騎兵が受ける矢の一部を代わりに受ける
                         c = ub[cov_b[j]]
                         share = hit * COVER_SHARE
                         hit -= share
@@ -3371,7 +3375,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         if events is not None and ("庇", id(c)) not in seen:
                             seen.add(("庇", id(c)))
                             events.append(Event(t, "誘発", LINE_PRIO["誘発"],
-                                                "{}、【庇護】。{}への矢を身をもって受ける。".format(_who(c), _who(f)),
+                                                "{}、【{}】。{}への矢を身をもって受ける。".format(_who(c), COVER_NAME, _who(f)),
                                                 0.0, side=_side_of(c)))
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
@@ -3420,7 +3424,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
                     if cov_a[i] is not None and u.rng > 0.0:
-                        # 庇護（§7.144）: 隣の前衛が矢の一部を代わりに受ける
+                        # 馬前（§7.144）: 隣の前衛の騎兵が受ける矢の一部を代わりに受ける
                         c = ua[cov_a[i]]
                         share = hit * COVER_SHARE
                         hit -= share
@@ -3437,7 +3441,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         if events is not None and ("庇", id(c)) not in seen:
                             seen.add(("庇", id(c)))
                             events.append(Event(t, "誘発", LINE_PRIO["誘発"],
-                                                "{}、【庇護】。{}への矢を身をもって受ける。".format(_who(c), _who(f)),
+                                                "{}、【{}】。{}への矢を身をもって受ける。".format(_who(c), COVER_NAME, _who(f)),
                                                 0.0, side=_side_of(c)))
                     if SKILLS_ON and f.men0 > 0:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
@@ -4980,10 +4984,10 @@ def cmd_traits(args) -> None:
     out["vanguard"] = v
     print("  {:<10}{:<16}{:>6}{:>10.4f}".format(
         "陣頭", "前衛の兵力+{:.1%}".format(VANGUARD_MEN), "", v))
-    # 庇護（§7.144）は味方依存（隣に誰がいるかで値が変わる）なので、この合成軍の
-    # 計器では測らない。本陣と同じく固定土台の勝率通貨で測る（design.TRAIT_PRICE）。
+    # 馬前（§7.144）は味方依存（隣に誰がいるかで値が変わる）なので、この合成軍の
+    # 計器では測らない。本陣と同じく固定パネルの勝率通貨で測る（design.TRAIT_PRICE）。
     print("  {:<10}{:<16}{:>6}{:>10}".format(
-        "庇護", "隣の前衛の矢{:.0%}".format(COVER_SHARE), "", "勝率通貨で"))
+        COVER_NAME, "隣の騎兵の矢{:.0%}".format(COVER_SHARE), "", "勝率通貨で"))
     # 対勢力は「その勢力の敵」が要る。両軍に勢力を持たせて測る。
     wei = Army(tuple(replace(_synth(BASE_COST, INF, r), faction="魏")
                      for r in MIXED_ROLES), FORM_STANDARD)
