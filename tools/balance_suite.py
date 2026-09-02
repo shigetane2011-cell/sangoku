@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover - normal path for ``python tools/...``
 
 from sim import field as F
 from sim import match as M
+from sim import rosterdata as R
 from tools import ladder_top as L
 
 
@@ -110,11 +111,13 @@ def spec_report(data: Mapping, cards: Sequence[F.Card],
     warnings: List[str] = []
     checked = 0
 
-    if len(cards) != 120:
-        errors.append("名簿枚数が120ではない: {}".format(len(cards)))
+    # 版（§7.135）があるので枚数でなく**人物の数**で見る。同じ人物の別版は重複ではない
     people = [M.person_of(c) for c in cards]
-    if len(set(people)) != len(people):
-        errors.append("名簿に同一人物の重複がある")
+    if len(set(people)) != 120:
+        errors.append("名簿の人物数が120ではない: {}".format(len(set(people))))
+    keys = [(M.person_of(c), R.version_of(c.name)) for c in cards]
+    if len(set(keys)) != len(keys):
+        errors.append("名簿に同一人物・同一版の重複がある")
     cost_counts = collections.Counter(int(c.cost) for c in cards)
     if cost_counts != collections.Counter({i: 12 for i in range(1, 11)}):
         warnings.append("コスト帯が従来の各12枚から変化: {}".format(dict(cost_counts)))
@@ -251,6 +254,7 @@ def _pool_distribution(entries: Sequence[Tuple[str, M.Entry]],
         "slots": sum(freq),
         "row_slots": dict(slot_counts),
         "coverage": sum(v > 0 for v in freq),
+        "roster": len(freq),
         "gini": round(C.gini(freq), 4),
         "effective_cards": round(eff, 2),
         "top_card_prevalence": round(top_prevalence, 4),
@@ -722,8 +726,8 @@ def render_markdown(report: Mapping) -> str:
                   "| 集合 | 編成 | 網羅 | 有効カード | Gini | 警告 |",
                   "|---|---:|---:|---:|---:|---|"]
         for key, p in dist["pools"].items():
-            lines.append("| {} | {} | {}/120 | {:.1f} | {:.3f} | {} |".format(
-                key, p["entries"], p["coverage"], p["effective_cards"], p["gini"],
+            lines.append("| {} | {} | {}/{} | {:.1f} | {:.3f} | {} |".format(
+                key, p["entries"], p["coverage"], p.get("roster", 120), p["effective_cards"], p["gini"],
                 "／".join(p["warnings"]) or "なし"))
         lines += ["", "liftは前衛・後衛の合法枠で補正済み。ただしコスト上限と生成器の好みは別軸です。", ""]
 
