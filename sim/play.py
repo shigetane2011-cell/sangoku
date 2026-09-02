@@ -1576,7 +1576,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         # §7.88 の「見えにくい効き」＋ §7.94 の合戦詳録。列は末尾に足す
         out = []
         for (n, t, d, m, m0, sd, _fa, ff, rf, cs, hl, al,
-             tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, wp) in xs:
+             tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, wp,
+             cv) in xs:
             person = M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t]
             out.append({
                 "name": person,
@@ -1589,6 +1590,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 # ない演出用の一方向ウォッチマークで攻略的な意味を持たないため、
                 # 詳報からは外した（テストプレイの指摘・§7.49後記3）
                 "wiped": F.clock(wp) if wp is not None else None,
+                # 庇護（§7.144）: 隣の前衛の矢を代わりに受けた量
+                "covered": round(cv),
                 "ff": round(ff), "refl": round(rf), "cut": round(cs),
                 "heal": round(hl), "lost": round(al),
                 # 合戦詳録（§7.94）
@@ -1644,7 +1647,7 @@ def print_report(ua, ub, dt: float, seed: int, me_first: bool) -> None:
     for tag, rows in (("自軍", mine), ("敵軍", foe)):
         cells = []
         for (name, typ, dealt, men, men0, sd, _fa,
-             ff, rf, cs, hl, al, *_detail, wp) in rows:
+             ff, rf, cs, hl, al, *_detail, wp, _cv) in rows:
             pct = 100.0 * men / men0 if men0 > 0 else 0.0
             state = "壊滅" if pct <= 0.5 else "{:.0f}%".format(pct)
             # 真の壊滅（0.5%割れ）の時刻だけ出す。苦戦（15%割れ）はペナルティの

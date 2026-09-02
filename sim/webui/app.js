@@ -2879,6 +2879,7 @@ async function viewReplay(state) {
               ? `<span class="wiped-cell"><span class="wiped">・${u.wiped}壊</span></span>`
               : `<span class="bar hp"><i style="width:${hp * 100}%"></i></span>`}
             ${sk >= 50 ? `<span class="sk-note">兵法 ${k(sk)}${u.fires ? `・${u.fires}発` : ""}</span>` : ""}
+            ${(u.covered || 0) >= 50 ? `<span class="sk-note">庇護 ${k(u.covered)}千</span>` : ""}
             ${marks ? `<span class="fx-row">${marks}</span>` : ""}
           </span>
         </div>`;
