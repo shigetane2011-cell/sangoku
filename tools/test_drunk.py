@@ -22,9 +22,39 @@ def lubu_unit(trait):
 
 
 class DrunkTest(unittest.TestCase):
-    def test_roster_holders(self):
-        holders = [c.name for c in CARDS.values() if "drunk" in c.trait]
-        self.assertEqual(sorted(holders), ["呂布〔虓虎〕", "呂布〔飛将〕"])
+    def test_roster_has_no_drunk_holders(self):
+        """素の版は酒乱を持たない（杜康の酒を持ったときだけの隠し特性・§7.146）。"""
+        self.assertEqual([c.name for c in CARDS.values() if "drunk" in c.trait], [])
+
+    def test_treasure_gives_drunk_variant(self):
+        from sim import play as PL
+        base = CARDS["呂布〔飛将〕"]
+        c = replace(base, trait=F.TRAIT_SEP.join([base.trait, "t_toko"]), hidden_trait="t_toko")
+        v = PL.apply_treasure_card_mods(c)
+        self.assertIn("drunk", F.trait_keys(v.trait)); self.assertIn("drunk", F.trait_keys(v.hidden_trait))
+        self.assertIn("t_toko", F.trait_keys(v.trait)); self.assertIn("laststand", F.trait_keys(v.trait))
+        self.assertGreater(v.stat_cost, base.stat_cost + 0.5, "酒乱の値段（負）が能力値へ返る")
+        self.assertGreater(v.might, base.might); self.assertGreater(v.wits, base.wits)
+        self.assertEqual(PL.apply_treasure_card_mods(v), v, "冪等")
+        z = replace(CARDS["張飛〔当陽橋〕"], trait="vanguard、t_toko", hidden_trait="t_toko")
+        vz = PL.apply_treasure_card_mods(z)
+        self.assertIn("drunk", F.trait_keys(vz.trait)); self.assertGreater(vz.stat_cost, CARDS["張飛〔当陽橋〕"].stat_cost + 0.5)
+        other = replace(CARDS["曹仁〔堅守〕"], trait="t_toko", hidden_trait="t_toko")
+        vo = PL.apply_treasure_card_mods(other)
+        self.assertNotIn("drunk", F.trait_keys(vo.trait)); self.assertEqual(vo.stat_cost, other.stat_cost)
+
+    def test_variant_unit_is_drunk_and_replay_round_trip(self):
+        from sim import play as PL
+        base = CARDS["呂布〔飛将〕"]
+        c = PL.apply_treasure_card_mods(replace(base, trait=base.trait + "、t_toko", hidden_trait="t_toko"))
+        a = F.Army((c, CARDS["曹仁〔堅守〕"], CARDS["郝昭〔陳倉〕"],
+                    CARDS["李典〔慎重〕"], CARDS["貂蝉〔傾国〕"], CARDS["満寵〔剛毅〕"]), F.FORM_STANDARD)
+        u = F.build(a, 1)[0]
+        self.assertAlmostEqual(u.chaos_floor, F.DRUNK_CHAOS, places=9)
+        back = PL.army_from_snap(list(CARDS.values()), PL.snap_army(a))
+        b = back.cards[0]
+        self.assertEqual((b.stat_cost, b.might, b.wits, F.trait_keys(b.trait), F.trait_keys(b.hidden_trait)),
+                         (c.stat_cost, c.might, c.wits, F.trait_keys(c.trait), F.trait_keys(c.hidden_trait)))
 
     def test_floor_from_start(self):
         on, off = lubu_unit("laststand、drunk"), lubu_unit("laststand")

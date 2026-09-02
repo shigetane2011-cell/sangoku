@@ -359,7 +359,9 @@ def _treasure_brief(key, row):
         return "後衛に置いた時だけ守り +{:.0%}（輜重の余裕）".format(
             F.TREASURE_MOKGYU_DEF)
     if key == "t_toko":
-        return "強さは変わらない。この将の決めゼリフが必ず実況に出る（演出の宝）"
+        return ("この将の決めゼリフが必ず実況に出る（演出の宝）。"
+                "呂布・張飛が持つと酒が回り、隠し特性「酒乱」の組になる（常に混乱 {:.0%}・"
+                "そのぶん能力値が高い）").format(F.DRUNK_CHAOS)
     return row.get("備考", "")
 
 

@@ -443,6 +443,29 @@ def to_cards(names=None):
         gauge_init=float(g["初期ゲージ"])) for g in picks]
 
 
+def variant_card(name: str, extra_traits=()):
+    """**同じ武将のもう1組のパラメータ**（§7.146・酒乱）。CSV の行に特性キーを足した
+    設計から能力値を引き直した Card を返す。CSV は「素の版」だけを持ち、足した特性の
+    値段（負なら能力値へ返る）は設計式で写す — 手で2行持つと片方だけ直す事故が起きる。
+    呼び手は宝物の合流（play.apply_treasure_card_mods）: 杜康の酒を呂布・張飛が持った
+    ときだけ、隠し特性「酒乱」つきの組へ差し替える。"""
+    from . import design as D
+    from . import field as F
+    if not F.SKILL_INFO:            # 兵法が空だと効果予算 0 で引き直してしまう
+        load_skills_into_field()
+    g = {r["名前"]: r for r in generals()}[name]
+    d = to_design(g)
+    keys = [k for k in extra_traits if k not in traits_of(g)]
+    if keys:
+        d = D.Design(**{**d.__dict__, "effect": d.effect + sum(D.trait_value(k) for k in keys)})
+    v = D.derive(d)
+    base = to_cards([name])[0]
+    trait = F.TRAIT_SEP.join(list(F.trait_keys(base.trait)) + keys)
+    return F.Card(**{**base.__dict__, "stat_cost": d.cost - v["効果予算"],
+                     "might": round(v["武力"], 1), "wits": round(v["知力"], 1),
+                     "trait": trait})
+
+
 def on_curve() -> int:
     """実カードがコスト曲線に乗っているか検算する。
 

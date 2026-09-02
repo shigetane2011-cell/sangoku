@@ -162,6 +162,17 @@ TREASURE_CARD_MODS: Dict[str, Dict[str, float]] = {
 }
 
 
+# 杜康の酒（§7.146・お遊びの宝）: この2人が持ったときだけ**隠し特性「酒乱」の組**へ
+# 差し替える（テストプレイ「呂布と張飛は酒乱つけるパターンとつけないパターンで2つ
+# パラメータ用意」）。素の版は CSV、酒乱の組は rosterdata.variant_card が設計式で写す。
+DRUNK_PERSONS = ("呂布", "張飛")
+DRUNK_TREASURE = "t_toko"
+
+
+def _person(name: str) -> str:
+    return name.split("〔")[0]
+
+
 def apply_treasure_card_mods(card: F.Card) -> F.Card:
     """宝物の札モッドを写す（§7.138・純関数）。
 
@@ -171,6 +182,17 @@ def apply_treasure_card_mods(card: F.Card) -> F.Card:
     強さで再生されてしまう（旧・寄せの書は陣容にキーが残らず、実際この穴が
     あった — 宝物では全キーを trait/hidden_trait に運んで塞ぐ）。"""
     import dataclasses
+    keys = F.trait_keys(card.trait)
+    if DRUNK_TREASURE in keys and _person(card.name) in DRUNK_PERSONS:
+        # 酒乱の組へ（冪等: 素の CSV 行から引き直すので、装備経路と復元経路で
+        # 何度通っても同じ札になる）。隠し特性にも載せて秘匿と陣容の運搬を揃える。
+        from . import rosterdata as R
+        v = R.variant_card(card.name, ("drunk",))
+        hid = list(F.trait_keys(card.hidden_trait))
+        card = dataclasses.replace(
+            card, stat_cost=v.stat_cost, might=v.might, wits=v.wits,
+            trait=F.TRAIT_SEP.join(list(F.trait_keys(v.trait)) + [k for k in keys if k not in F.trait_keys(v.trait)]),
+            hidden_trait=F.TRAIT_SEP.join(hid + (["drunk"] if "drunk" not in hid else [])))
     d_might = d_wits = dd = ds = 0.0
     for k in F.trait_keys(card.trait):
         m = TREASURE_CARD_MODS.get(k)
