@@ -68,6 +68,19 @@ class CoverTest(unittest.TestCase):
             F.TRAITS_ON = True
         self.assertEqual(r["dealt_a"][1][-1], 0.0, "零点の経路（TRAITS_ON=False）では働かない")
 
+    def test_cav_cover_reduces_far_arrows(self):
+        """馬上回避（§7.144・射手が遠いあいだ）: 弓型の相手に対して騎兵の被ダメが減る。"""
+        keep = F.CAV_COVER
+        try:
+            F.CAV_COVER = 0.0
+            r0, _ = run(army(guard_trait=""))
+            F.CAV_COVER = 0.30
+            r1, _ = run(army(guard_trait=""))
+        finally:
+            F.CAV_COVER = keep
+        me0, me1 = r0["dealt_a"][0], r1["dealt_a"][0]
+        self.assertGreater(me1[6] or 1e9, me0[6] or 0.0, "矢を避ける騎兵は長く立つ")
+
     def test_tuple_tail_is_covered(self):
         r, _ = run(army())
         for e in r["dealt_a"] + r["dealt_b"]:
