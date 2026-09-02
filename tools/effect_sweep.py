@@ -68,6 +68,28 @@ add("scut", "兵法防御 +30%（30秒）", AF); add("scut", "兵法防御 +30%�
 add("ncut", "通常攻撃防御 +15%（23秒）", AL); add("ncut", "通常攻撃防御 +15%（23秒）", AF); add("ncut", "通常攻撃防御 +15%（23秒）", AL, "標準", 5.0, "arc")
 add("refl", "兵法反射 +30%（30秒）", AR, "標準", 5.0, "arc")
 add("null", "兵法打消し（60秒）", AF); add("null", "兵法打消し（60秒）", AF, "標準", 7.0, "arc"); add("null", "兵法打消し（30秒）", AF)
+# 兵種の層（§7.147）: 同じ探針を歩兵／弓兵／騎兵の車台で。弓は後衛・騎兵は前衛。
+for typ in ("arc", "cav"):
+    for pw in (300, 600, 1000, 1500):
+        add("damage", f"ダメージ 威力{pw}%", E1, "標準", 5.0, typ)
+    add("damage", "ダメージ 威力1000%", EL, "標準", 5.0, typ); add("damage", "ダメージ 威力1000%", EA, "標準", 5.0, typ)
+    add("damage", "ダメージ 威力1000%", E1, "手数", 5.0, typ); add("damage", "ダメージ 威力1000%", E1, "大技", 5.0, typ)
+    add("damage", "ダメージ 威力2000%", E1, "大技", 5.0, typ)
+    add("heal", "回復 攻撃力の200%", AF, "標準", 5.0, typ); add("heal", "回復 攻撃力の200%", A1, "標準", 5.0, typ)
+    add("heal", "回復 攻撃力の200%", AA, "手数", 5.0, typ)
+    add("atk", "攻撃力 +20%（30秒）", AF, "標準", 5.0, typ); add("atk", "攻撃力 -20%（30秒）", EF, "標準", 5.0, typ)
+    add("atk", "攻撃力 +20%（30秒）", AA, "大技", 5.0, typ)
+    add("def", "防御力 +30%（30秒）", AF, "標準", 5.0, typ); add("def", "防御力 -30%（30秒）", EF, "標準", 5.0, typ)
+    add("stun", "行動阻害 3秒", EF, "標準", 5.0, typ); add("chaos", "混乱 25%（14秒）", EL, "標準", 5.0, typ)
+    add("dot", "継続ダメージ 威力25%（12秒）", EA, "標準", 5.0, typ)
+    add("scut", "兵法防御 +30%（30秒）", AF, "標準", 5.0, typ); add("ncut", "通常攻撃防御 +15%（23秒）", AF, "標準", 5.0, typ)
+# 段の重み: 同じ兵法を3段で（歩兵・回復と強化も）
+add("heal", "回復 攻撃力の200%", AF, "大技"); add("atk", "攻撃力 +20%（30秒）", AA, "手数"); add("atk", "攻撃力 +20%（30秒）", AA, "大技")
+add("chaos", "混乱 25%（14秒）", EF, "手数"); add("chaos", "混乱 25%（14秒）", EF, "大技")
+add("stun", "行動阻害 3秒", EF, "手数"); add("stun", "行動阻害 3秒", EF, "大技")
+# 高コスト車台（実カードの大技持ちは 7〜10）
+add("heal", "回復 攻撃力の200%", AF, "標準", 10.0); add("atk", "攻撃力 +20%（30秒）", AA, "標準", 10.0)
+add("chaos", "混乱 25%（14秒）", EF, "標準", 10.0); add("damage", "ダメージ 威力600%", E1, "標準", 10.0)
 
 
 def one(job):
@@ -78,8 +100,8 @@ def one(job):
     sk = G._parse_skill(eff, tgt)
     G.SKILL_INFO[n] = sk; G.SKILL_TARGET[n] = tgt
     gc, gi = TIERS[tier]
-    T = {"inf": G.INF, "arc": G.ARC}[typ]
-    role = G.BAL if T == G.INF else G.DPS
+    T = {"inf": G.INF, "arc": G.ARC, "cav": G.CAV}[typ]
+    role = G.DPS if T == G.ARC else G.BAL
     base = G._synth(cost, T, role)
     hot = dataclasses.replace(base, skill=n, gauge_cost=gc, gauge_init=gi)
     cold = dataclasses.replace(base, skill="", gauge_cost=gc, gauge_init=gi)
@@ -112,9 +134,9 @@ def main():
             k = (cost, typ, f)
             if k in slopes:
                 continue
-            T = {"inf": G.INF, "arc": G.ARC}[typ]
+            T = {"inf": G.INF, "arc": G.ARC, "cav": G.CAV}[typ]
             ff = G._synth(cost, G.INF, G.BAL); rf = G._synth(cost, G.ARC, G.DPS)
-            slopes[k] = local_slope(G._synth(cost, T, G.BAL if T == G.INF else G.DPS), f, ff, rf, in_front=(T != G.ARC))
+            slopes[k] = local_slope(G._synth(cost, T, G.DPS if T == G.ARC else G.BAL), f, ff, rf, in_front=(T != G.ARC))
     print("局所勾配: " + " ".join(f"{c:.0f}{t}/{f}={s:.4f}" for (c, t, f), s in sorted(slopes.items())), flush=True)
     jobs = [p + (f, slopes[(p[4], p[5], f)]) for p in probes for f in FORMS]
     print(f"探針 {len(probes)} × 陣形 3 = {len(jobs)} 局", flush=True)
@@ -149,6 +171,10 @@ def main():
         rs = [r for r in rs if r == r]
         print("  {:<6} {:5.2f} / {:5.2f} / {:.2f}〜{:.2f}  (n={})".format(
             fam, statistics.mean(rs), statistics.median(rs), min(rs), max(rs), len(rs)))
+    import json
+    out = os.environ.get("SWEEP_JSON")
+    if out:
+        json.dump([list(r) for r in res], open(out, "w"), ensure_ascii=False)
     print("SWEEP DONE")
 
 
