@@ -310,7 +310,8 @@ def _trait_brief(g, key, t):
                 ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
     elif key == "drunk":
         # 酒乱（§7.146）。負の特性 — 値段はマイナスで能力値へ返っている
-        desc = "受ける混乱が {:.0%} 強い（そのぶん能力値が高い）".format(F.DRUNK_CHAOS)
+        desc = ("常に混乱 {:.0%} を抱えている（同士討ちが出て出力も落ちる。"
+                "そのぶん能力値が高い）").format(F.DRUNK_CHAOS)
     elif key == "restraint":
         desc = ("自身が初めて兵法を放った後、敵味方の各武将は"
                 "初回発動後の自然ゲージ増加 -{:.0%}"

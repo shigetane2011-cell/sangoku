@@ -960,8 +960,10 @@ DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
 CHAOS_FF = 0.50         # 混乱が最大のとき、与ダメージのこの割合が味方へ向く
 CHAOS_WITS = 0.50       # 知力比の効き（0 で知力は無関係、1 で比がそのまま乗る）
 # 酒乱（§7.146・テストプレイの設計「混乱したとき効果+20%…その分他強くなればキャラ立つ」）。
-# 常在型の**負の特性**: 持ち手が受ける混乱の量がこの割合だけ増える。値段はマイナス
-# （能力値へ返る）。持ち手は呂布（2版とも）。
+# 常在型の**負の特性**: 持ち手は**開幕から常にこの量だけ混乱している**（失効しない床。計略の
+# 混乱はこの上に max で乗り、失効すると床へ戻る）。「受ける混乱 +20%」「自分の兵法の直後に
+# 混乱」の形は両土台で ±0.00〜−0.04 と値段が付かず（§7.146 の探り）、常時の形だけが
+# 近接型に −8〜−15・弓型に ±0 の値段を持つ。値段はマイナス（能力値へ返る）。持ち手は呂布（2版とも）。
 DRUNK_CHAOS = 0.20
 WITS_MOD = CHAOS_WITS   # 知力比の状態効果（§7.67）も同じ傾きを使う
 
@@ -1629,7 +1631,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_floor", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
@@ -1780,6 +1782,10 @@ class Unit:
         self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
+        self.chaos_floor = 0.0  # 酒乱（§7.146）: 失効しても戻る床
+        if TRAITS_ON and "drunk" in self.traits:      # 酒乱（§7.146）: 常に少し酔っている
+            self.chaos_floor = DRUNK_CHAOS
+            self.chaos = DRUNK_CHAOS
         self.dealt = 0.0        # この戦いで実際に与えた損害（診断用・勝敗に不使用）
         self.dealt_skill = 0.0  # うち兵法・特性によるぶん（§7.49）
         # 見えにくい効き（§7.88）。**表示専用**で勝敗にも測定にも使わない。
@@ -2502,8 +2508,6 @@ def _fx_add(f: Unit, eff) -> None:
 
 
 def _chaos_add(f: Unit, amt: float, until: float) -> None:
-    if TRAITS_ON and "drunk" in f.traits:      # 酒乱（§7.146）: 受ける混乱が増える
-        amt *= 1.0 + DRUNK_CHAOS
     if _SKILL_FX is None:
         f.chaos = max(f.chaos, amt)
         f.chaos_until = max(f.chaos_until, until)
@@ -3313,8 +3317,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             for x in ua + ub:
                 if x.disrupt > 0.0:
                     x.disrupt *= math.exp(-dt / DISRUPT_TAU)
-                if x.chaos > 0.0 and t + dt >= x.chaos_until:
-                    x.chaos = 0.0
+                if x.chaos > x.chaos_floor and t + dt >= x.chaos_until:
+                    x.chaos = x.chaos_floor      # 酒乱の床（0 が普通）へ戻る
                 # 行動阻害の秒数（§7.94・表示専用）。atk_mult=0 は stun だけが作る
                 if x.men > 0.0 and x.atk_mult == 0.0:
                     x.stun_time += dt
