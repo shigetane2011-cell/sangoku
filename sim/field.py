@@ -995,13 +995,15 @@ CHARGE_TAU = 12.0       # 突撃の勢いが失われる時定数（秒）
 # 被害を、乱戦に入るまで減らす。勢い（CHARGE_TAU）と同じ時定数で滑らかに
 # 失われる — 「接敵したか」の判定は置かない（§13）。既定 0 で完全に不使用
 # （零点・dt不変は従来と同一）。CAV_COVER_SKILL は兵法の直撃にも掛けるか。
-CAV_COVER = 0.30        # 密着前の騎兵が射撃被害を免れる割合（0 で無効）
+CAV_COVER = 0.30        # 接敵前の騎兵が射撃被害を免れる割合（0 で無効）
 # 【§7.144】0.0 → 0.15 → 0.30（テストプレイ「弓に有利な兵種なのに弓に狩られる側
 # なのは避けたい」）。前衛の騎兵は弓型に対して被害の7割が矢で、44秒で撤退して
-# いた。実測（赤壁40・10コスト騎兵4枚・同種ペア）: 0.15 で ±1 以内、0.30 でも
-# 弓型へ +0〜2.5 — 相手の騎兵にも同じだけ掛かり、乱戦12秒（CHARGE_TAU）で消える
-# 短い効きのため。弓型への向きをもっと動かすなら減衰の時定数か「接敵まで」の
-# 形が次の蛇口（§7.144）。
+# いた。乱戦時間で減衰する旧形（exp(-melee/CHARGE_TAU)）は 0.15 でも 0.30 でも
+# 弓型へ +0〜2.5 と出なかった — 相手の騎兵にも掛かり、12秒で消えるため。
+# テストプレイの決定で**「接敵まで」**の形にした: いちばん近い敵の縁までの距離
+# （Unit.eng・毎ティック）が CAV_COVER_SOFT より遠いあいだは満額、縁が触れる
+# （gap≤1）と 0。分岐でなく smooth_gate の連続な窓（§13）。乱戦から離れれば戻る。
+CAV_COVER_SOFT = 40.0   # 接敵の手前、この幅で滑らかに消える（m）
 CAV_COVER_SKILL = True  # 射程持ちの兵法直撃にも掛ける（延焼には掛けない）
 
 # 庇護（§7.144・テストプレイの提案「歩兵に周りをカバーする固有能力」）。
@@ -1621,7 +1623,7 @@ class Unit:
         "null_blocked", "null_names", "scut_saved",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
-        "wiped_at", "hidden_traits", "covered",
+        "wiped_at", "hidden_traits", "covered", "eng",
         "perm_atk", "perm_def", "perm_rate", "perm_scut",
     )
 
@@ -1787,6 +1789,7 @@ class Unit:
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
         self.covered = 0.0      # 庇護で代わりに受けた被害（表示専用・§7.144）
+        self.eng = float("inf")   # いちばん近い敵の縁までの距離（毎ティック・馬上回避用）
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -3075,10 +3078,12 @@ def _output(u: Unit) -> float:
 
 
 def _cav_cover(shooter: "Unit", f: "Unit") -> float:
-    """馬上回避（試作）。射程持ち→騎兵の被害倍率。乱戦時間で滑らかに 1 へ戻る。"""
+    """馬上回避（§7.144）。射程持ち→騎兵の被害倍率。**接敵まで**効き、いちばん近い
+    敵の縁が触れる（f.eng ≤ 1）と 1 に戻る。距離だけで決まる連続な窓（§13）。"""
     if CAV_COVER <= 0.0 or f.typ != CAV or shooter.rng <= 0.0:
         return 1.0
-    return 1.0 - CAV_COVER * math.exp(-f.melee / CHARGE_TAU)
+    engaged = smooth_gate(f.eng, 1.0, CAV_COVER_SOFT)   # 触れていれば 1
+    return 1.0 - CAV_COVER * (1.0 - engaged)
 
 
 def _cover_map(units: List["Unit"]) -> List["int | None"]:
@@ -3233,6 +3238,11 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     for _ in range(steps):
         # --- 距離は1回だけ作り、移動の制動と射撃の両方で使う ----------------
         gap = [[box_gap(x, y) for y in ub] for x in ua]
+        # 接敵の距離（§7.144 馬上回避）。生きている敵の縁までの最小値
+        for i, x in enumerate(ua):
+            x.eng = min((gap[i][j] for j, y in enumerate(ub) if y.men > 0.0), default=float("inf"))
+        for j, y in enumerate(ub):
+            y.eng = min((gap[i][j] for i, x in enumerate(ua) if x.men > 0.0), default=float("inf"))
 
         # --- 移動（両軍を同時に評価してから同時に反映する） -----------------
         newpos = []
