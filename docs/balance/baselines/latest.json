@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
   "manifest": {
-    "created_at_utc": "2026-08-28T18:52:24+00:00",
+    "created_at_utc": "2026-09-02T09:30:30+00:00",
     "command": "run",
     "profile": "quick",
     "git": {
-      "commit": "5d2453027ea27778a6a9e957db3a7d5a64bc5b85",
-      "branch": "(detached)",
+      "commit": "36eedd4e1474e73fb91aa48bc10dae9cbf6e974b",
+      "branch": "claude/dev-handoff-balance-adjustments-8ezltu",
       "dirty": false
     },
-    "python": "3.12.13",
-    "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v22-x86_64-with-glibc2.39",
     "dt": 0.5,
     "csv_sha256": {
-      "generals.csv": "daaf19352acfb71caf33b2450860a10a70fac3155ae8a89e47aaff3582e36d16",
-      "skills.csv": "012fc390ed422fe0b0f6ecde1c60e6a77fe0f95a969305e451d77e1015eef3fa",
-      "traits.csv": "88ad083109a14a1d1b7b96446b4e0eb6051533e224dda5adc19309b2ad2897c8"
+      "generals.csv": "a25633e39f7a4389fa3198063bce5dd17ff85917acabf1f52103f28851a1bf22",
+      "skills.csv": "3bd22f23a45c079de9c9ea8d72eb0ef6f341edd681f91877546d5e987545d827",
+      "traits.csv": "25a25b436e9426fc7fa8c09df183b551f23135b0ba29164fbfc90c4f3255a035"
     },
     "fixture_file": "docs/balance/fixtures-v1.json",
     "fixture_source": {
@@ -29,6 +29,7 @@
       "GAUGE_PER_DEAL": 20.0,
       "GAUGE_PER_TAKE": 15.0,
       "GAUGE_ON_ROUT": 10.0,
+      "RESTRAINT_NATURAL_MULT": 0.4,
       "TRAMPLE": 0.5,
       "TRAMPLE_TIER_COST": 300.0,
       "SURPLUS_PER_COST": 0.01,
@@ -118,7 +119,7 @@
   "checks": {
     "ok": true,
     "fixture_entries_checked": 74,
-    "roster_cards": 120,
+    "roster_cards": 121,
     "cost_counts": {
       "1": 12,
       "2": 12,
@@ -129,15 +130,16 @@
       "7": 12,
       "8": 12,
       "9": 12,
-      "10": 12
+      "10": 13
     },
     "cadence_counts": {
-      "大技": 54,
+      "大技": 58,
       "手数": 8,
-      "標準": 58
+      "標準": 55
     },
     "errors": [],
     "warnings": [
+      "コスト帯が従来の各12枚から変化: {10: 13, 9: 12, 8: 12, 7: 12, 6: 12, 5: 12, 4: 12, 3: 12, 2: 12, 1: 12}",
       "final_blind は空。release判定前に別担当が封印データを追加する"
     ],
     "module_checks": [
@@ -147,8 +149,8 @@
         "returncode": 1,
         "accepted_known_exceptions": true,
         "accepted_note": "既知の効果予算超過3枚だけ（handoff記録済み）",
-        "seconds": 0.26,
-        "tail": "  1         12     98.77     98.80    0.9996      0.06\n  2         12    104.33    104.34    0.9999      0.04\n  3         12    101.26    101.28    0.9998      0.06\n  4         12    129.22    129.23    0.9999      0.03\n  5         12    137.73    137.74    0.9999      0.03\n  6         12    135.99    135.99    1.0000      0.02\n  7         12    156.61    156.60    1.0000      0.02\n  8         12    150.49    150.48    1.0000      0.02\n  9         12    150.77    150.76    1.0000      0.02\n  10        12    186.83    186.81    1.0002      0.03\n\n全帯がコスト曲線の上"
+        "seconds": 0.37,
+        "tail": "  1         12    105.20    105.23    0.9997      0.08\n  2         12    108.36    108.38    0.9998      0.05\n  3         12    103.53    103.54    0.9999      0.05\n  4         12    138.32    138.33    0.9999      0.05\n  5         12    146.85    146.86    1.0000      0.03\n  6         12    138.93    138.93    1.0000      0.02\n  7         12    167.26    167.26    1.0000      0.02\n  8         12    152.17    152.16    1.0000      0.02\n  9         12    154.52    154.51    1.0000      0.02\n  10        13    191.72    191.69    1.0001      0.02\n\n全帯がコスト曲線の上"
       },
       {
         "module": "sim.design",
@@ -156,7 +158,7 @@
         "returncode": 0,
         "accepted_known_exceptions": false,
         "accepted_note": "",
-        "seconds": 0.06,
+        "seconds": 0.05,
         "tail": "   → 総合値が全行で一致すれば OK（寄せの行も含む）\n\n[4] 効果予算は能力値から引かれているか\n   効果予算          能力値コスト        兵力        武力         総合値\n   0.0             5.00     10000     100.0    114.2366\n   0.5             4.50      9585      95.9    109.5013\n   1.0             4.00      9171      91.7    104.7660\n   2.0             3.00      8342      83.4     95.2955\n   3.0             2.75      8135      81.3     92.9278\n   → 兵力も武力も下がっていれば OK（片方だけなら stat_cost の配線漏れ）\n\n検算 OK"
       }
     ]
@@ -171,143 +173,144 @@
           "rear": 207
         },
         "coverage": 117,
-        "gini": 0.3184,
+        "roster": 121,
+        "gini": 0.324,
         "effective_cards": 89.64,
         "top_card_prevalence": 0.4583,
         "category": {
           "troop": {
             "弓兵": {
               "observed": 194,
-              "row_conditioned_expected": 173.732,
-              "lift": 1.117
+              "row_conditioned_expected": 167.741,
+              "lift": 1.157
             },
             "歩兵": {
               "observed": 151,
-              "row_conditioned_expected": 153.473,
-              "lift": 0.984
+              "row_conditioned_expected": 157.84,
+              "lift": 0.957
             },
             "騎兵": {
               "observed": 87,
-              "row_conditioned_expected": 104.795,
-              "lift": 0.83
+              "row_conditioned_expected": 106.419,
+              "lift": 0.818
             }
           },
           "role": {
             "均衡": {
-              "observed": 89,
-              "row_conditioned_expected": 96.151,
-              "lift": 0.926
+              "observed": 85,
+              "row_conditioned_expected": 94.915,
+              "lift": 0.896
             },
             "支援": {
               "observed": 116,
-              "row_conditioned_expected": 123.222,
-              "lift": 0.941
+              "row_conditioned_expected": 119.231,
+              "lift": 0.973
             },
             "火力": {
               "observed": 111,
-              "row_conditioned_expected": 102.305,
-              "lift": 1.085
+              "row_conditioned_expected": 100.069,
+              "lift": 1.109
             },
             "瞬発": {
-              "observed": 29,
-              "row_conditioned_expected": 27.114,
-              "lift": 1.07
+              "observed": 33,
+              "row_conditioned_expected": 32.519,
+              "lift": 1.015
             },
             "耐久": {
               "observed": 87,
-              "row_conditioned_expected": 83.208,
-              "lift": 1.046
+              "row_conditioned_expected": 85.265,
+              "lift": 1.02
             }
           },
           "faction": {
             "呉": {
               "observed": 124,
-              "row_conditioned_expected": 109.072,
-              "lift": 1.137
+              "row_conditioned_expected": 113.418,
+              "lift": 1.093
             },
             "群雄": {
               "observed": 70,
-              "row_conditioned_expected": 84.426,
-              "lift": 0.829
+              "row_conditioned_expected": 81.826,
+              "lift": 0.855
             },
             "蜀": {
               "observed": 113,
-              "row_conditioned_expected": 123.255,
-              "lift": 0.917
+              "row_conditioned_expected": 120.426,
+              "lift": 0.938
             },
             "魏": {
               "observed": 125,
-              "row_conditioned_expected": 115.248,
-              "lift": 1.085
+              "row_conditioned_expected": 116.329,
+              "lift": 1.075
             }
           },
           "cost": {
             "1": {
               "observed": 64,
-              "row_conditioned_expected": 40.672,
-              "lift": 1.574
+              "row_conditioned_expected": 39.657,
+              "lift": 1.614
             },
             "10": {
               "observed": 30,
-              "row_conditioned_expected": 43.754,
-              "lift": 0.686
+              "row_conditioned_expected": 45.738,
+              "lift": 0.656
             },
             "2": {
               "observed": 50,
-              "row_conditioned_expected": 43.754,
-              "lift": 1.143
+              "row_conditioned_expected": 42.698,
+              "lift": 1.171
             },
             "3": {
               "observed": 45,
-              "row_conditioned_expected": 46.222,
-              "lift": 0.974
+              "row_conditioned_expected": 45.21,
+              "lift": 0.995
             },
             "4": {
               "observed": 45,
-              "row_conditioned_expected": 44.368,
-              "lift": 1.014
+              "row_conditioned_expected": 43.226,
+              "lift": 1.041
             },
             "5": {
               "observed": 58,
-              "row_conditioned_expected": 47.45,
-              "lift": 1.222
+              "row_conditioned_expected": 46.267,
+              "lift": 1.254
             },
             "6": {
               "observed": 40,
-              "row_conditioned_expected": 43.14,
-              "lift": 0.927
+              "row_conditioned_expected": 45.738,
+              "lift": 0.875
             },
             "7": {
               "observed": 42,
-              "row_conditioned_expected": 40.057,
-              "lift": 1.048
+              "row_conditioned_expected": 42.698,
+              "lift": 0.984
             },
             "8": {
               "observed": 28,
-              "row_conditioned_expected": 43.14,
-              "lift": 0.649
+              "row_conditioned_expected": 42.169,
+              "lift": 0.664
             },
             "9": {
               "observed": 30,
-              "row_conditioned_expected": 39.443,
-              "lift": 0.761
+              "row_conditioned_expected": 38.6,
+              "lift": 0.777
             }
           },
           "cadence": {
             "大技": {
-              "observed": 176,
-              "row_conditioned_expected": 183.659,
-              "lift": 0.958
+              "observed": 187,
+              "row_conditioned_expected": 206.22,
+              "lift": 0.907
             },
             "手数": {
               "observed": 34,
-              "row_conditioned_expected": 33.279,
-              "lift": 1.022
+              "row_conditioned_expected": 28.95,
+              "lift": 1.174
             },
             "標準": {
-              "observed": 222,
-              "row_conditioned_expected": 215.062,
-              "lift": 1.032
+              "observed": 211,
+              "row_conditioned_expected": 196.83,
+              "lift": 1.072
             }
           }
         },
@@ -315,8 +318,8 @@
           {
             "name": "満寵〔剛毅〕",
             "observed": 11,
-            "expected": 3.696,
-            "lift": 2.976,
+            "expected": 3.569,
+            "lift": 3.082,
             "troop": "弓兵",
             "role": "火力",
             "cost": 3.0,
@@ -325,8 +328,8 @@
           {
             "name": "張宝〔地公将軍〕",
             "observed": 10,
-            "expected": 3.696,
-            "lift": 2.705,
+            "expected": 3.569,
+            "lift": 2.802,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -335,8 +338,8 @@
           {
             "name": "曹仁〔堅守〕",
             "observed": 8,
-            "expected": 3.082,
-            "lift": 2.596,
+            "expected": 3.041,
+            "lift": 2.631,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 4.0,
@@ -345,8 +348,8 @@
           {
             "name": "朱然〔江陵〕",
             "observed": 8,
-            "expected": 3.082,
-            "lift": 2.596,
+            "expected": 3.041,
+            "lift": 2.631,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 5.0,
@@ -355,8 +358,8 @@
           {
             "name": "呂範〔子衡〕",
             "observed": 8,
-            "expected": 3.696,
-            "lift": 2.164,
+            "expected": 3.569,
+            "lift": 2.242,
             "troop": "弓兵",
             "role": "均衡",
             "cost": 1.0,
@@ -365,8 +368,8 @@
           {
             "name": "曹真〔大司馬〕",
             "observed": 6,
-            "expected": 3.082,
-            "lift": 1.947,
+            "expected": 3.041,
+            "lift": 1.973,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 7.0,
@@ -375,8 +378,8 @@
           {
             "name": "賀斉〔山越討伐〕",
             "observed": 6,
-            "expected": 3.082,
-            "lift": 1.947,
+            "expected": 3.041,
+            "lift": 1.973,
             "troop": "歩兵",
             "role": "均衡",
             "cost": 5.0,
@@ -385,8 +388,8 @@
           {
             "name": "丁奉〔雪中〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "瞬発",
             "cost": 2.0,
@@ -395,8 +398,8 @@
           {
             "name": "劉曄〔智嚢〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "火力",
             "cost": 2.0,
@@ -405,8 +408,8 @@
           {
             "name": "宗預〔使者〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -415,8 +418,8 @@
           {
             "name": "張昭〔文淵〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "支援",
             "cost": 2.0,
@@ -425,8 +428,8 @@
           {
             "name": "李典〔慎重〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "火力",
             "cost": 5.0,
@@ -435,8 +438,8 @@
           {
             "name": "陳羣〔九品〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -445,8 +448,8 @@
           {
             "name": "魯粛〔塌上策〕",
             "observed": 7,
-            "expected": 3.696,
-            "lift": 1.894,
+            "expected": 3.569,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "支援",
             "cost": 7.0,
@@ -455,8 +458,8 @@
           {
             "name": "荀攸〔謀主〕",
             "observed": 6,
-            "expected": 3.696,
-            "lift": 1.623,
+            "expected": 3.569,
+            "lift": 1.681,
             "troop": "弓兵",
             "role": "火力",
             "cost": 4.0,
@@ -465,9 +468,19 @@
         ],
         "lowest_card_lift": [
           {
+            "name": "呂布〔虓虎〕",
+            "observed": 0,
+            "expected": 3.041,
+            "lift": 0.0,
+            "troop": "騎兵",
+            "role": "瞬発",
+            "cost": 10.0,
+            "cadence": "大技"
+          },
+          {
             "name": "曹操〔魏王〕",
             "observed": 0,
-            "expected": 3.082,
+            "expected": 3.041,
             "lift": 0.0,
             "troop": "騎兵",
             "role": "支援",
@@ -477,7 +490,7 @@
           {
             "name": "潘璋〔急襲〕",
             "observed": 0,
-            "expected": 3.082,
+            "expected": 3.041,
             "lift": 0.0,
             "troop": "騎兵",
             "role": "火力",
@@ -487,7 +500,7 @@
           {
             "name": "陸抗〔羊陸之交〕",
             "observed": 0,
-            "expected": 3.082,
+            "expected": 3.041,
             "lift": 0.0,
             "troop": "歩兵",
             "role": "耐久",
@@ -497,8 +510,8 @@
           {
             "name": "孫権〔碧眼〕",
             "observed": 1,
-            "expected": 3.696,
-            "lift": 0.271,
+            "expected": 3.569,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 8.0,
@@ -507,8 +520,8 @@
           {
             "name": "祝融〔火神〕",
             "observed": 1,
-            "expected": 3.696,
-            "lift": 0.271,
+            "expected": 3.569,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "火力",
             "cost": 8.0,
@@ -517,8 +530,8 @@
           {
             "name": "袁紹〔盟主〕",
             "observed": 1,
-            "expected": 3.696,
-            "lift": 0.271,
+            "expected": 3.569,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 10.0,
@@ -527,8 +540,8 @@
           {
             "name": "貂蝉〔傾国〕",
             "observed": 1,
-            "expected": 3.696,
-            "lift": 0.271,
+            "expected": 3.569,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 7.0,
@@ -537,8 +550,8 @@
           {
             "name": "陳宮〔公台〕",
             "observed": 1,
-            "expected": 3.696,
-            "lift": 0.271,
+            "expected": 3.569,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 4.0,
@@ -547,18 +560,28 @@
           {
             "name": "張飛〔当陽橋〕",
             "observed": 2,
-            "expected": 6.779,
-            "lift": 0.295,
+            "expected": 6.61,
+            "lift": 0.303,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 10.0,
             "cadence": "大技"
           },
           {
+            "name": "鄧艾〔陰平〕",
+            "observed": 2,
+            "expected": 6.61,
+            "lift": 0.303,
+            "troop": "歩兵",
+            "role": "均衡",
+            "cost": 6.0,
+            "cadence": "大技"
+          },
+          {
             "name": "夏侯霸〔帰蜀〕",
             "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
+            "expected": 3.041,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 8.0,
@@ -567,8 +590,8 @@
           {
             "name": "姜維〔幼麟〕",
             "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
+            "expected": 3.041,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 8.0,
@@ -577,8 +600,8 @@
           {
             "name": "張遼〔逍遥津〕",
             "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
+            "expected": 3.041,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 9.0,
@@ -587,32 +610,12 @@
           {
             "name": "張郃〔巧変〕",
             "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
+            "expected": 3.041,
+            "lift": 0.329,
             "troop": "歩兵",
             "role": "均衡",
             "cost": 8.0,
             "cadence": "大技"
-          },
-          {
-            "name": "曹彰〔黄鬚〕",
-            "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
-            "troop": "騎兵",
-            "role": "火力",
-            "cost": 8.0,
-            "cadence": "大技"
-          },
-          {
-            "name": "曹洪〔救主〕",
-            "observed": 1,
-            "expected": 3.082,
-            "lift": 0.324,
-            "troop": "騎兵",
-            "role": "均衡",
-            "cost": 3.0,
-            "cadence": "標準"
           }
         ],
         "warnings": [
@@ -629,143 +632,144 @@
           "rear": 414
         },
         "coverage": 120,
-        "gini": 0.3414,
-        "effective_cards": 86.02,
+        "roster": 121,
+        "gini": 0.347,
+        "effective_cards": 86.0,
         "top_card_prevalence": 0.5,
         "category": {
           "troop": {
             "弓兵": {
-              "observed": 394,
-              "row_conditioned_expected": 347.464,
-              "lift": 1.134
+              "observed": 395,
+              "row_conditioned_expected": 335.483,
+              "lift": 1.177
             },
             "歩兵": {
-              "observed": 305,
-              "row_conditioned_expected": 306.947,
-              "lift": 0.994
+              "observed": 304,
+              "row_conditioned_expected": 315.679,
+              "lift": 0.963
             },
             "騎兵": {
               "observed": 165,
-              "row_conditioned_expected": 209.589,
-              "lift": 0.787
+              "row_conditioned_expected": 212.838,
+              "lift": 0.775
             }
           },
           "role": {
             "均衡": {
-              "observed": 155,
-              "row_conditioned_expected": 192.302,
+              "observed": 153,
+              "row_conditioned_expected": 189.83,
               "lift": 0.806
             },
             "支援": {
               "observed": 200,
-              "row_conditioned_expected": 246.443,
-              "lift": 0.812
+              "row_conditioned_expected": 238.462,
+              "lift": 0.839
             },
             "火力": {
-              "observed": 250,
-              "row_conditioned_expected": 204.609,
-              "lift": 1.222
+              "observed": 249,
+              "row_conditioned_expected": 200.139,
+              "lift": 1.244
             },
             "瞬発": {
-              "observed": 63,
-              "row_conditioned_expected": 54.229,
-              "lift": 1.162
+              "observed": 66,
+              "row_conditioned_expected": 65.038,
+              "lift": 1.015
             },
             "耐久": {
               "observed": 196,
-              "row_conditioned_expected": 166.416,
-              "lift": 1.178
+              "row_conditioned_expected": 170.53,
+              "lift": 1.149
             }
           },
           "faction": {
             "呉": {
-              "observed": 260,
-              "row_conditioned_expected": 218.144,
-              "lift": 1.192
+              "observed": 261,
+              "row_conditioned_expected": 226.837,
+              "lift": 1.151
             },
             "群雄": {
-              "observed": 147,
-              "row_conditioned_expected": 168.851,
-              "lift": 0.871
+              "observed": 146,
+              "row_conditioned_expected": 163.652,
+              "lift": 0.892
             },
             "蜀": {
               "observed": 215,
-              "row_conditioned_expected": 246.509,
-              "lift": 0.872
+              "row_conditioned_expected": 240.853,
+              "lift": 0.893
             },
             "魏": {
               "observed": 242,
-              "row_conditioned_expected": 230.495,
-              "lift": 1.05
+              "row_conditioned_expected": 232.658,
+              "lift": 1.04
             }
           },
           "cost": {
             "1": {
               "observed": 139,
-              "row_conditioned_expected": 81.343,
-              "lift": 1.709
+              "row_conditioned_expected": 79.314,
+              "lift": 1.753
             },
             "10": {
               "observed": 80,
-              "row_conditioned_expected": 87.508,
-              "lift": 0.914
+              "row_conditioned_expected": 91.476,
+              "lift": 0.875
             },
             "2": {
               "observed": 99,
-              "row_conditioned_expected": 87.508,
-              "lift": 1.131
+              "row_conditioned_expected": 85.395,
+              "lift": 1.159
             },
             "3": {
               "observed": 95,
-              "row_conditioned_expected": 92.444,
-              "lift": 1.028
+              "row_conditioned_expected": 90.419,
+              "lift": 1.051
             },
             "4": {
               "observed": 89,
-              "row_conditioned_expected": 88.736,
-              "lift": 1.003
+              "row_conditioned_expected": 86.452,
+              "lift": 1.029
             },
             "5": {
               "observed": 83,
-              "row_conditioned_expected": 94.901,
-              "lift": 0.875
+              "row_conditioned_expected": 92.533,
+              "lift": 0.897
             },
             "6": {
               "observed": 94,
-              "row_conditioned_expected": 86.279,
-              "lift": 1.089
+              "row_conditioned_expected": 91.476,
+              "lift": 1.028
             },
             "7": {
               "observed": 70,
-              "row_conditioned_expected": 80.115,
-              "lift": 0.874
+              "row_conditioned_expected": 85.395,
+              "lift": 0.82
             },
             "8": {
               "observed": 63,
-              "row_conditioned_expected": 86.279,
-              "lift": 0.73
+              "row_conditioned_expected": 84.338,
+              "lift": 0.747
             },
             "9": {
               "observed": 52,
-              "row_conditioned_expected": 78.886,
-              "lift": 0.659
+              "row_conditioned_expected": 77.2,
+              "lift": 0.674
             }
           },
           "cadence": {
             "大技": {
-              "observed": 356,
-              "row_conditioned_expected": 367.318,
-              "lift": 0.969
+              "observed": 389,
+              "row_conditioned_expected": 412.44,
+              "lift": 0.943
             },
             "手数": {
-              "observed": 78,
-              "row_conditioned_expected": 66.558,
-              "lift": 1.172
+              "observed": 77,
+              "row_conditioned_expected": 57.9,
+              "lift": 1.33
             },
             "標準": {
-              "observed": 430,
-              "row_conditioned_expected": 430.124,
-              "lift": 1.0
+              "observed": 398,
+              "row_conditioned_expected": 393.66,
+              "lift": 1.011
             }
           }
         },
@@ -773,8 +777,8 @@
           {
             "name": "呂範〔子衡〕",
             "observed": 24,
-            "expected": 7.393,
-            "lift": 3.246,
+            "expected": 7.138,
+            "lift": 3.362,
             "troop": "弓兵",
             "role": "均衡",
             "cost": 1.0,
@@ -783,8 +787,8 @@
           {
             "name": "劉曄〔智嚢〕",
             "observed": 19,
-            "expected": 7.393,
-            "lift": 2.57,
+            "expected": 7.138,
+            "lift": 2.662,
             "troop": "弓兵",
             "role": "火力",
             "cost": 2.0,
@@ -793,8 +797,8 @@
           {
             "name": "張宝〔地公将軍〕",
             "observed": 19,
-            "expected": 7.393,
-            "lift": 2.57,
+            "expected": 7.138,
+            "lift": 2.662,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -803,8 +807,8 @@
           {
             "name": "丁奉〔雪中〕",
             "observed": 18,
-            "expected": 7.393,
-            "lift": 2.435,
+            "expected": 7.138,
+            "lift": 2.522,
             "troop": "弓兵",
             "role": "瞬発",
             "cost": 2.0,
@@ -813,8 +817,8 @@
           {
             "name": "宗預〔使者〕",
             "observed": 17,
-            "expected": 7.393,
-            "lift": 2.3,
+            "expected": 7.138,
+            "lift": 2.382,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -823,8 +827,8 @@
           {
             "name": "于禁〔毅重〕",
             "observed": 14,
-            "expected": 6.164,
-            "lift": 2.271,
+            "expected": 6.081,
+            "lift": 2.302,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 7.0,
@@ -833,8 +837,8 @@
           {
             "name": "樊建〔伝令〕",
             "observed": 16,
-            "expected": 7.393,
-            "lift": 2.164,
+            "expected": 7.138,
+            "lift": 2.242,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -843,8 +847,8 @@
           {
             "name": "周倉〔刀持ち〕",
             "observed": 13,
-            "expected": 6.164,
-            "lift": 2.109,
+            "expected": 6.081,
+            "lift": 2.138,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 3.0,
@@ -853,8 +857,8 @@
           {
             "name": "曹仁〔堅守〕",
             "observed": 13,
-            "expected": 6.164,
-            "lift": 2.109,
+            "expected": 6.081,
+            "lift": 2.138,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 4.0,
@@ -863,8 +867,8 @@
           {
             "name": "黄蓋〔苦肉〕",
             "observed": 13,
-            "expected": 6.164,
-            "lift": 2.109,
+            "expected": 6.081,
+            "lift": 2.138,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 6.0,
@@ -873,8 +877,8 @@
           {
             "name": "周瑜〔赤壁〕",
             "observed": 15,
-            "expected": 7.393,
-            "lift": 2.029,
+            "expected": 7.138,
+            "lift": 2.101,
             "troop": "弓兵",
             "role": "火力",
             "cost": 10.0,
@@ -883,8 +887,8 @@
           {
             "name": "張角〔太平道〕",
             "observed": 15,
-            "expected": 7.393,
-            "lift": 2.029,
+            "expected": 7.138,
+            "lift": 2.101,
             "troop": "弓兵",
             "role": "火力",
             "cost": 10.0,
@@ -893,8 +897,8 @@
           {
             "name": "李典〔慎重〕",
             "observed": 15,
-            "expected": 7.393,
-            "lift": 2.029,
+            "expected": 7.138,
+            "lift": 2.101,
             "troop": "弓兵",
             "role": "火力",
             "cost": 5.0,
@@ -903,8 +907,8 @@
           {
             "name": "闞沢〔詐降の証〕",
             "observed": 15,
-            "expected": 7.393,
-            "lift": 2.029,
+            "expected": 7.138,
+            "lift": 2.101,
             "troop": "弓兵",
             "role": "支援",
             "cost": 1.0,
@@ -913,8 +917,8 @@
           {
             "name": "蒋欽〔射術〕",
             "observed": 14,
-            "expected": 7.393,
-            "lift": 1.894,
+            "expected": 7.138,
+            "lift": 1.961,
             "troop": "弓兵",
             "role": "火力",
             "cost": 4.0,
@@ -923,10 +927,20 @@
         ],
         "lowest_card_lift": [
           {
+            "name": "呂布〔虓虎〕",
+            "observed": 0,
+            "expected": 6.081,
+            "lift": 0.0,
+            "troop": "騎兵",
+            "role": "瞬発",
+            "cost": 10.0,
+            "cadence": "大技"
+          },
+          {
             "name": "賈詡〔毒士〕",
             "observed": 1,
-            "expected": 7.393,
-            "lift": 0.135,
+            "expected": 7.138,
+            "lift": 0.14,
             "troop": "弓兵",
             "role": "支援",
             "cost": 5.0,
@@ -935,8 +949,8 @@
           {
             "name": "夏侯惇〔独眼〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 9.0,
@@ -945,8 +959,8 @@
           {
             "name": "夏侯霸〔帰蜀〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 8.0,
@@ -955,8 +969,8 @@
           {
             "name": "張任〔落鳳〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "騎兵",
             "role": "火力",
             "cost": 4.0,
@@ -965,8 +979,8 @@
           {
             "name": "張遼〔逍遥津〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 9.0,
@@ -975,8 +989,8 @@
           {
             "name": "曹操〔魏王〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "騎兵",
             "role": "支援",
             "cost": 10.0,
@@ -985,8 +999,8 @@
           {
             "name": "袁術〔仲家〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "歩兵",
             "role": "支援",
             "cost": 3.0,
@@ -995,8 +1009,8 @@
           {
             "name": "鍾会〔士季〕",
             "observed": 1,
-            "expected": 6.164,
-            "lift": 0.162,
+            "expected": 6.081,
+            "lift": 0.164,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 5.0,
@@ -1005,8 +1019,8 @@
           {
             "name": "孫権〔碧眼〕",
             "observed": 2,
-            "expected": 7.393,
-            "lift": 0.271,
+            "expected": 7.138,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 8.0,
@@ -1015,8 +1029,8 @@
           {
             "name": "郭嘉〔鬼才〕",
             "observed": 2,
-            "expected": 7.393,
-            "lift": 0.271,
+            "expected": 7.138,
+            "lift": 0.28,
             "troop": "弓兵",
             "role": "支援",
             "cost": 7.0,
@@ -1025,8 +1039,8 @@
           {
             "name": "呉懿〔外戚〕",
             "observed": 2,
-            "expected": 6.164,
-            "lift": 0.324,
+            "expected": 6.081,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 2.0,
@@ -1035,8 +1049,8 @@
           {
             "name": "趙雲〔長坂坡〕",
             "observed": 2,
-            "expected": 6.164,
-            "lift": 0.324,
+            "expected": 6.081,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "火力",
             "cost": 9.0,
@@ -1045,36 +1059,26 @@
           {
             "name": "龐徳〔白馬〕",
             "observed": 2,
-            "expected": 6.164,
-            "lift": 0.324,
+            "expected": 6.081,
+            "lift": 0.329,
             "troop": "騎兵",
             "role": "火力",
             "cost": 9.0,
             "cadence": "大技"
           },
           {
-            "name": "呂蒙〔白衣〕",
-            "observed": 3,
-            "expected": 7.393,
-            "lift": 0.406,
-            "troop": "弓兵",
-            "role": "支援",
-            "cost": 8.0,
+            "name": "凌統〔断金〕",
+            "observed": 5,
+            "expected": 13.219,
+            "lift": 0.378,
+            "troop": "歩兵",
+            "role": "火力",
+            "cost": 7.0,
             "cadence": "大技"
-          },
-          {
-            "name": "沮授〔監軍〕",
-            "observed": 3,
-            "expected": 7.393,
-            "lift": 0.406,
-            "troop": "弓兵",
-            "role": "支援",
-            "cost": 5.0,
-            "cadence": "標準"
           }
         ],
         "warnings": [
-          "行条件補正後も採用liftが0.3未満または2.5超: 13枚"
+          "行条件補正後も採用liftが0.3未満または2.5超: 15枚"
         ],
         "note": "expected は前後配置の合法性だけで条件付けた近似。コスト上限・人物重複・生成器の好みは含まない",
         "status": "retired_validation"
@@ -1087,143 +1091,144 @@
           "rear": 17
         },
         "coverage": 32,
-        "gini": 0.7593,
+        "roster": 121,
+        "gini": 0.7612,
         "effective_cards": 29.45,
         "top_card_prevalence": 1.0,
         "category": {
           "troop": {
             "弓兵": {
-              "observed": 16,
-              "row_conditioned_expected": 14.268,
-              "lift": 1.121
+              "observed": 17,
+              "row_conditioned_expected": 13.776,
+              "lift": 1.234
             },
             "歩兵": {
-              "observed": 10,
-              "row_conditioned_expected": 12.883,
-              "lift": 0.776
+              "observed": 9,
+              "row_conditioned_expected": 13.238,
+              "lift": 0.68
             },
             "騎兵": {
               "observed": 10,
-              "row_conditioned_expected": 8.849,
-              "lift": 1.13
+              "row_conditioned_expected": 8.986,
+              "lift": 1.113
             }
           },
           "role": {
             "均衡": {
-              "observed": 7,
-              "row_conditioned_expected": 8.068,
-              "lift": 0.868
+              "observed": 8,
+              "row_conditioned_expected": 7.957,
+              "lift": 1.005
             },
             "支援": {
               "observed": 7,
-              "row_conditioned_expected": 10.148,
-              "lift": 0.69
+              "row_conditioned_expected": 9.82,
+              "lift": 0.713
             },
             "火力": {
-              "observed": 12,
-              "row_conditioned_expected": 8.545,
-              "lift": 1.404
+              "observed": 11,
+              "row_conditioned_expected": 8.359,
+              "lift": 1.316
             },
             "瞬発": {
               "observed": 3,
-              "row_conditioned_expected": 2.255,
-              "lift": 1.33
+              "row_conditioned_expected": 2.713,
+              "lift": 1.106
             },
             "耐久": {
               "observed": 7,
-              "row_conditioned_expected": 6.984,
-              "lift": 1.002
+              "row_conditioned_expected": 7.151,
+              "lift": 0.979
             }
           },
           "faction": {
             "呉": {
-              "observed": 11,
-              "row_conditioned_expected": 9.065,
-              "lift": 1.213
+              "observed": 12,
+              "row_conditioned_expected": 9.42,
+              "lift": 1.274
             },
             "群雄": {
-              "observed": 5,
-              "row_conditioned_expected": 7.026,
-              "lift": 0.712
+              "observed": 4,
+              "row_conditioned_expected": 6.819,
+              "lift": 0.587
             },
             "蜀": {
               "observed": 8,
-              "row_conditioned_expected": 10.28,
-              "lift": 0.778
+              "row_conditioned_expected": 10.045,
+              "lift": 0.796
             },
             "魏": {
               "observed": 12,
-              "row_conditioned_expected": 9.629,
-              "lift": 1.246
+              "row_conditioned_expected": 9.716,
+              "lift": 1.235
             }
           },
           "cost": {
             "1": {
               "observed": 2,
-              "row_conditioned_expected": 3.383,
-              "lift": 0.591
+              "row_conditioned_expected": 3.299,
+              "lift": 0.606
             },
             "10": {
               "observed": 3,
-              "row_conditioned_expected": 3.643,
-              "lift": 0.823
+              "row_conditioned_expected": 3.813,
+              "lift": 0.787
             },
             "2": {
               "observed": 6,
-              "row_conditioned_expected": 3.643,
-              "lift": 1.647
+              "row_conditioned_expected": 3.556,
+              "lift": 1.687
             },
             "3": {
               "observed": 6,
-              "row_conditioned_expected": 3.86,
-              "lift": 1.554
+              "row_conditioned_expected": 3.776,
+              "lift": 1.589
             },
             "4": {
               "observed": 4,
-              "row_conditioned_expected": 3.687,
-              "lift": 1.085
+              "row_conditioned_expected": 3.592,
+              "lift": 1.114
             },
             "5": {
               "observed": 5,
-              "row_conditioned_expected": 3.947,
-              "lift": 1.267
+              "row_conditioned_expected": 3.849,
+              "lift": 1.299
             },
             "6": {
               "observed": 3,
-              "row_conditioned_expected": 3.6,
-              "lift": 0.833
+              "row_conditioned_expected": 3.813,
+              "lift": 0.787
             },
             "7": {
               "observed": 3,
-              "row_conditioned_expected": 3.34,
-              "lift": 0.898
+              "row_conditioned_expected": 3.556,
+              "lift": 0.844
             },
             "8": {
               "observed": 2,
-              "row_conditioned_expected": 3.6,
-              "lift": 0.556
+              "row_conditioned_expected": 3.52,
+              "lift": 0.568
             },
             "9": {
               "observed": 2,
-              "row_conditioned_expected": 3.296,
-              "lift": 0.607
+              "row_conditioned_expected": 3.226,
+              "lift": 0.62
             }
           },
           "cadence": {
             "大技": {
-              "observed": 13,
-              "row_conditioned_expected": 15.355,
-              "lift": 0.847
+              "observed": 14,
+              "row_conditioned_expected": 17.232,
+              "lift": 0.812
             },
             "手数": {
-              "observed": 7,
-              "row_conditioned_expected": 2.776,
-              "lift": 2.522
+              "observed": 6,
+              "row_conditioned_expected": 2.42,
+              "lift": 2.479
             },
             "標準": {
               "observed": 16,
-              "row_conditioned_expected": 17.869,
-              "lift": 0.895
+              "row_conditioned_expected": 16.348,
+              "lift": 0.979
             }
           }
         },
@@ -1231,8 +1236,8 @@
           {
             "name": "郭淮〔雍涼〕",
             "observed": 2,
-            "expected": 0.26,
-            "lift": 7.684,
+            "expected": 0.257,
+            "lift": 7.789,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 4.0,
@@ -1241,8 +1246,8 @@
           {
             "name": "孫尚香〔弓腰姫〕",
             "observed": 2,
-            "expected": 0.304,
-            "lift": 6.588,
+            "expected": 0.293,
+            "lift": 6.824,
             "troop": "弓兵",
             "role": "瞬発",
             "cost": 6.0,
@@ -1251,8 +1256,8 @@
           {
             "name": "李典〔慎重〕",
             "observed": 2,
-            "expected": 0.304,
-            "lift": 6.588,
+            "expected": 0.293,
+            "lift": 6.824,
             "troop": "弓兵",
             "role": "火力",
             "cost": 5.0,
@@ -1261,8 +1266,8 @@
           {
             "name": "諸葛瑾〔子瑜〕",
             "observed": 2,
-            "expected": 0.304,
-            "lift": 6.588,
+            "expected": 0.293,
+            "lift": 6.824,
             "troop": "弓兵",
             "role": "支援",
             "cost": 3.0,
@@ -1271,8 +1276,8 @@
           {
             "name": "于禁〔毅重〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 7.0,
@@ -1281,8 +1286,8 @@
           {
             "name": "全琮〔護軍〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 1.0,
@@ -1291,8 +1296,8 @@
           {
             "name": "劉備〔徳将〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 9.0,
@@ -1301,8 +1306,8 @@
           {
             "name": "呉懿〔外戚〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "騎兵",
             "role": "均衡",
             "cost": 2.0,
@@ -1311,28 +1316,18 @@
           {
             "name": "周倉〔刀持ち〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 3.0,
             "cadence": "大技"
           },
           {
-            "name": "周泰〔身代〕",
-            "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
-            "troop": "歩兵",
-            "role": "耐久",
-            "cost": 4.0,
-            "cadence": "標準"
-          },
-          {
             "name": "曹操〔魏王〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "騎兵",
             "role": "支援",
             "cost": 10.0,
@@ -1341,8 +1336,8 @@
           {
             "name": "曹真〔大司馬〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 7.0,
@@ -1351,8 +1346,8 @@
           {
             "name": "朱然〔江陵〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "歩兵",
             "role": "耐久",
             "cost": 5.0,
@@ -1361,8 +1356,8 @@
           {
             "name": "楽綝〔揚州〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "騎兵",
             "role": "火力",
             "cost": 2.0,
@@ -1371,12 +1366,22 @@
           {
             "name": "潘璋〔急襲〕",
             "observed": 1,
-            "expected": 0.26,
-            "lift": 3.842,
+            "expected": 0.257,
+            "lift": 3.895,
             "troop": "騎兵",
             "role": "火力",
             "cost": 2.0,
             "cadence": "大技"
+          },
+          {
+            "name": "糜竺〔子仲〕",
+            "observed": 1,
+            "expected": 0.257,
+            "lift": 3.895,
+            "troop": "歩兵",
+            "role": "均衡",
+            "cost": 1.0,
+            "cadence": "標準"
           }
         ],
         "lowest_card_lift": [],
@@ -1405,9 +1410,9 @@
           "A",
           "B"
         ],
-        "single_wins": 48,
+        "single_wins": 16,
         "single_games": 48,
-        "bo3_wins": 16,
+        "bo3_wins": 0,
         "bo3_games": 16,
         "by_regulation": [
           {
@@ -1415,35 +1420,35 @@
             "wins": 16,
             "games": 16,
             "win_rate": 1.0,
-            "mean_diff": 0.05484,
-            "min_diff": 0.026221,
-            "max_diff": 0.068064
+            "mean_diff": 0.100896,
+            "min_diff": 0.065631,
+            "max_diff": 0.120284
           },
           {
             "regulation": "官渡",
-            "wins": 16,
+            "wins": 0,
             "games": 16,
-            "win_rate": 1.0,
-            "mean_diff": 0.077558,
-            "min_diff": 0.064363,
-            "max_diff": 0.089187
+            "win_rate": 0.0,
+            "mean_diff": -0.14217,
+            "min_diff": -0.17342,
+            "max_diff": -0.113437
           },
           {
             "regulation": "赤壁",
-            "wins": 16,
+            "wins": 0,
             "games": 16,
-            "win_rate": 1.0,
-            "mean_diff": 0.099051,
-            "min_diff": 0.081756,
-            "max_diff": 0.110445
+            "win_rate": 0.0,
+            "mean_diff": -0.0551,
+            "min_diff": -0.079722,
+            "max_diff": -0.026004
           }
         ],
         "worst_opponents": [
           {
             "name": "新チャッピー余剰半減対応",
-            "single_win_rate": 1.0,
-            "mean_diff": 0.07715,
-            "bo3_wins": 16,
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.032125,
+            "bo3_wins": 0,
             "bo3_games": 16
           }
         ]
@@ -1457,121 +1462,121 @@
           "A",
           "B"
         ],
-        "single_wins": 128,
+        "single_wins": 115,
         "single_games": 144,
-        "bo3_wins": 48,
+        "bo3_wins": 44,
         "bo3_games": 48,
         "by_regulation": [
           {
             "regulation": "汜水関",
-            "wins": 45,
+            "wins": 44,
             "games": 48,
-            "win_rate": 0.9375,
-            "mean_diff": 0.135124,
-            "min_diff": -0.153292,
-            "max_diff": 0.264962
+            "win_rate": 0.9167,
+            "mean_diff": 0.183276,
+            "min_diff": -0.058526,
+            "max_diff": 0.400428
           },
           {
             "regulation": "官渡",
-            "wins": 42,
+            "wins": 32,
             "games": 48,
-            "win_rate": 0.875,
-            "mean_diff": 0.09013,
-            "min_diff": -0.141119,
-            "max_diff": 0.216983
+            "win_rate": 0.6667,
+            "mean_diff": 0.103998,
+            "min_diff": -0.214508,
+            "max_diff": 0.659741
           },
           {
             "regulation": "赤壁",
-            "wins": 41,
+            "wins": 39,
             "games": 48,
-            "win_rate": 0.8542,
-            "mean_diff": 0.145296,
-            "min_diff": -0.091857,
-            "max_diff": 0.468052
+            "win_rate": 0.8125,
+            "mean_diff": 0.202791,
+            "min_diff": -0.140377,
+            "max_diff": 0.420892
           }
         ],
         "worst_opponents": [
           {
-            "name": "猛攻03",
+            "name": "重装02",
+            "single_win_rate": 0.3333,
+            "mean_diff": 0.00213,
+            "bo3_wins": 0,
+            "bo3_games": 2
+          },
+          {
+            "name": "重装03",
+            "single_win_rate": 0.3333,
+            "mean_diff": 0.015065,
+            "bo3_wins": 0,
+            "bo3_games": 2
+          },
+          {
+            "name": "軍師01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.030774,
+            "mean_diff": 0.026196,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "斉射02",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.074172,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "重装01",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.075798,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "軍師03",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.091266,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
             "name": "斉射01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.060922,
+            "mean_diff": 0.104355,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
-            "name": "均衡03",
-            "single_win_rate": 0.8333,
-            "mean_diff": 0.062095,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "重装02",
+            "name": "疾風01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.070625,
+            "mean_diff": 0.108905,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
-            "name": "鉄壁03",
+            "name": "猛攻03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.072012,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "重装03",
-            "single_win_rate": 1.0,
-            "mean_diff": 0.072977,
+            "mean_diff": 0.112922,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
             "name": "斉射03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.078957,
+            "mean_diff": 0.124955,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
             "name": "疾風03",
-            "single_win_rate": 0.8333,
-            "mean_diff": 0.094334,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "鉄壁02",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.101936,
+            "mean_diff": 0.126654,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
-            "name": "軍師03",
+            "name": "強弓01",
             "single_win_rate": 1.0,
-            "mean_diff": 0.111009,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "均衡01",
-            "single_win_rate": 1.0,
-            "mean_diff": 0.116773,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "強弓02",
-            "single_win_rate": 1.0,
-            "mean_diff": 0.127162,
+            "mean_diff": 0.156386,
             "bo3_wins": 2,
             "bo3_games": 2
           }
@@ -1586,121 +1591,121 @@
           "A",
           "B"
         ],
-        "single_wins": 248,
+        "single_wins": 223,
         "single_games": 288,
-        "bo3_wins": 94,
+        "bo3_wins": 86,
         "bo3_games": 96,
         "by_regulation": [
           {
             "regulation": "汜水関",
-            "wins": 88,
+            "wins": 94,
             "games": 96,
-            "win_rate": 0.9167,
-            "mean_diff": 0.126795,
-            "min_diff": -0.197473,
-            "max_diff": 0.362384
+            "win_rate": 0.9792,
+            "mean_diff": 0.202521,
+            "min_diff": -0.07759,
+            "max_diff": 0.417669
           },
           {
             "regulation": "官渡",
-            "wins": 81,
+            "wins": 57,
             "games": 96,
-            "win_rate": 0.8438,
-            "mean_diff": 0.077519,
-            "min_diff": -0.118033,
-            "max_diff": 0.225935
+            "win_rate": 0.5938,
+            "mean_diff": 0.052533,
+            "min_diff": -0.268806,
+            "max_diff": 0.45694
           },
           {
             "regulation": "赤壁",
-            "wins": 79,
+            "wins": 72,
             "games": 96,
-            "win_rate": 0.8229,
-            "mean_diff": 0.126279,
-            "min_diff": -0.111331,
-            "max_diff": 0.513994
+            "win_rate": 0.75,
+            "mean_diff": 0.185466,
+            "min_diff": -0.202661,
+            "max_diff": 0.656327
           }
         ],
         "worst_opponents": [
           {
-            "name": "別疾風11",
-            "single_win_rate": 0.5,
-            "mean_diff": -0.058127,
-            "bo3_wins": 1,
+            "name": "新謀弩02",
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.024392,
+            "bo3_wins": 0,
             "bo3_games": 2
           },
           {
-            "name": "新槍陣03",
-            "single_win_rate": 0.5,
-            "mean_diff": 0.064561,
-            "bo3_wins": 1,
-            "bo3_games": 2
-          },
-          {
-            "name": "新先手03",
-            "single_win_rate": 0.6667,
-            "mean_diff": -0.016305,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "別重装13",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.027046,
-            "bo3_wins": 2,
+            "name": "新謀弩01",
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.012907,
+            "bo3_wins": 0,
             "bo3_games": 2
           },
           {
             "name": "別重装12",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.030923,
-            "bo3_wins": 2,
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.012547,
+            "bo3_wins": 0,
             "bo3_games": 2
           },
           {
-            "name": "新槍陣02",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.034965,
-            "bo3_wins": 2,
+            "name": "別疾風11",
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.001868,
+            "bo3_wins": 0,
             "bo3_games": 2
           },
           {
-            "name": "別重装11",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.047896,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "別鉄壁11",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.060098,
-            "bo3_wins": 2,
-            "bo3_games": 2
-          },
-          {
-            "name": "別鉄壁13",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.066988,
-            "bo3_wins": 2,
+            "name": "試連弩02",
+            "single_win_rate": 0.3333,
+            "mean_diff": 0.003826,
+            "bo3_wins": 0,
             "bo3_games": 2
           },
           {
             "name": "試突騎01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.069148,
+            "mean_diff": 0.011592,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
             "name": "試連弩01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.077003,
+            "mean_diff": 0.013809,
             "bo3_wins": 2,
             "bo3_games": 2
           },
           {
-            "name": "別疾風13",
+            "name": "試連弩03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.078756,
+            "mean_diff": 0.020619,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "別重装13",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.042899,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "新謀弩03",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.043564,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "別重装11",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.053233,
+            "bo3_wins": 2,
+            "bo3_games": 2
+          },
+          {
+            "name": "別疾風12",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.054403,
             "bo3_wins": 2,
             "bo3_games": 2
           }
@@ -1720,78 +1725,78 @@
     ],
     "games": 126,
     "rates": {
-      "③鶴騎4弓2": 0.8333,
-      "②雁2弓4": 0.6389,
-      "⑥雁2弓3槍": 0.5,
-      "⑦魚3弓2槍": 0.5,
-      "⑤鶴騎3歩1": 0.4444,
-      "①魚3弓3": 0.3056,
-      "④鶴歩4弓2": 0.2778
+      "③鶴騎4弓2": 0.6667,
+      "②雁2弓4": 0.6111,
+      "⑤鶴騎3歩1": 0.5556,
+      "⑦魚3弓2槍": 0.5278,
+      "④鶴歩4弓2": 0.4444,
+      "⑥雁2弓3槍": 0.4167,
+      "①魚3弓3": 0.2778
     },
-    "width_points": 55.56,
+    "width_points": 38.89,
     "dominant_archetypes": [],
     "matrix": {
       "①魚3弓3": {
         "①魚3弓3": null,
         "②雁2弓4": 0.3333,
         "③鶴騎4弓2": 0.0,
-        "④鶴歩4弓2": 0.6667,
+        "④鶴歩4弓2": 0.3333,
         "⑤鶴騎3歩1": 0.3333,
-        "⑥雁2弓3槍": 0.1667,
-        "⑦魚3弓2槍": 0.3333
+        "⑥雁2弓3槍": 0.0,
+        "⑦魚3弓2槍": 0.6667
       },
       "②雁2弓4": {
         "①魚3弓3": 0.6667,
         "②雁2弓4": null,
-        "③鶴騎4弓2": 0.0,
-        "④鶴歩4弓2": 1.0,
+        "③鶴騎4弓2": 0.3333,
+        "④鶴歩4弓2": 0.6667,
         "⑤鶴騎3歩1": 0.3333,
-        "⑥雁2弓3槍": 0.8333,
-        "⑦魚3弓2槍": 1.0
-      },
-      "③鶴騎4弓2": {
-        "①魚3弓3": 1.0,
-        "②雁2弓4": 1.0,
-        "③鶴騎4弓2": null,
-        "④鶴歩4弓2": 0.3333,
-        "⑤鶴騎3歩1": 1.0,
         "⑥雁2弓3槍": 1.0,
         "⑦魚3弓2槍": 0.6667
       },
+      "③鶴騎4弓2": {
+        "①魚3弓3": 1.0,
+        "②雁2弓4": 0.6667,
+        "③鶴騎4弓2": null,
+        "④鶴歩4弓2": 0.3333,
+        "⑤鶴騎3歩1": 0.6667,
+        "⑥雁2弓3槍": 1.0,
+        "⑦魚3弓2槍": 0.3333
+      },
       "④鶴歩4弓2": {
-        "①魚3弓3": 0.3333,
-        "②雁2弓4": 0.0,
+        "①魚3弓3": 0.6667,
+        "②雁2弓4": 0.3333,
         "③鶴騎4弓2": 0.6667,
         "④鶴歩4弓2": null,
-        "⑤鶴騎3歩1": 0.6667,
-        "⑥雁2弓3槍": 0.0,
-        "⑦魚3弓2槍": 0.0
+        "⑤鶴騎3歩1": 0.3333,
+        "⑥雁2弓3槍": 0.3333,
+        "⑦魚3弓2槍": 0.3333
       },
       "⑤鶴騎3歩1": {
         "①魚3弓3": 0.6667,
         "②雁2弓4": 0.6667,
-        "③鶴騎4弓2": 0.0,
-        "④鶴歩4弓2": 0.3333,
+        "③鶴騎4弓2": 0.3333,
+        "④鶴歩4弓2": 0.6667,
         "⑤鶴騎3歩1": null,
         "⑥雁2弓3槍": 0.6667,
         "⑦魚3弓2槍": 0.3333
       },
       "⑥雁2弓3槍": {
-        "①魚3弓3": 0.8333,
-        "②雁2弓4": 0.1667,
+        "①魚3弓3": 1.0,
+        "②雁2弓4": 0.0,
         "③鶴騎4弓2": 0.0,
-        "④鶴歩4弓2": 1.0,
+        "④鶴歩4弓2": 0.6667,
         "⑤鶴騎3歩1": 0.3333,
         "⑥雁2弓3槍": null,
-        "⑦魚3弓2槍": 0.6667
+        "⑦魚3弓2槍": 0.5
       },
       "⑦魚3弓2槍": {
-        "①魚3弓3": 0.6667,
-        "②雁2弓4": 0.0,
-        "③鶴騎4弓2": 0.3333,
-        "④鶴歩4弓2": 1.0,
+        "①魚3弓3": 0.3333,
+        "②雁2弓4": 0.3333,
+        "③鶴騎4弓2": 0.6667,
+        "④鶴歩4弓2": 0.6667,
         "⑤鶴騎3歩1": 0.6667,
-        "⑥雁2弓3槍": 0.3333,
+        "⑥雁2弓3槍": 0.5,
         "⑦魚3弓2槍": null
       }
     },
@@ -1825,8 +1830,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": 0.035293
+        "win_rate": 0.0,
+        "mean_diff": -0.146105
       },
       "汜水関|鶴翼|1": {
         "regulation": "汜水関",
@@ -1836,7 +1841,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.115294
+        "mean_diff": -0.25588
       },
       "汜水関|鶴翼|2": {
         "regulation": "汜水関",
@@ -1845,8 +1850,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.143753
+        "win_rate": 0.5,
+        "mean_diff": 0.025601
       },
       "汜水関|鶴翼|3": {
         "regulation": "汜水関",
@@ -1855,8 +1860,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.061405
+        "win_rate": 0.0,
+        "mean_diff": -0.275987
       },
       "汜水関|鶴翼|4": {
         "regulation": "汜水関",
@@ -1865,8 +1870,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.085516
+        "win_rate": 0.0,
+        "mean_diff": -0.345486
       },
       "汜水関|鶴翼|5": {
         "regulation": "汜水関",
@@ -1876,7 +1881,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.070448
+        "mean_diff": 0.165119
       },
       "汜水関|鶴翼|6": {
         "regulation": "汜水関",
@@ -1886,7 +1891,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.102824
+        "mean_diff": 0.082476
       },
       "汜水関|魚鱗|0": {
         "regulation": "汜水関",
@@ -1895,8 +1900,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": 0.042374
+        "win_rate": 0.0,
+        "mean_diff": -0.384881
       },
       "汜水関|魚鱗|1": {
         "regulation": "汜水関",
@@ -1905,8 +1910,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.026799
+        "win_rate": 0.0,
+        "mean_diff": -0.141708
       },
       "汜水関|魚鱗|2": {
         "regulation": "汜水関",
@@ -1915,8 +1920,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.210812
+        "win_rate": 0.0,
+        "mean_diff": -0.282597
       },
       "汜水関|魚鱗|3": {
         "regulation": "汜水関",
@@ -1926,7 +1931,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.063448
+        "mean_diff": -0.150862
       },
       "汜水関|魚鱗|4": {
         "regulation": "汜水関",
@@ -1935,8 +1940,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.220009
+        "win_rate": 0.0,
+        "mean_diff": -0.100523
       },
       "汜水関|魚鱗|5": {
         "regulation": "汜水関",
@@ -1945,8 +1950,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.274954
+        "win_rate": 0.0,
+        "mean_diff": -0.056626
       },
       "汜水関|魚鱗|6": {
         "regulation": "汜水関",
@@ -1955,8 +1960,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.263665
+        "win_rate": 0.0,
+        "mean_diff": -0.056058
       },
       "汜水関|雁行|0": {
         "regulation": "汜水関",
@@ -1965,8 +1970,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.072824
+        "win_rate": 0.0,
+        "mean_diff": -0.060503
       },
       "汜水関|雁行|1": {
         "regulation": "汜水関",
@@ -1975,8 +1980,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.032315
+        "win_rate": 0.5,
+        "mean_diff": -0.025305
       },
       "汜水関|雁行|2": {
         "regulation": "汜水関",
@@ -1986,7 +1991,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.051366
+        "mean_diff": -0.075201
       },
       "汜水関|雁行|3": {
         "regulation": "汜水関",
@@ -1995,8 +2000,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.036951
+        "win_rate": 0.5,
+        "mean_diff": 0.004397
       },
       "汜水関|雁行|4": {
         "regulation": "汜水関",
@@ -2005,8 +2010,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.183124
+        "win_rate": 0.0,
+        "mean_diff": -0.039938
       },
       "汜水関|雁行|5": {
         "regulation": "汜水関",
@@ -2016,7 +2021,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.11651
+        "mean_diff": 0.105579
       },
       "官渡|鶴翼|0": {
         "regulation": "官渡",
@@ -2025,8 +2030,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": 0.067191
+        "win_rate": 0.0,
+        "mean_diff": -0.304709
       },
       "官渡|鶴翼|1": {
         "regulation": "官渡",
@@ -2035,8 +2040,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.056096
+        "win_rate": 0.25,
+        "mean_diff": -0.126235
       },
       "官渡|鶴翼|2": {
         "regulation": "官渡",
@@ -2045,8 +2050,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.16894
+        "win_rate": 0.0,
+        "mean_diff": -0.137801
       },
       "官渡|鶴翼|3": {
         "regulation": "官渡",
@@ -2055,8 +2060,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.174732
+        "win_rate": 0.0,
+        "mean_diff": -0.227233
       },
       "官渡|鶴翼|4": {
         "regulation": "官渡",
@@ -2065,8 +2070,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.156056
+        "win_rate": 0.5,
+        "mean_diff": 0.039011
       },
       "官渡|鶴翼|5": {
         "regulation": "官渡",
@@ -2076,7 +2081,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.19498
+        "mean_diff": 0.348974
       },
       "官渡|魚鱗|0": {
         "regulation": "官渡",
@@ -2085,8 +2090,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.04834
+        "win_rate": 1.0,
+        "mean_diff": 0.197164
       },
       "官渡|魚鱗|1": {
         "regulation": "官渡",
@@ -2095,8 +2100,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.080315
+        "win_rate": 0.5,
+        "mean_diff": 0.16447
       },
       "官渡|魚鱗|2": {
         "regulation": "官渡",
@@ -2105,8 +2110,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.388516
+        "win_rate": 1.0,
+        "mean_diff": 0.216289
       },
       "官渡|魚鱗|3": {
         "regulation": "官渡",
@@ -2115,8 +2120,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.75,
-        "mean_diff": 0.002289
+        "win_rate": 1.0,
+        "mean_diff": 0.23018
       },
       "官渡|魚鱗|4": {
         "regulation": "官渡",
@@ -2125,8 +2130,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.000401
+        "win_rate": 1.0,
+        "mean_diff": 0.292219
       },
       "官渡|魚鱗|5": {
         "regulation": "官渡",
@@ -2136,7 +2141,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.084173
+        "mean_diff": 0.200752
       },
       "官渡|雁行|0": {
         "regulation": "官渡",
@@ -2145,8 +2150,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.129695
+        "win_rate": 0.25,
+        "mean_diff": -0.037067
       },
       "官渡|雁行|1": {
         "regulation": "官渡",
@@ -2155,8 +2160,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.75,
-        "mean_diff": 0.033103
+        "win_rate": 0.0,
+        "mean_diff": -0.448594
       },
       "官渡|雁行|2": {
         "regulation": "官渡",
@@ -2166,7 +2171,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.064022
+        "mean_diff": 0.187538
       },
       "官渡|雁行|3": {
         "regulation": "官渡",
@@ -2176,7 +2181,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.065351
+        "mean_diff": 0.188178
       },
       "官渡|雁行|4": {
         "regulation": "官渡",
@@ -2186,7 +2191,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.109065
+        "mean_diff": 0.133871
       },
       "官渡|雁行|5": {
         "regulation": "官渡",
@@ -2196,7 +2201,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.192828
+        "mean_diff": 0.311336
       },
       "赤壁|鶴翼|0": {
         "regulation": "赤壁",
@@ -2206,7 +2211,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.197769
+        "mean_diff": -0.154134
       },
       "赤壁|鶴翼|1": {
         "regulation": "赤壁",
@@ -2215,8 +2220,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.005491
+        "win_rate": 0.75,
+        "mean_diff": 0.133324
       },
       "赤壁|鶴翼|2": {
         "regulation": "赤壁",
@@ -2226,7 +2231,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.003569
+        "mean_diff": -0.010274
       },
       "赤壁|鶴翼|3": {
         "regulation": "赤壁",
@@ -2235,8 +2240,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.0364
+        "win_rate": 1.0,
+        "mean_diff": 0.26019
       },
       "赤壁|魚鱗|0": {
         "regulation": "赤壁",
@@ -2245,8 +2250,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.024765
+        "win_rate": 1.0,
+        "mean_diff": 0.273293
       },
       "赤壁|魚鱗|1": {
         "regulation": "赤壁",
@@ -2255,8 +2260,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": 0.008287
+        "win_rate": 0.0,
+        "mean_diff": -0.131464
       },
       "赤壁|魚鱗|2": {
         "regulation": "赤壁",
@@ -2265,8 +2270,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.232837
+        "win_rate": 0.5,
+        "mean_diff": 0.137674
       },
       "赤壁|魚鱗|3": {
         "regulation": "赤壁",
@@ -2276,7 +2281,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.105498
+        "mean_diff": 0.217506
       },
       "赤壁|魚鱗|4": {
         "regulation": "赤壁",
@@ -2286,7 +2291,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.336772
+        "mean_diff": 0.368977
       },
       "赤壁|雁行|0": {
         "regulation": "赤壁",
@@ -2295,8 +2300,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.043517
+        "win_rate": 1.0,
+        "mean_diff": 0.235933
       },
       "赤壁|雁行|1": {
         "regulation": "赤壁",
@@ -2305,8 +2310,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.078587
+        "win_rate": 1.0,
+        "mean_diff": 0.225534
       },
       "赤壁|雁行|2": {
         "regulation": "赤壁",
@@ -2316,7 +2321,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.052752
+        "mean_diff": 0.210527
       },
       "赤壁|雁行|3": {
         "regulation": "赤壁",
@@ -2326,76 +2331,66 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.18005
-      },
-      "赤壁|雁行|4": {
-        "regulation": "赤壁",
-        "formation": "雁行",
-        "hand_count": 4,
-        "candidate_armies": 1,
-        "benchmark_armies": 2,
-        "games": 4,
-        "win_rate": 1.0,
-        "mean_diff": 0.124669
+        "mean_diff": 0.29475
       }
     },
     "aggregate": {
       "0": {
         "strata": 9,
-        "mean_win_rate": 0.4444,
-        "mean_diff": 0.003665
+        "mean_win_rate": 0.3611,
+        "mean_diff": -0.042334
       },
       "1": {
         "strata": 9,
-        "mean_win_rate": 0.3611,
-        "mean_diff": -0.032097
+        "mean_win_rate": 0.3333,
+        "mean_diff": -0.067318
       },
       "2": {
         "strata": 9,
-        "mean_win_rate": 0.6111,
-        "mean_diff": 0.015795
+        "mean_win_rate": 0.5,
+        "mean_diff": 0.030195
       },
       "3": {
         "strata": 9,
-        "mean_win_rate": 0.6944,
-        "mean_diff": 0.050281
+        "mean_win_rate": 0.6111,
+        "mean_diff": 0.060124
       },
       "4": {
-        "strata": 8,
-        "mean_win_rate": 0.9375,
-        "mean_diff": 0.151851
+        "strata": 7,
+        "mean_win_rate": 0.5,
+        "mean_diff": 0.049733
       },
       "5": {
         "strata": 6,
-        "mean_win_rate": 1.0,
-        "mean_diff": 0.155649
+        "mean_win_rate": 0.8333,
+        "mean_diff": 0.179189
       },
       "6": {
         "strata": 2,
-        "mean_win_rate": 1.0,
-        "mean_diff": 0.183244
+        "mean_win_rate": 0.5,
+        "mean_diff": 0.013209
       }
     },
     "marginal": {
       "1": {
         "comparable_strata": 9,
-        "mean_delta_points": -8.33
+        "mean_delta_points": -2.78
       },
       "2": {
         "comparable_strata": 9,
-        "mean_delta_points": 25.0
+        "mean_delta_points": 16.67
       },
       "3": {
         "comparable_strata": 9,
-        "mean_delta_points": 8.33
+        "mean_delta_points": 11.11
       },
       "4": {
-        "comparable_strata": 8,
-        "mean_delta_points": 21.88
+        "comparable_strata": 7,
+        "mean_delta_points": 0.0
       },
       "5": {
         "comparable_strata": 6,
-        "mean_delta_points": 8.33
+        "mean_delta_points": 41.67
       },
       "6": {
         "comparable_strata": 2,
@@ -2403,22 +2398,81 @@
       }
     },
     "warnings": [
-      "手数4枚以降も+5pt超の限界効果が複数続く。密度シナジーを要監視",
-      "満額で成立しない（または探索できない）手数密度層が11件"
+      "満額で成立しない（または探索できない）手数密度層が9件"
     ],
     "generation_failures": [
-      "汜水関 雁行 手数6 #0",
       "官渡 鶴翼 手数6 #0",
       "官渡 魚鱗 手数6 #0",
-      "官渡 雁行 手数6 #0",
       "赤壁 鶴翼 手数4 #0",
       "赤壁 鶴翼 手数5 #0",
       "赤壁 鶴翼 手数6 #0",
       "赤壁 魚鱗 手数5 #0",
       "赤壁 魚鱗 手数6 #0",
-      "赤壁 雁行 手数5 #0",
-      "赤壁 雁行 手数6 #0"
+      "赤壁 雁行 手数4 #0",
+      "赤壁 雁行 手数5 #0"
     ],
     "note": "同じ戦場・陣形・満額コスト内で、手数0枚の固定ベンチへ当てる。札の人物差も含む実戦密度計器。1部隊だけの局所試験で、3部隊18人の人物重複禁止による配分コストは含まない"
+  },
+  "comparison": {
+    "compatible_protocol": true,
+    "warnings": [
+      "chappy 単戦が基準から-33.3pt"
+    ],
+    "baseline_commit": "603597d3e67f2004914273881f987d740be74c73",
+    "battle": {
+      "chappy": {
+        "single_delta_points": -33.33,
+        "bo3_delta_points": -100.0
+      },
+      "official24": {
+        "single_delta_points": -2.08,
+        "bo3_delta_points": 0.0
+      },
+      "special48": {
+        "single_delta_points": -0.35,
+        "bo3_delta_points": -1.04
+      }
+    },
+    "distribution": {
+      "official24": {
+        "effective_cards_delta": 0.0,
+        "gini_delta": 0.0
+      },
+      "special48": {
+        "effective_cards_delta": 0.0,
+        "gini_delta": 0.0
+      },
+      "strong_sets": {
+        "effective_cards_delta": 0.0,
+        "gini_delta": 0.0
+      }
+    },
+    "archetypes": {
+      "width_delta_points": -38.89,
+      "new_dominant": []
+    },
+    "cadence": {
+      "0": {
+        "win_rate_delta_points": -5.56
+      },
+      "1": {
+        "win_rate_delta_points": -16.67
+      },
+      "2": {
+        "win_rate_delta_points": -27.78
+      },
+      "3": {
+        "win_rate_delta_points": -2.78
+      },
+      "4": {
+        "win_rate_delta_points": -3.57
+      },
+      "5": {
+        "win_rate_delta_points": -8.34
+      },
+      "6": {
+        "win_rate_delta_points": -50.0
+      }
+    }
   }
 }
