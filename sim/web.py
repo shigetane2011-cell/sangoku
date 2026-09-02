@@ -308,6 +308,9 @@ def _trait_brief(g, key, t):
         desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
                 "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
                 ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
+    elif key == "drunk":
+        # 酒乱（§7.146）。負の特性 — 値段はマイナスで能力値へ返っている
+        desc = "受ける混乱が {:.0%} 強い（そのぶん能力値が高い）".format(F.DRUNK_CHAOS)
     elif key == "restraint":
         desc = ("自身が初めて兵法を放った後、敵味方の各武将は"
                 "初回発動後の自然ゲージ増加 -{:.0%}"

@@ -959,6 +959,10 @@ DISRUPT_TAU = 12.0      # 混乱が抜ける時定数（秒）
 # 攻める側の軸でしかなかった（§7.22 の非対称）。
 CHAOS_FF = 0.50         # 混乱が最大のとき、与ダメージのこの割合が味方へ向く
 CHAOS_WITS = 0.50       # 知力比の効き（0 で知力は無関係、1 で比がそのまま乗る）
+# 酒乱（§7.146・テストプレイの設計「混乱したとき効果+20%…その分他強くなればキャラ立つ」）。
+# 常在型の**負の特性**: 持ち手が受ける混乱の量がこの割合だけ増える。値段はマイナス
+# （能力値へ返る）。持ち手は呂布（2版とも）。
+DRUNK_CHAOS = 0.20
 WITS_MOD = CHAOS_WITS   # 知力比の状態効果（§7.67）も同じ傾きを使う
 
 # 騎兵の突撃（史実の衝撃力）。取り付いた直後は強いが、乱戦になると落ちる。
@@ -2498,6 +2502,8 @@ def _fx_add(f: Unit, eff) -> None:
 
 
 def _chaos_add(f: Unit, amt: float, until: float) -> None:
+    if TRAITS_ON and "drunk" in f.traits:      # 酒乱（§7.146）: 受ける混乱が増える
+        amt *= 1.0 + DRUNK_CHAOS
     if _SKILL_FX is None:
         f.chaos = max(f.chaos, amt)
         f.chaos_until = max(f.chaos_until, until)
