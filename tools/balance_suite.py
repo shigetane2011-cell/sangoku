@@ -81,17 +81,19 @@ def _timed_module_check(module: str) -> dict:
     accepted = False
     accepted_note = ""
     if module == "sim.rosterdata" and proc.returncode != 0:
-        # The current ledger deliberately carries exactly three recorded over-budget
-        # exceptions (handoff §7.127).  rosterdata exits 1 for them, so treating every
-        # non-zero code as a new regression makes the shared gate permanently red.
+        # The ledger deliberately carries recorded over-budget exceptions (§7.127; after
+        # the §7.147 re-pricing only 諸葛恪 remains — 馬超・夏侯惇 fell back inside the cap).
+        # rosterdata exits 1 for them, so treating every non-zero code as a new regression
+        # makes the shared gate permanently red.  Accept when **no card outside the known
+        # list** is marked (a shrinking list is progress, not a failure).
         marked = [line.strip() for line in proc.stdout.splitlines()
                   if "★許容超え" in line]
         known = ("諸葛恪〔元遜〕", "馬超〔錦馬超〕", "夏侯惇〔独眼〕")
-        accepted = (len(marked) == 3 and all(any(name in line for line in marked)
-                                             for name in known)
-                    and "検算 NG が 3 件" in proc.stdout)
+        accepted = (bool(marked) and all(any(name in line for name in known)
+                                          for line in marked)
+                    and "検算 NG が {} 件".format(len(marked)) in proc.stdout)
         if accepted:
-            accepted_note = "既知の効果予算超過3枚だけ（handoff記録済み）"
+            accepted_note = "既知の効果予算超過{}枚だけ（handoff記録済み）".format(len(marked))
     return {
         "module": module,
         "ok": proc.returncode == 0 or accepted,
