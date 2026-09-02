@@ -974,7 +974,8 @@ TRAIT_PRICE = {
     # 固定パネル（持ち手を前衛に置いた土台・あり/なし同種ペア・12性格×40種）の等重み平均:
     #   呂布〔飛将〕 赤壁40 −0.99 ±0.20・官渡30 −0.77 ±0.20（弓型 ±0・近接型 −8〜−15）
     #   張飛〔当陽橋〕 赤壁40 −1.11 ±0.21・官渡30 −2.14 ±0.29（長く立つ壁ほど同士討ちが積む）
-    #   4枠の平均 −1.25（呂布だけなら −0.88・張飛だけなら −1.63。表はキーごとに1つ）
+    #   表の値は4枠の平均 −1.25（持ち手が増えたときの既定）。**持ち手ごとの値段は下の
+    #   TRAIT_PRICE_BY_PERSON**（テストプレイ「酒乱コストは持ち手ごとに分け」）。
     'drunk': -1.25,
     'pursuit': 0.0584,
     'banner': 0.0517,
@@ -997,9 +998,18 @@ def traits_value(keys) -> float:
     return sum(trait_value(k) for k in keys)
 
 
-def trait_value(key: str) -> float:
-    """固有特性1つの値段（1枚のコスト点）。兵法と同じ通貨へ揃える。"""
-    return TRAIT_PRICE.get(key, 0.0) / CARD_COST_RATE
+# 持ち手ごとの値段（§7.146）。同じ特性でも持ち手で値打ちが違うとき、人物名で表を引く。
+# 酒乱: 呂布は混乱の窓の前に仕事を終えるか倒れる（赤壁40 −0.99・官渡30 −0.77 → −0.88）、
+# 張飛は長く立つ壁で同士討ちが1戦ぶん積む（−1.11・−2.14 → −1.63）。
+TRAIT_PRICE_BY_PERSON = {("drunk", "呂布"): -0.88, ("drunk", "張飛"): -1.63}
+
+
+def trait_value(key: str, person: str = "") -> float:
+    """固有特性1つの値段（1枚のコスト点）。兵法と同じ通貨へ揃える。
+    person を渡すと持ち手ごとの表（TRAIT_PRICE_BY_PERSON）を先に引く。"""
+    v = TRAIT_PRICE_BY_PERSON.get((key, person), TRAIT_PRICE.get(key, 0.0)) if person \
+        else TRAIT_PRICE.get(key, 0.0)
+    return v / CARD_COST_RATE
 
 
 # 槍の値札（§7.77）。§7.57 の試験導入時はノーチャージだったが、接敵抑制を

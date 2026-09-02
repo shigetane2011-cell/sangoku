@@ -456,8 +456,8 @@ def variant_card(name: str, extra_traits=()):
     g = {r["名前"]: r for r in generals()}[name]
     d = to_design(g)
     keys = [k for k in extra_traits if k not in traits_of(g)]
-    if keys:
-        d = D.Design(**{**d.__dict__, "effect": d.effect + sum(D.trait_value(k) for k in keys)})
+    if keys:            # 持ち手ごとの値段（design.TRAIT_PRICE_BY_PERSON）を人物名で引く
+        d = D.Design(**{**d.__dict__, "effect": d.effect + sum(D.trait_value(k, g["人物"]) for k in keys)})
     v = D.derive(d)
     base = to_cards([name])[0]
     trait = F.TRAIT_SEP.join(list(F.trait_keys(base.trait)) + keys)

@@ -39,6 +39,9 @@ class DrunkTest(unittest.TestCase):
         z = replace(CARDS["張飛〔当陽橋〕"], trait="vanguard、t_toko", hidden_trait="t_toko")
         vz = PL.apply_treasure_card_mods(z)
         self.assertIn("drunk", F.trait_keys(vz.trait)); self.assertGreater(vz.stat_cost, CARDS["張飛〔当陽橋〕"].stat_cost + 0.5)
+        # 持ち手ごとの値段: 張飛の払い戻し（−1.63）は呂布（−0.88）より大きい
+        self.assertGreater(vz.stat_cost - CARDS["張飛〔当陽橋〕"].stat_cost,
+                           v.stat_cost - base.stat_cost + 0.3)
         other = replace(CARDS["曹仁〔堅守〕"], trait="t_toko", hidden_trait="t_toko")
         vo = PL.apply_treasure_card_mods(other)
         self.assertNotIn("drunk", F.trait_keys(vo.trait)); self.assertEqual(vo.stat_cost, other.stat_cost)
