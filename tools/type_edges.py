@@ -30,6 +30,10 @@ def parse_kv(s, conv=float):
     return out
 def apply_knobs(F, opt):
     for k, v in opt.get("const", {}).items():
+        if ":" in k:      # 辞書の要素: TYPE_MEN_SPLIT:ARC=0.55（兵種は F の定数名で引く）
+            name, key = k.split(":", 1)
+            getattr(F, name)[getattr(F, key.upper(), key)] = v
+            continue
         setattr(F, k, v)
     for k, v in opt["edge"].items():
         a, b = k.split(","); F.TYPE_EDGE_COST[(getattr(F, a.upper()), getattr(F, b.upper()))] = v
