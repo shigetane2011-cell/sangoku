@@ -1190,32 +1190,55 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
 # ファイルが無ければ候補は空（画面には出ない）。探索器を回し直せば入れ替わる。
 RED_TEAM_FILE = "docs/balance/bo3-goodstuff.json"
 RED_TEAM_LABEL = "赤チーム #{}（探索器）"
+# メタ解析（§7.149・--solve）の均衡 support も相手にする。最新の報告（日付順）だけ読む。順位は 100 番台。
+RED_TEAM_SOLVE_DIR = "docs/balance/experiments"
+RED_TEAM_SOLVE_PREFIX = "bo3-meta-solve-"
+RED_TEAM_SOLVE_LABEL = "均衡 {}（メタ解析・比率 {:.0%}）"
+
+
+def _entry_from_armies(armies, idx, name):
+    units = []
+    for a in armies:
+        form = FORM_BY_NAME[F.FORM_ALIAS.get(a["formation"], a["formation"])]
+        units.append(F.Army(tuple(idx[n] for n in a["cards"]), form))
+    entry = M.Entry(tuple(units), name=name)
+    return None if M.validate(entry) else entry
 
 
 def red_team_entries(cards) -> List[Tuple[int, str, M.Entry]]:
-    """探索器の上位候補を (順位, 名前, Entry) で返す。読めない候補は黙って飛ばす。"""
-    import json, os
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), RED_TEAM_FILE)
-    if not os.path.exists(path):
-        return []
-    try:
-        data = json.load(open(path, encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
+    """探索器の上位候補（1〜）と、メタ解析の均衡 support（101〜）を (順位, 名前, Entry) で返す。
+    読めない候補は黙って飛ばす。"""
+    import glob, json, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     idx = {c.name: c for c in cards}
     out = []
-    for row in data.get("results", []):
+    path = os.path.join(root, RED_TEAM_FILE)
+    if os.path.exists(path):
         try:
-            units = []
-            for a in row["entry"]["armies"]:
-                form = FORM_BY_NAME[F.FORM_ALIAS.get(a["formation"], a["formation"])]
-                units.append(F.Army(tuple(idx[n] for n in a["cards"]), form))
-            entry = M.Entry(tuple(units), name=RED_TEAM_LABEL.format(row["rank"]))
-            if M.validate(entry):
+            data = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        for row in data.get("results", []):
+            try:
+                e = _entry_from_armies(row["entry"]["armies"], idx, RED_TEAM_LABEL.format(row["rank"]))
+                if e is not None:
+                    out.append((int(row["rank"]), e.name, e))
+            except (KeyError, ValueError, TypeError):
                 continue
-            out.append((int(row["rank"]), entry.name, entry))
-        except (KeyError, ValueError, TypeError):
-            continue
+    solves = sorted(glob.glob(os.path.join(root, RED_TEAM_SOLVE_DIR, RED_TEAM_SOLVE_PREFIX + "*.json")))
+    if solves:
+        try:
+            rep = json.load(open(solves[-1], encoding="utf-8"))
+        except (OSError, ValueError):
+            rep = {}
+        for k, sm in enumerate(rep.get("final", {}).get("summaries", []), 1):
+            try:
+                e = _entry_from_armies(sm["spec"]["armies"], idx,
+                                       RED_TEAM_SOLVE_LABEL.format(sm["name"], float(sm["weight"])))
+                if e is not None:
+                    out.append((100 + k, e.name, e))
+            except (KeyError, ValueError, TypeError):
+                continue
     return out
 
 

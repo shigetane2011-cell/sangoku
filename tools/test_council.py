@@ -89,6 +89,7 @@ check("演習記録を孫コピーできない", "error" in again, again)
 print("[4] 赤チームの候補（§7.148・探索器の出力）")
 reds = PL.red_team_entries(cards)
 check("候補が読める（docs/balance/bo3-goodstuff.json）", len(reds) >= 1, len(reds))
+check("メタ解析の均衡 support も 100番台で載る", any(r >= 101 for r, _n, _e in reds), [r for r, _n, _e in reds])
 if reds:
     rank, rname, rentry = reds[0]
     check("3部隊とも合法", not M.validate(rentry), M.validate(rentry))
