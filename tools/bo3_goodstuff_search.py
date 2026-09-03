@@ -34,6 +34,16 @@
 測れないもの:
     - 宝物込みの強さ・対人の読み合い・ラダーの相手が応えた後の強さ
     - 「この登録が強い理由」— それは skill_price / 型の総当たり（balance_suite archetype）で見る
+
+--solve（§7.149・メタ解析）:
+    python3 tools/bo3_goodstuff_search.py --solve --profile quick
+    「固定相手への勝率最大化」ではなく、強い18人登録どうしが当たったときの**混合均衡・最良応答・
+    搾取可能性**を測る。候補集合（chappy・counter・赤チーム上位・殿堂・在野の一部・性格パネル）の
+    BO3 利得行列（両側×複数種の平均・反対称・対角 0）→ regret matching で混合均衡 → その均衡に対する
+    最良応答を探索器（同じ変異・同じ合法性・M.play）で探す → 十分強ければ候補へ足して解き直す
+    （Double Oracle / PSRO 型のループ）。exploitability は**探索器が見つけた最良応答に対する値**で、
+    数学的な真の値ではない。相性表・推移/巡回の分解・固定コア・戦略構造の要約を出す。
+    値付けの根拠にはしない。special48 は最終確認だけ（盲検ではない）、final_blind は封印（空）。
 """
 from __future__ import annotations
 
@@ -287,6 +297,11 @@ def evaluate(entries: Sequence[M.Entry], opponents: Sequence[Tuple[str, M.Entry]
     out = []
     for cid in range(len(entries)):
         rs = by_id[cid]
+        if not rs:
+            # 相手が自分だけ（support が1登録のとき等）: 中立の値を置く（自分との対戦は 0.5）
+            out.append(Metrics(matches=0, match_win_rate=0.5, by_group={}, mean_match_diff=0.0,
+                               single_win_rate=(0.5, 0.5, 0.5), mean_diff_by_reg=(0.0, 0.0, 0.0), utility=0.5))
+            continue
         groups = {}
         for r in rs:
             groups.setdefault(r[1], []).append(r[2])
@@ -471,8 +486,11 @@ def search(args) -> dict:
             pair_overlap.append({"a": i + 1, "b": j + 1, "total": t, "per_reg": per})
     for h in history:
         h.pop("best_key", None)
+    hall_specs = [{"utility": round(m.utility, 4), **_spec(e)}
+                  for e, m in sorted(hall.values(), key=lambda x: x[1].utility, reverse=True)[:12]]
     return {
         "tool": "bo3_goodstuff_search", "profile": args.profile, "seed": args.seed, "jobs": args.jobs,
+        "hall": hall_specs,
         "positioning": "再較正後に壊れた18人構成を探す赤チーム計器。値付け調整の根拠には使わない",
         "objective": "BO3 win rate (weighted: official24 / hall of fame / persona panel) primary; "
                      "mean 3-battle residual diff as a small tanh tie-breaker",
@@ -531,13 +549,362 @@ def markdown(report: Mapping) -> str:
     return "\n".join(lines)
 
 
+
+# ============================================================================
+# --solve: メタ解析（§7.149）。候補集合 → 利得行列 → 混合均衡 → 最良応答 → 候補へ追加 → 解き直し
+# ============================================================================
+SOLVE = {
+    "quick": {"official": 4, "personas": 3, "hall": 4, "red": 3, "seeds": (0, 1), "rounds": 3,
+              "br_population": 12, "br_generations": 6, "br_seeds": (0,), "br_validate_seeds": (0, 1)},
+    "standard": {"official": 8, "personas": 6, "hall": 8, "red": 6, "seeds": (0, 1, 2), "rounds": 6,
+                 "br_population": 24, "br_generations": 14, "br_seeds": (0, 1), "br_validate_seeds": (0, 1, 2, 3)},
+    "deep": {"official": 12, "personas": 12, "hall": 12, "red": 8, "seeds": tuple(range(4)), "rounds": 10,
+             "br_population": 36, "br_generations": 24, "br_seeds": (0, 1), "br_validate_seeds": tuple(range(6))},
+}
+BR_THRESHOLD = 0.52        # 最良応答の対均衡 BO3 勝率がこれ以下なら「狩れない」＝停止（--br-threshold）
+BR_MIN_GAIN = 0.02         # 近縁（14枚超の重なり）の最良応答は、改善がこれ未満なら足さない
+SUPPORT_EPS = 0.01         # 混合比率がこれ未満は support 外
+EQ_ITERS = 20000           # regret matching の反復
+
+
+def _pair_job(args):
+    i, j, a, b, seed = args
+    r0 = M.play(a, b, dt=0.5, seed=seed)
+    u0 = 1.0 if r0["wins_a"] > r0["wins_b"] else (-1.0 if r0["wins_b"] > r0["wins_a"] else 0.0)
+    r1 = M.play(b, a, dt=0.5, seed=seed)
+    u1 = 1.0 if r1["wins_b"] > r1["wins_a"] else (-1.0 if r1["wins_a"] > r1["wins_b"] else 0.0)
+    return i, j, seed, (u0 + u1) / 2.0        # i から見た利得（両側の平均＝反対称化）
+
+
+def payoff_matrix(entries: Sequence[M.Entry], seeds: Sequence[int], jobs_n: int, cache: dict):
+    """反対称の利得行列 A（+1 勝ち／0 引き分け／−1 負け・両側×種の平均）。cache は (鍵i, 鍵j, 種) → 利得。"""
+    keys = [_entry_key(e) for e in entries]
+    todo = []
+    for i in range(len(entries)):
+        for j in range(i + 1, len(entries)):
+            for seed in seeds:
+                if (keys[i], keys[j], seed) not in cache and (keys[j], keys[i], seed) not in cache:
+                    todo.append((i, j, entries[i], entries[j], seed))
+    if todo:
+        if jobs_n <= 1:
+            rows = list(map(_pair_job, todo))
+        else:
+            with mp.Pool(jobs_n) as pool:
+                rows = pool.map(_pair_job, todo, chunksize=4)
+        for i, j, seed, u in rows:
+            cache[(keys[i], keys[j], seed)] = u
+    n = len(entries)
+    A = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            us = []
+            for seed in seeds:
+                if (keys[i], keys[j], seed) in cache:
+                    us.append(cache[(keys[i], keys[j], seed)])
+                else:
+                    us.append(-cache[(keys[j], keys[i], seed)])
+            u = statistics.mean(us)
+            A[i][j], A[j][i] = u, -u
+    return A
+
+
+def solve_equilibrium(A, iters: int = EQ_ITERS):
+    """対称ゼロ和の混合均衡を regret matching+（線形平均）で近似。戻り値は (平均戦略, 均衡値, 内部の搾取可能性, 反復)。"""
+    n = len(A)
+    if n == 0:
+        return [], 0.0, 0.0, 0
+    R = [0.0] * n
+    p = [1.0 / n] * n
+    avg = [0.0] * n
+    wsum = 0.0
+    for t in range(1, iters + 1):
+        u = [sum(A[i][j] * p[j] for j in range(n)) for i in range(n)]
+        val = sum(p[i] * u[i] for i in range(n))
+        R = [max(0.0, R[i] + u[i] - val) for i in range(n)]
+        tot = sum(R)
+        p = [R[i] / tot for i in range(n)] if tot > 0 else [1.0 / n] * n
+        for i in range(n):
+            avg[i] += t * p[i]
+        wsum += t
+    avg = [x / wsum for x in avg]
+    u = [sum(A[i][j] * avg[j] for j in range(n)) for i in range(n)]
+    value = sum(avg[i] * u[i] for i in range(n))
+    inner = max(u) - value               # 行列の中での最良純戦略の利得（0 に近いほど収束）
+    return avg, value, inner, iters
+
+
+def decompose_matrix(A):
+    """推移成分（順位で説明できる分）と巡回成分（三すくみのように回る分）。
+    field.decompose と同じ考え方: r_i = 行平均、推移成分 = r_i − r_j、残りが巡回。Frobenius ノルムの二乗で割合。"""
+    n = len(A)
+    if n < 2:
+        return [0.0] * n, 1.0, 0.0
+    r = [sum(A[i]) / n for i in range(n)]
+    tot = sum(A[i][j] ** 2 for i in range(n) for j in range(n))
+    grad = sum((r[i] - r[j]) ** 2 for i in range(n) for j in range(n))
+    if tot <= 1e-12:
+        return r, 1.0, 0.0
+    return r, grad / tot, max(0.0, 1.0 - grad / tot)
+
+
+def best_response_search(mixture, entries, cards, cfg, rng, jobs_n, seeds, validate_seeds):
+    """混合均衡（entries の各登録に mixture の重み）に対する最良応答を、探索器の変異で探す。"""
+    opps = [("eq{}".format(i), e) for i, (e, w) in enumerate(zip(entries, mixture)) if w > SUPPORT_EPS]
+    weights = {"eq{}".format(i): w for i, w in enumerate(mixture) if w > SUPPORT_EPS}
+    population = _dedupe(list(entries))
+    while len(population) < cfg["br_population"]:
+        population = _dedupe(population + [mutate(rng.choice(entries), cards, rng, rng.choice((1, 2, 3)))])
+    population = population[: cfg["br_population"]]
+    best = None
+    for gen in range(cfg["br_generations"]):
+        metrics = evaluate(population, opps, seeds, jobs_n, weights=weights)
+        ranked = sorted(zip(population, metrics), key=lambda x: (x[1].utility, x[1].match_win_rate), reverse=True)
+        if best is None or ranked[0][1].utility > best[1].utility:
+            best = ranked[0]
+        elite = [e for e, _m in ranked[: max(3, cfg["br_population"] // 3)]]
+        nxt = list(elite)
+        tries = 0
+        while len(nxt) < cfg["br_population"] and tries < cfg["br_population"] * 50:
+            tries += 1
+            nxt = _dedupe(nxt + [mutate(rng.choice(elite), cards, rng, rng.choice((1, 2, 3)))])
+        population = nxt[: cfg["br_population"]]
+    # 見つけた最良応答の対均衡の期待 BO3 を、別の種で測り直す
+    m = evaluate([best[0]], opps, validate_seeds, jobs_n, weights=weights)[0]
+    return best[0], m
+
+
+def _person_rates(entries, weights=None):
+    """support の登録での人物の採用率（登録数の割合）。戦場別も。"""
+    n = len(entries)
+    tot = {}
+    per = [{} for _ in M.REGULATIONS]
+    for e in entries:
+        for reg_i, a in enumerate(e.units):
+            people = {M.person_of(c) for c in a.cards}
+            for x in people:
+                per[reg_i][x] = per[reg_i].get(x, 0) + 1
+        for x in _people(e):
+            tot[x] = tot.get(x, 0) + 1
+    return ({x: v / n for x, v in tot.items()} if n else {},
+            [{x: v / n for x, v in d.items()} if n else {} for d in per])
+
+
+def solve(args) -> dict:
+    cfg = SOLVE[args.profile]
+    scfg = PROFILES[args.profile]
+    data, cards, named, official, special, final_blind = _load()
+    idx = C.card_index(cards)
+    rng = random.Random(args.seed)
+    seeds = cfg["seeds"]
+
+    # ---- 候補集合 ----
+    cands: List[Tuple[str, M.Entry]] = []
+    for k, e in named.items():
+        cands.append(("counter(破陣)" if k == "counter" else k, e))
+    red_path = Path(args.candidates) if args.candidates else ROOT / "docs" / "balance" / "bo3-goodstuff.json"
+    if red_path.exists():
+        try:
+            gs = json.loads(red_path.read_text(encoding="utf-8"))
+        except ValueError:
+            gs = {}
+        for row in gs.get("results", [])[: cfg["red"]]:
+            try:
+                cands.append(("赤#{}".format(row["rank"]), C.entry_from_spec(row["entry"], idx)))
+            except (KeyError, ValueError):
+                continue
+        for i, spec in enumerate(gs.get("hall", [])[: cfg["hall"]], 1):
+            try:
+                cands.append(("殿堂#{}".format(i), C.entry_from_spec(spec, idx)))
+            except (KeyError, ValueError):
+                continue
+    off = official[:]
+    rng.shuffle(off)
+    for i, e in enumerate(off[: cfg["official"]], 1):
+        cands.append(("在野:{}".format(e.name or i), e))
+    for e in persona_entries(cards, cfg["personas"], args.seed):
+        cands.append(("性格:{}".format(e.name), e))
+    # 同一・近縁（18人中 max_overlap 超）は先に居るほうを残す
+    kept: List[Tuple[str, M.Entry]] = []
+    dropped = []
+    for name, e in cands:
+        if any(_entry_key(e) == _entry_key(k) or overlap(e, k)[0] > scfg["max_overlap"] for _n, k in kept):
+            dropped.append(name)
+            continue
+        kept.append((name, e))
+    names = [n for n, _e in kept]
+    entries = [e for _n, e in kept]
+    print("候補 {}（近縁として省いた {}: {}）".format(len(entries), len(dropped), "・".join(dropped) or "なし"), flush=True)
+
+    cache: dict = {}
+    rounds = []
+    threshold = args.br_threshold
+    for rd in range(cfg["rounds"] + 1):
+        A = payoff_matrix(entries, seeds, args.jobs, cache)
+        # 検算: 反対称・対角 0
+        asym = max(abs(A[i][j] + A[j][i]) for i in range(len(A)) for j in range(len(A))) if A else 0.0
+        diag = max(abs(A[i][i]) for i in range(len(A))) if A else 0.0
+        mix, value, inner, iters = solve_equilibrium(A)
+        support = [i for i, w in enumerate(mix) if w > SUPPORT_EPS]
+        r, ft, fc = decompose_matrix(A)
+        print("round {}  候補 {}  support {}  均衡値 {:+.4f}  内部搾取 {:+.4f}  推移 {:.0%}／巡回 {:.0%}".format(
+            rd, len(entries), "・".join("{} {:.0%}".format(names[i], mix[i]) for i in support), value, inner, ft, fc), flush=True)
+        rec = {"round": rd, "n_candidates": len(entries), "antisymmetry_max": asym, "diagonal_max": diag,
+               "support": [{"name": names[i], "weight": round(mix[i], 4)} for i in support],
+               "value": value, "inner_exploitability": inner, "iterations": iters,
+               "transitive_frac": ft, "cyclic_frac": fc}
+        if rd == cfg["rounds"]:
+            rec["stop"] = "最大ラウンド到達"
+            rounds.append(rec)
+            break
+        br, bm = best_response_search(mix, entries, cards, cfg, rng, args.jobs, cfg["br_seeds"], cfg["br_validate_seeds"])
+        br_win = bm.match_win_rate
+        nearest = max(((overlap(br, e)[0], names[i]) for i, e in enumerate(entries)), default=(0, ""))
+        rec["best_response"] = {"win_vs_mixture": round(br_win, 4), "exploitability_pt": round(100 * (br_win - 0.5), 2),
+                                "nearest": {"name": nearest[1], "overlap": nearest[0]}, "entry": _spec(br)}
+        print("   最良応答: 対均衡 {:.1%}（exploitability {:+.1f}pt・最近縁 {} {}枚）".format(
+            br_win, 100 * (br_win - 0.5), nearest[1], nearest[0]), flush=True)
+        if br_win <= threshold:
+            rec["stop"] = "最良応答が均衡を狩れない（{:.1%} ≤ {:.0%}）".format(br_win, threshold)
+            rounds.append(rec)
+            break
+        if nearest[0] > scfg["max_overlap"] and (br_win - 0.5) < BR_MIN_GAIN:
+            rec["stop"] = "近縁で改善が小さい"
+            rounds.append(rec)
+            break
+        rec["added"] = "BR r{}".format(rd + 1)
+        rounds.append(rec)
+        names.append("BR r{}".format(rd + 1))
+        entries.append(br)
+
+    # ---- 最終の行列・均衡・分解 ----
+    A = payoff_matrix(entries, seeds, args.jobs, cache)
+    mix, value, inner, iters = solve_equilibrium(A)
+    support = [i for i, w in enumerate(mix) if w > SUPPORT_EPS]
+    r, ft, fc = decompose_matrix(A)
+    sub = [[A[i][j] for j in support] for i in support]
+    _r2, ft_s, fc_s = decompose_matrix(sub)
+    W = [[round(50 + 50 * A[i][j], 1) if i != j else None for j in support] for i in support]
+    rates, per_rates = _person_rates([entries[i] for i in support])
+    core = {"all": sorted(x for x, v in rates.items() if v >= 0.999),
+            "75": sorted(x for x, v in rates.items() if 0.75 <= v < 0.999),
+            "50": sorted(x for x, v in rates.items() if 0.5 <= v < 0.75),
+            "per_reg": [{"regulation": M.REGULATIONS[k][0], "all": sorted(x for x, v in per_rates[k].items() if v >= 0.999)}
+                        for k in range(len(M.REGULATIONS))]}
+    summaries = []
+    for i in support:
+        e = entries[i]
+        others = [entries[j] for j in support if j != i]
+        summaries.append({
+            "name": names[i], "weight": round(mix[i], 4), "rating": round(r[i], 4),
+            "spec": _spec(e),
+            "mean_overlap_in_support": round(statistics.mean(overlap(e, o)[0] for o in others), 2) if others else None,
+            "overlap_with_named": {k: overlap(e, ne)[0] for k, ne in named.items()},
+        })
+    # special48 は最終確認だけ（盲検ではない）
+    sup_entries = [entries[i] for i in support]
+    special_check = None
+    if special:
+        ms = evaluate(sup_entries, [("special", e) for e in special], cfg["br_validate_seeds"][:2], args.jobs, weights={"special": 1.0})
+        special_check = [{"name": names[i], "bo3_vs_special48": round(m.match_win_rate, 4)} for i, m in zip(support, ms)]
+    protocol = {"solve_profile": cfg, "search_profile": scfg, "seeds": list(seeds), "dt": 0.5,
+                "br_threshold": threshold, "br_min_gain": BR_MIN_GAIN, "support_eps": SUPPORT_EPS, "eq_iters": EQ_ITERS,
+                "candidate_sources": ["chappy", "counter", "red(goodstuff.json)", "hall(goodstuff.json)", "official24 subset", "persona panel"]}
+    report = {
+        "tool": "bo3_goodstuff_search --solve", "profile": args.profile, "seed": args.seed, "jobs": args.jobs,
+        "manifest": C.manifest("bo3_goodstuff_search --solve", args.profile, protocol, data),
+        "positioning": "強い18人登録どうしのメタゲームを人工的に回す赤チーム計器。値付けの根拠にしない",
+        "notes": ["exploitability は探索器が見つけた最良応答に対する値で、数学的な真の値ではない",
+                  "special48 は最終確認のみ（過去の調整に使用済み・盲検ではない）",
+                  "final_blind は空なので release 判定には使わない", "宝物は探索外"],
+        "candidates": [{"name": n, "spec": _spec(e)} for n, e in zip(names, entries)],
+        "dropped_as_kin": dropped,
+        "rounds": rounds,
+        "final": {"n_candidates": len(entries), "support": [{"name": names[i], "weight": round(mix[i], 4), "rating": round(r[i], 4)} for i in support],
+                  "outside_support": [names[i] for i in range(len(entries)) if i not in support],
+                  "value": value, "inner_exploitability": inner, "iterations": iters,
+                  "transitive_frac": ft, "cyclic_frac": fc, "support_transitive_frac": ft_s, "support_cyclic_frac": fc_s,
+                  "matrix_support_winrate": {"names": [names[i] for i in support], "rows": W},
+                  "matrix_all": {"names": names, "rows": [[round(x, 3) for x in row] for row in A]},
+                  "core": core, "adoption": {x: round(v, 3) for x, v in sorted(rates.items(), key=lambda kv: -kv[1])},
+                  "summaries": summaries, "special48_check": special_check},
+    }
+    return report
+
+
+def solve_markdown(rep: Mapping) -> str:
+    f = rep["final"]
+    L = ["# BO3 メタ解析（--solve・赤チーム計器）", "",
+         "- 位置づけ: {}".format(rep["positioning"]),
+         "- profile: `{}` / seed: `{}` / dt 0.5 / commit `{}`".format(rep["profile"], rep["seed"], rep["manifest"]["git"].get("commit", "?")),
+         "- 候補集合: {}（近縁として省いた: {}）".format(f["n_candidates"], "・".join(rep["dropped_as_kin"]) or "なし")]
+    L += ["- " + n for n in rep["notes"]]
+    L += ["", "## ラウンド", "", "| round | 候補 | support（比率） | 均衡値 | 内部搾取 | 推移/巡回 | 最良応答 対均衡 | exploitability | 判定 |", "|---|---|---|---|---|---|---|---|---|"]
+    for rd in rep["rounds"]:
+        br = rd.get("best_response")
+        L.append("| {} | {} | {} | {:+.3f} | {:+.3f} | {:.0%}/{:.0%} | {} | {} | {} |".format(
+            rd["round"], rd["n_candidates"], "・".join("{} {:.0%}".format(x["name"], x["weight"]) for x in rd["support"]),
+            rd["value"], rd["inner_exploitability"], rd["transitive_frac"], rd["cyclic_frac"],
+            "{:.1%}".format(br["win_vs_mixture"]) if br else "—", "{:+.1f}pt".format(br["exploitability_pt"]) if br else "—",
+            rd.get("stop") or ("候補へ追加 " + rd.get("added", ""))))
+    L += ["", "## 最終の均衡", "", "- support: " + "・".join("{} {:.0%}".format(x["name"], x["weight"]) for x in f["support"]),
+          "- support 外: " + ("・".join(f["outside_support"]) or "なし"),
+          "- 均衡値 {:+.4f}・内部の搾取可能性 {:+.4f}（反復 {}）".format(f["value"], f["inner_exploitability"], f["iterations"]),
+          "- 推移成分 {:.0%}／巡回成分 {:.0%}（全候補）、support 内 {:.0%}／{:.0%}".format(
+              f["transitive_frac"], f["cyclic_frac"], f["support_transitive_frac"], f["support_cyclic_frac"]), ""]
+    ms = f["matrix_support_winrate"]
+    if ms["names"]:
+        L += ["## 相性表（support・行が列に勝つ BO3 %）", "", "| | " + " | ".join(ms["names"]) + " |", "|---|" + "---|" * len(ms["names"])]
+        for n, row in zip(ms["names"], ms["rows"]):
+            L.append("| {} | ".format(n) + " | ".join("—" if x is None else "{:.0f}".format(x) for x in row) + " |")
+        L.append("")
+    c = f["core"]
+    L += ["## 固定コア（support {} 登録・人物単位）".format(len(f["support"])), "",
+          "- 全登録共通: " + ("・".join(c["all"]) or "なし"), "- 75% 以上: " + ("・".join(c["75"]) or "なし"),
+          "- 50% 以上: " + ("・".join(c["50"]) or "なし")]
+    for pr in c["per_reg"]:
+        L.append("- {} の固定: {}".format(pr["regulation"], "・".join(pr["all"]) or "なし"))
+    L += ["", "## 戦略構造（support）", ""]
+    for sm in f["summaries"]:
+        sp = sm["spec"]
+        L += ["### {}  比率 {:.0%}  推移の強さ {:+.3f}".format(sm["name"], sm["weight"], sm["rating"]),
+              "- 陣形: " + "／".join(a["formation"] for a in sp["armies"]),
+              "- 兵種: " + "／".join("歩{歩}騎{騎}弓{弓}槍{槍}".format(**a["types"]) for a in sp["armies"]),
+              "- 段: " + "／".join("手{手数}標{標準}大{大技}".format(**a["cadence"]) for a in sp["armies"]),
+              "- 対策札: " + ("・".join(sp["watch_cards"]) or "なし"),
+              "- support 内の平均共通枚数 {}・chappy/counter との重複 {}".format(
+                  sm["mean_overlap_in_support"], "/".join("{}:{}".format(k, v) for k, v in sm["overlap_with_named"].items()))]
+        for a in sp["armies"]:
+            L.append("- {} {} {:g}点: 前 {} ／ 後 {}".format(a["regulation"], a["formation"], a["cost"], " / ".join(a["front"]), " / ".join(a["rear"])))
+        L.append("")
+    if f.get("special48_check"):
+        L += ["## special48（最終確認のみ・盲検ではない）", ""] + ["- {}: BO3 {:.1%}".format(x["name"], x["bo3_vs_special48"]) for x in f["special48_check"]] + [""]
+    return "\n".join(L)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", choices=PROFILES, default="quick")
     ap.add_argument("--seed", type=int, default=20260903)
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
-    ap.add_argument("--output", type=Path, default=ROOT / "docs" / "balance" / "bo3-goodstuff.json")
+    ap.add_argument("--output", type=Path, default=None)
+    ap.add_argument("--solve", action="store_true", help="メタ解析（§7.149）: 利得行列→混合均衡→最良応答のループ")
+    ap.add_argument("--candidates", default="", help="--solve の赤チーム/殿堂の元（既定 docs/balance/bo3-goodstuff.json）")
+    ap.add_argument("--br-threshold", type=float, default=BR_THRESHOLD)
     args = ap.parse_args(argv)
+    if args.solve:
+        import datetime as _dt
+        rep = solve(args)
+        out = args.output or (ROOT / "docs" / "balance" / "experiments" / "bo3-meta-solve-{}-{}.json".format(
+            args.profile, _dt.date.today().strftime("%Y%m%d")))
+        C.write_json(out, rep)
+        md = out.with_suffix(".md")
+        md.write_text(solve_markdown(rep) + "\n", encoding="utf-8")
+        print("\nJSON:", out); print("Markdown:", md)
+        f = rep["final"]
+        print("support: " + "・".join("{} {:.0%}".format(x["name"], x["weight"]) for x in f["support"]))
+        return 0
+    if args.output is None:
+        args.output = ROOT / "docs" / "balance" / "bo3-goodstuff.json"
     report = search(args)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
