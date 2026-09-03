@@ -86,6 +86,30 @@ check("参加していない陣容は使えない", "error" in bad, bad)
 again = PL.council_battle(cx, cards, me, r.get("battle_id", 0), now + 3)
 check("演習記録を孫コピーできない", "error" in again, again)
 
+print("[4] 赤チームの候補（§7.148・探索器の出力）")
+reds = PL.red_team_entries(cards)
+check("候補が読める（docs/balance/bo3-goodstuff.json）", len(reds) >= 1, len(reds))
+if reds:
+    rank, rname, rentry = reds[0]
+    check("3部隊とも合法", not M.validate(rentry), M.validate(rentry))
+    P.refill_enshu(cx, me.id, now + 10)
+    before_record = P.record_of(cx, me.id)
+    rr = PL.council_battle_red(cx, cards, me, rank, reg, now + 10)
+    check("汜水関で演習が成立", "battle_id" in rr, rr)
+    run = P.council_run(cx, rr.get("battle_id", 0))
+    check("記録の source は −順位・名前は赤チーム", run and run["source_battle_id"] == -rank
+          and run["foe_name"] == rname, run)
+    battle = cx.execute("SELECT * FROM battles WHERE id=?", (rr.get("battle_id", 0),)).fetchone()
+    check("仮想敵pidは council:red:順位", battle and battle["pid_b"] == "council:red:{}".format(rank),
+          battle["pid_b"] if battle else None)
+    check("敵側の陣容は候補の6枚", battle and json.loads(battle["snap_b"])["cards"][0]["n"] == rentry.unit(reg_i).cards[0].name)
+    check("演習令だけ1枚減る", P.enshu(cx, me.id, now + 10)[0] == 9, P.enshu(cx, me.id, now + 10))
+    check("通常戦績は不変", P.record_of(cx, me.id) == before_record)
+    bad = PL.council_battle_red(cx, cards, me, 999, reg, now + 11)
+    check("無い順位は弾く", "error" in bad, bad)
+    bad2 = PL.council_battle_red(cx, cards, me, rank, "天下", now + 12)
+    check("他の戦場が未登録なら天下は弾く", "error" in bad2, bad2)
+
 print()
 if FAIL:
     print("失敗:", FAIL)

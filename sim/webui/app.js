@@ -2324,6 +2324,31 @@ async function viewCouncil(_state) {
       </table></div>
       <p class="muted council-note">編成を変えるときは<a href="/deck?back=council${chosen ? "&source=" + chosen : ""}">編成へ</a>行って登録し直し、「軍議演習へ戻る」で戻る。敵側はこの対戦時点の布陣のまま変わらない。</p>
     </section>`;
+  if (d.red && d.red.length) {
+    const redRows = d.red.map((x) => `
+      <div class="red-cand">
+        <h3>${esc(x.name)}</h3>
+        ${x.armies.map((a) => `
+          <div class="red-army">
+            <b>${esc(a.board)}</b> <span class="mode-tag">${esc(a.form)}</span> <span class="num muted">${a.cost}点</span>
+            <span class="red-line">前: ${a.front.map(esc).join(" / ")}</span>
+            <span class="red-line">後: ${a.rear.map(esc).join(" / ")}</span>
+            <button class="council-red primary mini" data-rank="${x.rank}" data-board="${esc(a.board)}" data-foe="${esc(x.name)}"
+              ${!a.ready || t.count <= 0 ? "disabled" : ""}>${esc(a.board)}で演習</button>
+            ${!a.ready ? `<small class="warn"><a href="/deck?back=council&reg=${encodeURIComponent(a.board)}">登録デッキ要確認</a></small>` : ""}
+          </div>`).join("")}
+        <button class="council-red ghost mini" data-rank="${x.rank}" data-board="天下" data-foe="${esc(x.name)}"
+          ${!x.tenka_ready || t.count <= 0 ? "disabled" : ""}>天下（三本勝負）で演習</button>
+      </div>`).join("");
+    $("#app").insertAdjacentHTML("beforeend", `
+      <section class="panel fade-in red-team">
+        <h2>赤チームの候補<span class="sub">探索器（bo3_goodstuff_search）が見つけた強い18人登録。倒せるか試す場・演習令1枚</span></h2>
+        ${redRows}
+        <p class="muted council-note">値付けの根拠ではなく「再較正後に壊れた登録が無いか」を探した候補。倒せる編成が見つかったら、それが対策です。</p>
+      </section>`);
+    $$(".council-red").forEach((b) => b.onclick = () =>
+      doCouncilRed(+b.dataset.rank, b.dataset.board, b.dataset.foe));
+  }
 
   let wait = t.next_in;
   const drawWait = () => {
@@ -2349,6 +2374,24 @@ async function viewCouncil(_state) {
     const el = $("#source-" + chosen);
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
   }, 80);
+}
+
+async function doCouncilRed(rank, board, foe) {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="overlay"><div class="box"><div class="march">軍議演習</div>
+      <p class="muted">${esc(foe)}の登録を盤上へ再現しております……</p></div></div>`);
+  try {
+    const r = await api("/api/council_fight", { red_rank: rank, board });
+    sessionStorage.setItem("fight:" + r.battle_id, JSON.stringify(
+      { label: `軍議演習・${board}`, result: r, kind: "council",
+        source_id: 0, red_rank: rank, board, foe }));
+    location.href = "/replay?id=" + r.battle_id + "&from=fight";
+  } catch (e) {
+    const ov = $("#overlay"); if (ov) ov.remove();
+    let msg = e.message;
+    try { msg = JSON.parse(e.message).error || msg; } catch (_x) { /* 素通し */ }
+    alert(msg);
+  }
 }
 
 async function doCouncil(sourceId, board, foe) {

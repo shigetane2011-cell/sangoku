@@ -1258,3 +1258,9 @@ button.card:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
 .detail-table tr.dead td.uname { text-decoration: line-through; }
 .detail-line { padding: 2px 2px; font-size: 11.5px; line-height: 1.6; }
 .detail-line b { color: #e7d8bd; font-weight: 600; }
+
+/* 赤チームの候補（§7.148・軍議演習） */
+.red-team .red-cand { border: 1px solid var(--line, #5a4a30); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }
+.red-team .red-cand h3 { margin: 0 0 6px; font-size: 18px; }
+.red-team .red-army { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 4px 0; }
+.red-team .red-line { font-size: 13px; opacity: .9; }

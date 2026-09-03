@@ -1186,6 +1186,86 @@ def council_battle(cx, cards, me, source_battle_id: int, now: int) -> dict:
                       "next_in": wait, "regen": P.ENSHU_REGEN_SEC}}
 
 
+# 赤チームの候補（§7.148）: tools/bo3_goodstuff_search.py の出力を軍議演習の相手にする。
+# ファイルが無ければ候補は空（画面には出ない）。探索器を回し直せば入れ替わる。
+RED_TEAM_FILE = "docs/balance/bo3-goodstuff.json"
+RED_TEAM_LABEL = "赤チーム #{}（探索器）"
+
+
+def red_team_entries(cards) -> List[Tuple[int, str, M.Entry]]:
+    """探索器の上位候補を (順位, 名前, Entry) で返す。読めない候補は黙って飛ばす。"""
+    import json, os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), RED_TEAM_FILE)
+    if not os.path.exists(path):
+        return []
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    idx = {c.name: c for c in cards}
+    out = []
+    for row in data.get("results", []):
+        try:
+            units = []
+            for a in row["entry"]["armies"]:
+                form = FORM_BY_NAME[F.FORM_ALIAS.get(a["formation"], a["formation"])]
+                units.append(F.Army(tuple(idx[n] for n in a["cards"]), form))
+            entry = M.Entry(tuple(units), name=RED_TEAM_LABEL.format(row["rank"]))
+            if M.validate(entry):
+                continue
+            out.append((int(row["rank"]), entry.name, entry))
+        except (KeyError, ValueError, TypeError):
+            continue
+    return out
+
+
+def council_battle_red(cx, cards, me, rank: int, board: str, now: int) -> dict:
+    """軍議演習・赤チーム版。探索器の候補 #rank へ、現在登録中の自軍を当てる。
+    記録は council と同じ器で、source_battle_id は −rank（過去対戦の id と重ならない）。"""
+    reds = {r: (name, e) for r, name, e in red_team_entries(cards)}
+    if rank not in reds:
+        return {"error": "その候補は無い（探索器の出力が更新されたかもしれない）"}
+    if board not in REG_NAMES and board != "天下":
+        return {"error": "その戦場は軍議演習に対応していない"}
+    if P.enshu(cx, me.id, now)[0] < 1:
+        return {"error": "演習令が足りない（10分に1枚回復する）"}
+    mine_entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)
+    need = REG_NAMES if board == "天下" else [board]
+    if not all(ok.get(b) for b in need):
+        return {"error": "{} の登録デッキが出せる状態にない: {}".format(
+            board, "／".join(errs) or "未登録")}
+    foe_name, foe_entry = reds[rank]
+    seed = L.battle_seed("council", -rank, now, me.id)
+    if board == "天下":
+        result = M.play(mine_entry, foe_entry, 0.5, seed=seed)
+        sa = (1.0 if result["wins_a"] > result["wins_b"] else
+              (0.0 if result["wins_b"] > result["wins_a"] else 0.5))
+        marks = "".join(result_mark(g["結果"]["score"]) for g in result["games"])
+        mine_snap, foe_snap = snap_entry(mine_entry), snap_entry(foe_entry)
+    else:
+        reg_i = REG_NAMES.index(board)
+        ua, ub = mine_entry.unit(reg_i), foe_entry.unit(reg_i)
+        result = M.play_one(BoardEntry({reg_i: ua}), BoardEntry({reg_i: ub}), reg_i, 0.5, seed=seed)
+        sa = 1.0 if result["winner"] == "A" else (0.0 if result["winner"] == "B" else 0.5)
+        marks = result_mark(sa)
+        mine_snap = _json.dumps(snap_army(ua), ensure_ascii=False)
+        foe_snap = _json.dumps(snap_army(ub), ensure_ascii=False)
+    if not P.spend_enshu(cx, me.id, 1, now):
+        return {"error": "演習令が足りない（10分に1枚回復する）"}
+    bid = P.record_battle(
+        cx, "council", board, me.id, "council:red:{}".format(rank),
+        seed, mine_snap, foe_snap, season_key(now), now, result=marks,
+        rule_version=F.BATTLE_RULE_VERSION)
+    with cx:
+        cx.execute("INSERT INTO council_runs (battle_id, source_battle_id, player_id, foe_name)"
+                   " VALUES (?, ?, ?, ?)", (bid, -rank, me.id, foe_name))
+    n, wait = P.enshu(cx, me.id, now)
+    return {"battle_id": bid, "red_rank": rank, "board": board, "foe": foe_name,
+            "win": ("勝ち" if sa > 0.5 else ("負け" if sa < 0.5 else "引き分け")),
+            "marks": marks,
+            "enshu": {"count": n, "cap": P.ENSHU_CAP, "next_in": wait, "regen": P.ENSHU_REGEN_SEC}}
+
+
 def free_battle(cx, cards, me, reg_name: str, foe_pid: str, now: int) -> dict:
     """フリー対戦（在野戦・§7.58）。レートも兵符も動かない。"""
     entry, ok, errs = entry_of(cx, cards, me.id, me.display_name)

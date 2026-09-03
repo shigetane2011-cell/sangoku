@@ -1695,10 +1695,23 @@ class App(BaseHTTPRequestHandler):
             if len(targets) >= 30:
                 break
         n, wait = P.enshu(cx, me.id, now)
+        # 赤チームの候補（§7.148・探索器の上位）。戦場ごとに出せるかを付けて返す。
+        red = []
+        for rank, name, entry in PL.red_team_entries(cards):
+            armies = []
+            for army, reg in zip(entry.units, PL.REG_NAMES):
+                armies.append({
+                    "board": reg, "form": F.FORM_NAME[army.form.n_front],
+                    "front": [c.name for c in army.cards[:army.form.n_front]],
+                    "rear": [c.name for c in army.cards[army.form.n_front:]],
+                    "cost": army.total_cost(), "ready": bool(boards_ok.get(reg))})
+            red.append({"rank": rank, "name": name, "armies": armies,
+                        "tenka_ready": all(boards_ok.get(r) for r in PL.REG_NAMES)})
         self._json({
             "ticket": {"name": "演習令", "count": n, "cap": P.ENSHU_CAP,
                        "next_in": wait, "regen": P.ENSHU_REGEN_SEC},
             "targets": targets,
+            "red": red,
         })
 
     def _api_council_fight(self, body):
@@ -1709,6 +1722,14 @@ class App(BaseHTTPRequestHandler):
         cards = M._roster_cards()
         now = int(time.time())
         PL.tick(cx, cards, now)
+        if body.get("red_rank") is not None:
+            # 赤チームの候補と演習（§7.148）。board は 汜水関／官渡／赤壁／天下。
+            try:
+                rank = int(body.get("red_rank"))
+            except (TypeError, ValueError):
+                rank = 0
+            r = PL.council_battle_red(cx, cards, me, rank, str(body.get("board", "")), now)
+            return self._json(r, 200 if "error" not in r else 400)
         try:
             source_id = int(body.get("source_id", 0))
         except (TypeError, ValueError):
