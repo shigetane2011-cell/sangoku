@@ -877,17 +877,19 @@ SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大に
 # 兵法の直撃にも接敵抑制を掛けるか（§7.74）。弓の主砲は兵法なので、通常
 # 射撃だけ抑えても弱点にならない（兵法外80%でも騎兵44%止まりの実測）。
 SUPPRESS_SKILL = True
-# 接敵された弓の脆さ（§7.150 の裁定への掃引つまみ）。**既定 0.0 は挙動不変。**
+# 接近戦での弓の弱さ（§7.150・テストプレイの設計）。**既定 0.0 は挙動不変。**
 #
-# 弓は同コストで歩兵の約2倍の能力値を受け取るが、その2倍は**ほぼ全部「兵力」で
-# 渡っている**（実測 1.85〜2.21倍・攻撃力は 0.94〜1.41倍）。ところが罰（接敵抑制
-# SUPPRESS_MAX・矢切れ AMMO_SPAN）は**出力にしか掛からない**。時間切れの判定は
-# 残存兵力率なので、矢の尽きた弓の大群が「太い肉」のまま点を取って勝てる。
-# 報酬と罰が別の側に乗っているのが §7.150 の裁定の芯である。
+# 現実で前線を失うと負けるのは、後ろの兵が**近接の装備と練度で劣る**からである
+# （テストプレイ）。いまの盤面はそこが片肺だった: 弓は密着されると出力を失うが
+# （SUPPRESS_MAX=0.85 ＝ 接近戦の攻撃力は実装済み）、**守りはほぼ変わらない** —
+# 防御は 弓34 対 歩56.6 で、受ける被害の差は 17% しかない。だから弓は「殴り返せない
+# が、殴られても平気な太い肉」になり、§7.150 の裁定（予算を後衛の弓へ寄せる）が立つ。
 #
-# この項は罰を報酬と同じ側へ届かせる: 密着された弓は**受ける被害も増える**。
-# 1.0 なら密着時に被害2倍。値はテストプレイの決定を待つ（掃引のためだけに置く）。
-ARC_ENGAGED_FRAGILE = 0.0
+# ここは**接近戦の防御力**を入れる。密着した相手からの一撃に対してだけ弓の防御が
+# 落ちる（撃ち手と的の距離で判定する）。**遠くから飛んでくる矢には掛からない** —
+# 矢に対して鎧が薄くなる理由は無いので、掛けると弓対弓まで歪む。
+# 0.5 なら密着した相手に対して防御が半分。値はテストプレイの決定を待つ。
+ARC_MELEE_DEF_LOSS = 0.0
 # 矢数の制約（史実の目安: 漢代の弩兵の携行は50本前後、持続射は数分ぶん）。
 # AMMO_TIME 秒ぶん撃つと出力が落ち始め、以後は指数的に減衰する。
 # 0 で無効。距離ではなく累積の射撃時間だけで決まる連続な形。
@@ -3177,15 +3179,16 @@ def _suppress(u: Unit, gaps: List[float]) -> float:
     return sup
 
 
-def _engaged_frailty(f: "Unit", gaps: List[float]) -> float:
-    """接敵された弓が受ける被害の倍率（§7.150）。密着で 1+ARC_ENGAGED_FRAGILE。
+def _melee_dfn(f: "Unit", d: float) -> float:
+    """距離 d の相手から受けるときの、的の実効防御（§7.150）。
 
-    抑制（_suppress）と同じ距離の窓を使う。**弓だけ**に掛ける — 後衛の槍は
-    近いほど強いはずなので、抑制と同じ理由で外す（§7.75）。
+    弓だけ、**密着した相手に対してだけ**防御が落ちる。接近戦の装備と練度の差で、
+    抑制（＝接近戦の攻撃力）と対になる。遠射には掛けない。
     """
-    if ARC_ENGAGED_FRAGILE <= 0.0 or f.typ != ARC or not gaps:
-        return 1.0
-    return 1.0 + ARC_ENGAGED_FRAGILE * smooth_gate(min(gaps), 0.0, SUPPRESS_R)
+    dfn = f.dfn * f.def_mult
+    if ARC_MELEE_DEF_LOSS <= 0.0 or f.typ != ARC:
+        return dfn
+    return dfn * (1.0 - ARC_MELEE_DEF_LOSS * smooth_gate(d, 0.0, SUPPRESS_R))
 
 
 def _apply_faction_treasures(us) -> None:
@@ -3374,10 +3377,6 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             db = [0.0] * nb
             cov_a = _cover_map(ua)      # 馬前（§7.144）: 誰が誰の矢を受けるか
             cov_b = _cover_map(ub)
-            # 接敵された弓の脆さ（§7.150・既定 0 なら 1.0 のまま）。ティックに1回だけ組む。
-            frail_a = [_engaged_frailty(x, gap[i]) for i, x in enumerate(ua)]
-            frail_b = [_engaged_frailty(x, [gap[i][j] for i in range(na)])
-                       for j, x in enumerate(ub)]
             for i, u in enumerate(ua):
                 ws = _weights(u, ub, gap[i])
                 tot = sum(ws)
@@ -3399,8 +3398,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
                         continue
-                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
-                        * f.ncut_mult * _cav_cover(u, f) * frail_b[j]
+                    hit = base * w * (100.0 / (100.0 + _melee_dfn(f, gap[i][j]))) \
+                        * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
@@ -3465,8 +3464,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
                         continue
-                    hit = base * w * (100.0 / (100.0 + f.dfn * f.def_mult)) \
-                        * f.ncut_mult * _cav_cover(u, f) * frail_a[i]
+                    hit = base * w * (100.0 / (100.0 + _melee_dfn(f, col[i]))) \
+                        * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
