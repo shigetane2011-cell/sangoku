@@ -932,6 +932,9 @@ async function viewHome(state, options = {}) {
       <b>戦記</b> ${state.senki.cleared}／${state.senki.total}戦
       　次は「<b>${esc(state.senki.next)}</b>」
       <a href="/senki">進む →</a></div>` : ""}
+    ${state.me ? `<div class="dev-only" style="margin:4px 0">
+      <button class="mini ghost dev-only" id="dev-treasure-home"
+        title="試験用: 全種の宝物を一括で獲得（公開前に消す・§7.138）">全宝物を一括取得（試験用）</button></div>` : ""}
     ${state.treasure && state.treasure.choices ? `<div class="treasure-banner fade-in">
       <div class="treasure-pick-head">本日の宝物 — 一つを選んで賜る（日替わり・同じ宝は二つと出ない）</div>
       <div class="treasure-pick">${state.treasure.choices.map((c) => `
@@ -969,6 +972,11 @@ async function viewHome(state, options = {}) {
     const r = await api("/api/treasure_pick", { key: b.dataset.k });
     if (r.ok) location.reload(); else alert((r.errors || ["受け取れなかった"])[0]);
   });
+  const dth = $("#dev-treasure-home");
+  if (dth) dth.onclick = async () => {
+    try { await api("/api/dev_treasure", {}); location.reload(); }
+    catch (e) { alert("一括取得は手元の試験用起動でだけ使える: " + e.message); }
+  };
   $$("button.attack").forEach((b) => b.onclick = () => doAttack(b.dataset.reg));
   const rf = $("#refill");
   if (rf) rf.onclick = async () => { await api("/api/dev_heifu", {}); location.reload(); };

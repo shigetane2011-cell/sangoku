@@ -16,7 +16,7 @@
 | DB と個人情報 | `sim/data/*.db` は gitignore 済みで**追跡していない**（`git ls-files sim/data/` は CSV と README だけ）。個人情報は `identities` テーブルにだけ置く。ダミーのメールは予約ドメイン `@example.invalid`（`players.DUMMY_DOMAIN`） |
 | カード・決済 | 自前のサーバに置かない |
 | Web版 | **手元専用・認証なし。公開しない。** 外部認証と管理されたDBが入るまでは非公開 |
-| 開発用の裏口 | `/api/dev_heifu` `/api/dev_enshu` `/api/dev_tenka` `/api/dev_senki` `/api/dev_treasure` `/api/dev_reset_record` は `DEV_DOORS` で塞いである。**公開時に全部消すこと**（`.dev-only` の CSS 規則も一緒に） |
+| 開発用の裏口 | `/api/dev_heifu` `/api/dev_enshu` `/api/dev_tenka` `/api/dev_senki` `/api/dev_treasure`（編成の宝物欄の「全宝物」とホームの「全宝物を一括取得（試験用）」ボタン・**公開前に消す**） `/api/dev_reset_record` は `DEV_DOORS` で塞いである。**公開時に全部消すこと**（`.dev-only` の CSS 規則も一緒に） |
 | 画像 | 拾ってきた素材を焼き込まない |
 | 本人のDB | 本人の遊んだ記録が入っている。**触るときはスクラッチパッドへ複製してから** |
 
