@@ -5,6 +5,7 @@
     python3 tools/trait_price.py --quick      # 4性格×20種（動作確認）
     python3 tools/trait_price.py --seeds 40   # 種の数を変える
     python3 tools/trait_price.py --rear       # 後衛に載せて測る
+    python3 tools/trait_price.py --only reserve,dirge   # 足した特性だけ追い測り
 
 なぜ要るか。`python3 -m sim.field traits` は**釣り合った合成軍どうし1局**で
 margin を読む計器で、§7.151 の盤面ではこれが**段になってしまった** — 誘発型
@@ -113,14 +114,17 @@ def _measure(pool, keys, slot, store):
             ("", BASE - DELTA, slot, True)]
     jobs += [(k, BASE, slot, k in NEEDS_CAV_NEIGHBOR) for k in keys]
     got = _load(store)
-    todo = [(i, j) for i, j in enumerate(jobs)
-            if "{}|{}".format(slot, i) not in got]
+    # 控えの鍵は仕事の中身（特性・コスト・席・隣）。並びの番号にすると特性を
+    # 1つ足しただけで全部ずれる。
+    def key(j):
+        return "{}|{}|{:.1f}|{}".format(slot, j[0], j[1], int(j[3]))
+    todo = [j for j in jobs if key(j) not in got]
     if todo:
         print("  席{} 残り {}/{} 本".format(slot, len(todo), len(jobs)), flush=True)
-        for (i, _), col in zip(todo, pool.imap(_one, [j for _, j in todo])):
-            got["{}|{}".format(slot, i)] = col
+        for j, col in zip(todo, pool.imap(_one, todo)):
+            got[key(j)] = col
             json.dump(got, open(store, "w"))
-    res = [got["{}|{}".format(slot, i)] for i in range(len(jobs))]
+    res = [got[key(j)] for j in jobs]
     base = {False: res[0], True: res[3]}
     slope = {}
     for j, cav in ((0, False), (3, True)):
@@ -150,6 +154,8 @@ def main():
     F.SKILLS_ON = F.TRAITS_ON = True
     keys = sorted(F.TRAITS) + ["vanguard", "cover", "vs_wei",
                                "drunk", "restraint"]
+    if "--only" in sys.argv:        # 特性を足したときの追い測り
+        keys = sys.argv[sys.argv.index("--only") + 1].split(",")
     print("特性 {}種（誘発 {} ＋ 常在）× 性格 {} × 種 {} ＝ 1案 {}局 × 席 {}"
           .format(len(keys), n_tr, npers, seeds, npers * seeds, len(seats)),
           flush=True)
