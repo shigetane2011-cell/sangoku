@@ -890,6 +890,35 @@ SUPPRESS_SKILL = True
 # 矢に対して鎧が薄くなる理由は無いので、掛けると弓対弓まで歪む。
 # 0.5 なら密着した相手に対して防御が半分。値はテストプレイの決定を待つ。
 ARC_MELEE_DEF_LOSS = 0.0
+
+# 前衛の遮蔽（§7.151・テストプレイの設計）。**既定 0.0 は挙動不変。**
+#
+# 近接の攻め手が、敵の前衛が立っているあいだ後衛へ届きにくくなる割合。
+# 射線の遮蔽（SIGHT_BLOCK）の近接版だが、あちらは「矢が当たらない」、こちらは
+# 「そもそも列の後ろへ回れない」という別の話なので定数を分けている。
+#
+# **効き方は前衛の残り「人数」で決まる**（テストプレイ）。人数が多いうちは後ろへ
+# 回れず、削れるほど隙間が空いて通る。一人でも残っていれば通れない、ではない。
+# 形は飽和する弓なり:  遮蔽 = SCREEN_MELEE × (1 − exp(−m / SCREEN_MEN))
+#   m は敵の前衛の残兵の合計。SCREEN_MEN は立ち上がりの目盛り（人数）。
+#
+# **目盛りは実寸に合わせること。** 規定=高の実デッキの前衛は 19,000〜35,000人で、
+# 目盛りを 2,000 のように小さく取ると 0.905 対 0.945 と**4ポイントしか差が出ず**、
+# 事実上「前衛が生きているか」の階段関数になる（前衛が1割まで削れてもまだ半分
+# 遮る）。20,000 なら 19,064人で0.61・26,040人で0.73・34,551人で0.82・
+# 9,500人で0.38 と、厚みの差がそのまま効きの差になる。
+# 分岐を含まない人数の連続関数なので、刻みに対して素直に振る舞う。
+SCREEN_MELEE = 0.0
+SCREEN_MEN = 20000.0
+
+# 遮蔽を**接敵抑制にも掛ける**割合（§7.151）。**既定 0.0 は挙動不変。**
+#
+# 前衛に阻まれて後衛へ届かない近接の敵は、後衛の弓を「抑え込む」こともできない
+# はず、という同じ理屈。1.0 なら遮蔽ぶんそのまま抑制が効かなくなる。
+# **射手（弓・後衛の槍）からの圧は減らさない** — あちらは列を越えて届く。
+# 騎→弓 の辺に効く数少ないつまみなので、遮蔽の強さとは別に振れるようにしてある。
+SCREEN_SUPPRESS = 0.0
+
 # 矢数の制約（史実の目安: 漢代の弩兵の携行は50本前後、持続射は数分ぶん）。
 # AMMO_TIME 秒ぶん撃つと出力が落ち始め、以後は指数的に減衰する。
 # 0 で無効。距離ではなく累積の射撃時間だけで決まる連続な形。
@@ -2027,6 +2056,32 @@ def build(army: Army, side: int, cost_mult: float = 1.0) -> List[Unit]:
 # 1戦の実行
 # ============================================================================
 
+def _screen_frac(m: float) -> float:
+    """前衛の残兵 m 人が遮る割合（0〜1）。飽和する弓なりの形（§7.151）。"""
+    if m <= 0.0 or SCREEN_MEN <= 0.0:
+        return 0.0
+    return 1.0 - math.exp(-m / SCREEN_MEN)
+
+
+def _screen(u: Unit, f: Unit, foes: List[Unit]) -> float:
+    """前衛が立っているあいだ、**近接の攻め手**は後衛へ届きにくい（§7.151）。
+
+    射線の遮蔽（`_sight`）は射手にしか掛かっておらず、近接の攻め手は前衛を
+    素通りして後衛を殴れていた（実測: 騎兵の与ダメの78%が敵の後衛の弓へ直接
+    入り、弓側の前衛2枚は23秒で溶ける）。そのせいで弓は「厚みでしか生き残れない」
+    ことになり、歩兵の2倍の兵力を配る必要が生まれ、§7.150 の裁定と
+    「弓が一番数が多い」という絵の破綻まで芋づるで出ていた。
+
+    ここは「列を破ってから後ろへ行く」を規則で入れる。効き方は前衛の**残り人数**で
+    決まる飽和曲線で、多いうちはほとんど通らず、削れるほど隙間が空く（一人でも
+    残っていれば通れない、ではない）。**既定 0.0 は挙動不変。**
+    """
+    if SCREEN_MELEE <= 0.0 or u.rng > 0.0 or f.is_front:
+        return 1.0
+    return 1.0 - SCREEN_MELEE * _screen_frac(
+        sum(b.men for b in foes if b.is_front))
+
+
 def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
     """射撃の重み。射程は縁からの距離で測り、射線が通るぶんだけ当たる。"""
     out = []
@@ -2035,7 +2090,8 @@ def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
         # ratio を掛けて全滅した札を撃ち続けないようにし、exp(FOCUS(1-ratio)) で
         # 弱った札へ寄せる。どちらも ratio の連続関数で、分岐を含まない。
         out.append(smooth_gate(d, u.rng, RANGE_SOFT) * rat
-                   * math.exp(FOCUS * (1.0 - rat)) * _sight(u, f, foes))
+                   * math.exp(FOCUS * (1.0 - rat)) * _sight(u, f, foes)
+                   * _screen(u, f, foes))
     return out
 
 
@@ -3158,19 +3214,38 @@ def _cover_map(units: List["Unit"]) -> List["int | None"]:
     return out
 
 
-def _suppress(u: Unit, gaps: List[float]) -> float:
+def _suppress(u: Unit, gaps: List[float],
+              foes: "List[Unit] | None" = None,
+              own: "List[Unit] | None" = None) -> float:
     """接敵抑制。射程を持つ札は、敵に近づかれるほど出力が落ちる。
 
     これがないと弓は密着されても撃ち続け、騎兵が突っ込む意味がなくなる。実測では
     騎兵→弓兵が 0.0%（＝弓兵が騎兵に必ず勝つ）から動かなかった。
     最近接の敵までの距離だけで決まる連続な形にしてあり、分岐を含まない。
+
+    SCREEN_SUPPRESS>0 なら、**自軍の前衛に阻まれている近接の敵からの圧を減らす**
+    （§7.151）。foes/own を渡さない呼び出しは従来どおり最近接の距離だけで決まる。
     """
     # **弓兵だけに掛ける**（§7.75）。以前は「射程>0」で判定しており、後衛の
     # 槍（§7.57・射程あり）まで密着で出力を失っていた — 槍は近いほど強い
     # はずなのに逆で、回り込みへの迎撃が立たない原因だった。
     if u.typ != ARC or not gaps:
         return 1.0
-    sup = 1.0 - SUPPRESS_MAX * smooth_gate(min(gaps), 0.0, SUPPRESS_R)
+    if (SCREEN_MELEE > 0.0 and SCREEN_SUPPRESS > 0.0
+            and foes is not None and own is not None):
+        blk = SCREEN_SUPPRESS * SCREEN_MELEE * _screen_frac(
+            0.0 if u.is_front else
+            sum(b.men for b in own if b.is_front and b is not u))
+        press = 0.0
+        for f, d in zip(foes, gaps):
+            g = smooth_gate(d, 0.0, SUPPRESS_R)
+            if f.rng <= 0.0:      # 近接の敵だけが前衛に阻まれる
+                g *= 1.0 - blk
+            if g > press:
+                press = g
+    else:
+        press = smooth_gate(min(gaps), 0.0, SUPPRESS_R)
+    sup = 1.0 - SUPPRESS_MAX * press
     if AMMO_MODE == "attrition":
         if AMMO_SPAN > 0.0 and u.shot > AMMO_SPAN:
             sup *= math.exp(-(u.shot - AMMO_SPAN) / AMMO_TAIL_P)
@@ -3383,7 +3458,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                sup = _suppress(u, gap[i])
+                sup = _suppress(u, gap[i], ub, ua)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * sup * _output(u) * fa * ramp * ta)
@@ -3449,7 +3524,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                sup = _suppress(u, col)
+                sup = _suppress(u, col, ua, ub)
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * sup * _output(u) * fb * ramp * tb)
@@ -4084,7 +4159,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             if u.typ != ARC or ("抑", id(u)) in seen:
                 continue
             g = [idx(i, j) for j in range(len(foes))]
-            sup = _suppress(u, g)
+            sup = _suppress(u, g, foes, units)
             if sup < SUPPRESS_SHOW:
                 seen.add(("抑", id(u)))
                 near = min(foes, key=lambda f: math.hypot(f.x - u.x, f.y - u.y))
