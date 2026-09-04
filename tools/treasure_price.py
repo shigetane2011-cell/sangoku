@@ -2,6 +2,7 @@
 """宝物18種の功を、実デッキの的で測り直す（§7.139・§7.145 の計器を tools/ へ）。
 
     python3 tools/treasure_price.py --preflight      # 土台5デッキの勝率だけ（五分帯か）
+    python3 tools/treasure_price.py --preflight --caps 30,34,38   # 相手の上限を振って五分帯を探す
     python3 tools/treasure_price.py                  # 全条件（12性格×100種）
     python3 tools/treasure_price.py --quick          # 12性格×12種（動作確認）
     python3 tools/treasure_price.py --only t_seino,t_kinno
@@ -37,7 +38,13 @@ from sim import dummies as D        # noqa: E402
 from sim import play as PL          # noqa: E402
 
 RATE = 4.86
-CAPS = (("官渡", 30.0),)
+# 相手（性格パネル）のコスト上限。**デッキごとに変えて五分帯へ寄せる**（§7.153）。
+# §7.139 は後衛の札を入れ替えて五分に寄せたが、それだと持ち主（郝昭が孟徳新書…）を
+# 崩さずには動かせない。相手の上限は測定だけの調節で、あり/なしの差は同じ相手・同じ種で
+# 取るので値付けには影響しない。--caps 30,33,36 で走らせて 50% に近い上限を選ぶ。
+# 2026-09-04（§7.151 の盤面・12性格×12種）: d0 34→50.7% ／ dcav 32→57.6% ／
+# dshu 34→47.9% ／ dgo 40→52.1%。上限30ではそれぞれ 69／62／76／84% で為替が効かない。
+DECK_CAP = {"d0": 34.0, "dcav": 32.0, "dshu": 34.0, "dgo": 40.0, "dgunyu": 23.0}
 OUT = os.environ.get("TREASURE_STORE", os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".treasure_price_cache"))
 
@@ -47,7 +54,11 @@ DECKS = {
     "dcav":   FRONT + ["李典〔慎重〕", "曹洪〔救主〕", "貂蝉〔傾国〕"],
     "dshu":   FRONT + ["黄忠〔定軍山〕", "関平〔麒麟児〕", "樊建〔伝令〕"],
     "dgo":    FRONT + ["甘寧〔錦帆賊〕", "孫尚香〔弓腰姫〕", "全琮〔護軍〕"],
-    "dgunyu": FRONT + ["貂蝉〔傾国〕", "顔良〔河北の驍〕", "韓遂〔九曲〕"],
+    # 群雄は §7.151 の盤面で魏前衛＋群雄後衛が 6〜26% にしかならず（後衛をどう
+    # 入れ替えても・田豊を入れても）、上限22まで下げてやっと五分。前衛ごと群雄に
+    # 組み替えて上限23で 48.6%（2026-09-04）。玉璽の条件（群雄3人以上）は自明に成立。
+    "dgunyu": ["公孫瓚〔白馬義従〕", "華雄〔汜水関〕", "紀霊〔三尖刀〕",
+               "貂蝉〔傾国〕", "陳宮〔公台〕", "王允〔連環計〕"],
 }
 # 条件 = (デッキ, 宝物キー, 持ち主)
 CONDS = {
@@ -100,20 +111,21 @@ def _equip(names, key, holder):
 
 
 def _one(job):
-    cond, npers, seeds = job
+    cond, npers, seeds, cap = job
     deck, key, holder = cond
     army = F.Army(tuple(_equip(DECKS[deck], key, holder)), F.FORM_STANDARD)
     rows = []
     for persona in D.PERSONAS[:npers]:
         for seed in range(seeds):
-            opp = D.make_entry(_S["cards"], persona, seed, caps=CAPS).units[0]
+            opp = D.make_entry(_S["cards"], persona, seed,
+                               caps=(("官渡", cap),)).units[0]
             rows.append([persona.name, seed,
                          F.simulate(army, opp, dt=0.25, seed=seed * 7 + 1)["score"]])
     return rows
 
 
-def _path(name, n):
-    return os.path.join(OUT, "{}_{}.json".format(name, n))
+def _path(name, n, cap):
+    return os.path.join(OUT, "{}_{}_{:g}.json".format(name, n, cap))
 
 
 def _paired(a, b):
@@ -136,34 +148,44 @@ def main():
 
     conds = {} if pre else {k: v for k, v in CONDS.items() if only is None or v[1] in only}
     need_decks = set(DECKS) if pre else {v[0] for v in conds.values()}
-    jobs = [("{}_base".format(d), (d, None, None)) for d in sorted(need_decks)]
-    jobs += list(conds.items())
     n = npers * seeds
-    todo = [(k, c) for k, c in jobs if not os.path.exists(_path(k, n))]
+    # --caps 30,33,36: 土台だけを上限を変えて測る（五分帯へ寄せる上限を探す）
+    scan = [float(x) for x in sys.argv[sys.argv.index("--caps") + 1].split(",")] \
+        if "--caps" in sys.argv else None
+    jobs = []
+    for d in sorted(need_decks):
+        for cap in (scan or [DECK_CAP[d]]):
+            jobs.append(("{}_base".format(d), (d, None, None), cap))
+    if not pre:
+        jobs += [(k, c, DECK_CAP[c[0]]) for k, c in conds.items()]
+    todo = [j for j in jobs if not os.path.exists(_path(j[0], n, j[2]))]
     print("条件 {} 本（うち未着 {}）× 12性格 × {}種 ＝ {}局／本".format(
         len(jobs), len(todo), seeds, n), flush=True)
     if todo:
         pool = Pool(int(os.environ.get("W", "4")), _init)
-        for (k, _), rows in zip(todo, pool.imap(_one, [(c, npers, seeds) for _, c in todo])):
-            json.dump(rows, open(_path(k, n), "w"))
-            print("  済 {}".format(k), flush=True)
+        for (k, _, cap), rows in zip(todo, pool.imap(_one, [(c, npers, seeds, cap) for _, c, cap in todo])):
+            json.dump(rows, open(_path(k, n, cap), "w"))
+            print("  済 {} 上限{:g}".format(k, cap), flush=True)
 
-    load = lambda k: {(r[0], r[1]): r[2] for r in json.load(open(_path(k, n)))}
-    bases = {d: load("{}_base".format(d)) for d in sorted(need_decks)}
+    load = lambda k, cap: {(r[0], r[1]): r[2] for r in json.load(open(_path(k, n, cap)))}
     print()
     print("== 土台デッキの勝率（n={}）— 五分帯（35〜65%）から外れたら為替が効かない ==".format(n))
-    for d, b in bases.items():
-        w = statistics.mean(b.values())
-        print("  {:<7} {:6.1%}{}".format(d, w, "" if 0.35 <= w <= 0.65 else "   ★五分帯の外"))
+    for d in sorted(need_decks):
+        cells = []
+        for cap in (scan or [DECK_CAP[d]]):
+            w = statistics.mean(load("{}_base".format(d), cap).values())
+            cells.append("上限{:g}: {:5.1%}{}".format(cap, w, "" if 0.35 <= w <= 0.65 else "★"))
+        print("  {:<7} {}".format(d, "   ".join(cells)))
     if pre:
         print("PREFLIGHT DONE")
         return
+    bases = {d: load("{}_base".format(d), DECK_CAP[d]) for d in sorted(need_decks)}
     rows_t = {r["キー"]: r for r in R.treasures()}
     print()
     print("== 宝物の実測（対の Δ勝率 → 功） ==")
     print("{:<16}{:<10}{:>9}{:>8}{:>8}{:>6}{:>7}".format("条件", "宝物", "Δ勝率", "±SE", "実測功", "現行", "差"))
     for k, (deck, key, holder) in conds.items():
-        m, se, cnt, wa, wb = _paired(load(k), bases[deck])
+        m, se, cnt, wa, wb = _paired(load(k, DECK_CAP[deck]), bases[deck])
         cur = int(rows_t[key]["功"])
         print("{:<16}{:<10}{:>+9.2%}{:>8.2%}{:>8.0f}{:>6}{:>+7.0f}".format(
             k, rows_t[key]["名前"], m, se, m * 10000.0 / RATE, cur, m * 10000.0 / RATE - cur))
