@@ -681,6 +681,62 @@ CAV_VS_ARC = 0.60
 # 弓の値札（ACT_COEF）の再点検とセット。
 ARC_VS_INF = 0.65
 
+# 兵種どうしの攻撃補正の表（§7.151・テストプレイの提案）。
+#
+#   hit *= 1 + TYPE_ATK[(攻め手の兵種, 的の兵種)]
+#         + TYPE_ATK_NEAR[(同)] * 接敵の窓
+#
+# **既定は現状の2マス（CAV_VS_ARC / ARC_VS_INF）そのままで、残り4マスは 0。**
+# つまり定義を足しただけで挙動は変わらない。
+#
+# 【なぜ一度は外されたのか】昔ここに `TYPE_BONUS`（攻撃ごとの兵種%補正）があり、
+# **測って外された**: 割合で効くので射程で長く撃てる弓ほど同じ % でも得をし、
+# 三すくみ（巡回）のはずが「弓が単に強い」（推移）に化けた — 補正を上げるほど
+# 推移幅が 0.005 → 0.586 と育った。それで軍レベルの**コスト点**（TYPE_EDGE_COST）
+# へ置き換えられている。
+#
+# 【なぜ戻すのか】コスト点は `type_edge` が**兵種のコスト比で重み付けした1つの数**
+# なので、7つの型がどれも予算の45%を弓に使っている盤面では **騎→弓 と 歩→騎 を
+# 分離できない**（片方を上げると必ずもう片方が下がる。§7.151 で実測）。
+# キャンペーンの的は「デッキどうしの勝率差」で定義されているのに、つまみが
+# 「兵種どうし」の1本にまとめられているのが噛み合っていなかった。
+# 6マスなら別のマスなので分離できる。
+#
+# 【昔の失敗への対策】`TYPE_ATK_NEAR` で**距離別に持てる**ようにしてある。
+# 「射程で長く撃つぶん得をする」問題は遠射側（TYPE_ATK）の値で直接抑えられる。
+# 弓と後衛の槍だけが遠近の区別を持ち、歩兵・騎兵は常に接敵しているので同じ。
+# 空いていた4マス。**既定 0.0 は挙動不変**（＝いままでどおり2マスだけ埋まった表）。
+INF_VS_CAV = 0.0       # 歩→騎（槍衾で馬を止める。後衛の槍とは別に、歩兵一般の値）
+INF_VS_ARC = 0.0       # 歩→弓
+CAV_VS_INF = 0.0       # 騎→歩
+ARC_VS_CAV = 0.0       # 弓→騎（いまは馬上回避 CAV_COVER が担っている向き）
+
+TYPE_ATK = {}          # sync_type_atk() が下の6定数から埋める
+TYPE_ATK_NEAR = {}     # 接敵の窓で上乗せするぶん。空なら距離によらず一定
+
+
+def sync_type_atk() -> None:
+    """6つの定数から表を作り直す。**定数を書き換えたら必ず呼ぶこと。**"""
+    TYPE_ATK.clear()
+    TYPE_ATK[(CAV, ARC)] = CAV_VS_ARC     # 騎の白兵は弓を貫く（§7.123）
+    TYPE_ATK[(ARC, INF)] = ARC_VS_INF     # 矢は密集歩兵の的（§7.123）
+    TYPE_ATK[(INF, CAV)] = INF_VS_CAV
+    TYPE_ATK[(INF, ARC)] = INF_VS_ARC
+    TYPE_ATK[(CAV, INF)] = CAV_VS_INF
+    TYPE_ATK[(ARC, CAV)] = ARC_VS_CAV
+
+
+def type_atk(u: "Unit", f: "Unit", d: float) -> float:
+    """攻め手 u から的 f への被害倍率（1.0 が補正なし）。"""
+    k = (u.typ, f.typ)
+    v = TYPE_ATK.get(k, 0.0)
+    if TYPE_ATK_NEAR:
+        n = TYPE_ATK_NEAR.get(k, 0.0)
+        if n:
+            v += n * smooth_gate(d, 0.0, SUPPRESS_R)
+    return 1.0 + v
+
+
 # 三すくみ（§5.3）。有利側にのみボーナス。
 BEATS = {INF: CAV, CAV: ARC, ARC: INF}
 
@@ -740,6 +796,7 @@ TYPE_BONUS = 0.0
 # 3方向 0.600/0.590/0.607（推移幅 0.009）。
 TYPE_EDGE_COST = {(INF, CAV): -1.5320, (CAV, ARC): 2.0796, (ARC, INF): 4.0891}
 TYPE_EDGE_TARGET = 0.6  # 有利側に持たせたい優位（総コスト30に対するコスト点）
+sync_type_atk()          # 6マスの表を既定値（＝現状）で埋める
 # 【重要】決着の速さと兵種バランスは、この戦闘モデルの増幅（§6.1）を通じて
 # **構造的に結合している**。0.024 は時間切れ100%で実況の山が消えるので上げたく
 # なるが、決着させると弓兵の値付けが壊れる。経路によらない:
@@ -3554,12 +3611,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + _melee_dfn(f, gap[i][j]))) \
                         * f.ncut_mult * _cav_cover(u, f) * _spear_reach(u, gap[i][j])
-                    if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
-                        hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    hit *= type_atk(u, f, gap[i][j])    # 兵種どうしの表（§7.151）
                     if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
                         hit *= 1.0 + SPEAR_VS_CAV    # 後衛の槍は馬を止める（§7.151）
-                    if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
-                        hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
@@ -3622,12 +3676,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         continue
                     hit = base * w * (100.0 / (100.0 + _melee_dfn(f, col[i]))) \
                         * f.ncut_mult * _cav_cover(u, f) * _spear_reach(u, col[i])
-                    if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
-                        hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    hit *= type_atk(u, f, col[i])    # 兵種どうしの表（§7.151）
                     if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
                         hit *= 1.0 + SPEAR_VS_CAV    # 後衛の槍は馬を止める（§7.151）
-                    if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
-                        hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):

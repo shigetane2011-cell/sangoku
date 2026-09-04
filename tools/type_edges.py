@@ -39,6 +39,7 @@ def apply_knobs(F, opt):
         a, b = k.split(","); F.TYPE_EDGE_COST[(getattr(F, a.upper()), getattr(F, b.upper()))] = v
     for k, v in opt["act"].items():
         F.ACT_COEF[getattr(F, k.upper())] = v
+    F.sync_type_atk()      # 6マスの兵種攻撃表を定数から作り直す（§7.151）
 def _setup(opt):
     from sim import rosterdata as R, field as F, match as M
     if opt["data"]:
