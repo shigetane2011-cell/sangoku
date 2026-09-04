@@ -607,6 +607,27 @@ SPEAR_REAR = 0.40
 # 理屈も通る — 前線越しに突くために身を晒している。**前衛に置いた槍は
 # 何も変わらない**（この係数は後衛に置いた時だけ掛かる）。
 SPEAR_REAR_DFN = 0.0
+
+# 後衛の槍の対騎兵特攻（§7.151・テストプレイの案）。**既定 0.0 は挙動不変。**
+#
+# 騎兵は敵の削りの出どころが後ろにあるほど外縁を回り込み、**後衛の裏へ着く**
+# （迂回・§7.108。実測で弓の厚い雁行が相手なら迂回度は上限 0.5 に張り付く）。
+# その回り込みにいまは罰が無い。後衛の槍を「回り込んできた馬を止める者」に
+# すれば、騎兵の係数を触らずに騎兵型だけを押せる（三すくみ表も動かさない —
+# 槍は兵種ではなく**札のタグ**なので、相性表・係数・陣形経済に触らずに済む）。
+#
+# 0.5 なら後衛の槍が騎兵へ与える被害が 1.5 倍。値はテストプレイの決定を待つ。
+SPEAR_VS_CAV = 0.0
+
+# 後衛の槍に馬上回避を掛けない（§7.151）。**既定 False は挙動不変。**
+#
+# `_cav_cover`（馬上回避 0.45）は「射程を持つ攻め手 → 騎兵」の被害を減らす規則で、
+# `shooter.rng > 0` で判定している。**後衛の槍は射程持ちなのでここに巻き込まれて
+# いた** — 離れた騎兵を突くと 0.40（後衛補正）× 0.55（馬上回避）＝ 元の22% まで
+# 落ちる。矢を馬で避けるのと、構えた槍を馬で避けるのは別の話なので、外せるように
+# する。特攻（上）とは別のつまみにしてあるのは、「特攻を入れた効き」と
+# 「歪みを直した効き」を別々に測るため。
+SPEAR_NO_CAV_COVER = False
 # §6.1 の行動面の係数（歩1.00 / 騎0.90 / 弓1.12）は**旧レーンエンジンで実測した
 # 値**であり、この盤面では値付けが合わない。入れたままだと兵種補正を 0〜0.15、
 # FOCUS を 0〜3 まで振っても三すくみが 0/100/0 から一切動かず、係数だけで勝敗が
@@ -1696,7 +1717,7 @@ class Unit:
     __slots__ = (
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
-        "total_len", "progress", "is_front", "x0", "detour",
+        "total_len", "progress", "is_front", "x0", "detour", "pike",
         "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_floor", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
@@ -1803,6 +1824,7 @@ class Unit:
         self.speed = SPEED[card.typ] * (1.0 + SPD_LEAN_SPAN * max(
             -SPD_LEAN_LIMIT, min(SPD_LEAN_LIMIT, card.spd_lean)))
         self.rng = RANGE[card.typ]
+        self.pike = bool(card.spear and not is_front)   # 後衛の槍（§7.151）
         if card.spear and not is_front:
             # 槍を後衛に置いた（§7.57）。前線越しの突き — 届くが威力は4割
             # （SPEAR_REAR。「半減」は 0.5 だった頃の旧注記・§7.107 で下げた）。
@@ -3212,6 +3234,8 @@ def _cav_cover(shooter: "Unit", f: "Unit") -> float:
     射手の縁が触れると 1 に戻る。距離だけで決まる連続な窓（§13）。"""
     if CAV_COVER <= 0.0 or f.typ != CAV or shooter.rng <= 0.0:
         return 1.0
+    if SPEAR_NO_CAV_COVER and shooter.pike:
+        return 1.0          # 構えた槍は馬では避けられない（§7.151）
     near = smooth_gate(box_gap(shooter, f), 1.0, CAV_COVER_SOFT)   # 触れていれば 1
     return 1.0 - CAV_COVER * (1.0 - near)
 
@@ -3502,6 +3526,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
+                        hit *= 1.0 + SPEAR_VS_CAV    # 後衛の槍は馬を止める（§7.151）
                     if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
                         hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
@@ -3568,6 +3594,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         * f.ncut_mult * _cav_cover(u, f)
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
+                    if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
+                        hit *= 1.0 + SPEAR_VS_CAV    # 後衛の槍は馬を止める（§7.151）
                     if u.typ == ARC and f.typ == INF and ARC_VS_INF > 0.0:
                         hit *= 1.0 + ARC_VS_INF      # 矢は密集歩兵の的（§7.123）
                     if f.ncut_mult < 1.0:      # 表示専用（§7.88）
