@@ -22,17 +22,32 @@ class RestraintTest(unittest.TestCase):
         cls.rapid = F.Army(tuple(cards[n] for n in (
             "夏侯淵〔神速〕", "趙雲〔長坂坡〕", "関平〔麒麟児〕",
             "韓当〔老弓〕", "馬謖〔幼常〕", "諸葛恪〔元遜〕")), F.FORM_STANDARD)
+        # 長い対戦（§7.151）。節制の効き所は2発目以降なので、決着が速い相手だと
+        # 何も測れない。同じ守り寄りの編成どうしで 171ティックまで続く。
+        cls.slugfest = F.Army(cls.defense.cards, F.FORM_STANDARD)
 
     def test_first_cast_then_reduces_later_casts(self):
+        """節制は**2発目以降**を抑えるので、土俵が短いと何も測れない。
+
+        §7.151 で決着が速くなり（1枚あたりの発動 1.83→1.20回）、旧来の相手
+        （self.rapid）との対戦は 62〜71ティックで潰走決着して**誰も2発目を撃たない**
+        ようになった。差が 0 でも「効かない」ではなく「測れていない」が正しい。
+        土俵を長い対戦（同型どうし・171ティック）へ移し、**空洞化したら落ちる**
+        よう「2発目が実在すること」を先に検査する。
+        """
         keep = F.RESTRAINT_NATURAL_MULT
         try:
             F.RESTRAINT_NATURAL_MULT = 1.0
-            off = F.simulate(self.defense, self.rapid, dt=0.5, seed=42)
+            off = F.simulate(self.defense, self.slugfest, dt=0.5, seed=42)
             F.RESTRAINT_NATURAL_MULT = 0.40
-            on = F.simulate(self.defense, self.rapid, dt=0.5, seed=42)
+            on = F.simulate(self.defense, self.slugfest, dt=0.5, seed=42)
         finally:
             F.RESTRAINT_NATURAL_MULT = keep
         self.assertGreater(dict(on["fires_a"])["陸抗〔羊陸之交〕"], 0)
+        # 土俵の検査: 抑えが無いとき、誰かが2発目を撃っていること
+        self.assertGreater(sum(n for _name, n in off["fires_b"]),
+                           len(self.slugfest.cards),
+                           "土俵が短すぎて2発目が来ていない（節制は測れない）")
         self.assertLess(sum(n for _name, n in on["fires_b"]),
                         sum(n for _name, n in off["fires_b"]))
 
