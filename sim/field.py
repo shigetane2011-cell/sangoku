@@ -1795,7 +1795,8 @@ class Unit:
             -SPD_LEAN_LIMIT, min(SPD_LEAN_LIMIT, card.spd_lean)))
         self.rng = RANGE[card.typ]
         if card.spear and not is_front:
-            # 槍を後衛に置いた（§7.57）。前線越しの突き — 届くが威力半減。
+            # 槍を後衛に置いた（§7.57）。前線越しの突き — 届くが威力は4割
+            # （SPEAR_REAR。「半減」は 0.5 だった頃の旧注記・§7.107 で下げた）。
             # 配置で固定なので戦闘中に係数が切り替わることはない。
             self.rng = SPEAR_RANGE
             self.atk *= SPEAR_REAR
