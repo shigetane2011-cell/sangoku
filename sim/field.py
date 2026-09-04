@@ -909,6 +909,22 @@ SKILL_SCALE = 1.482    # 上の GAUGE_PER_SEC と対で決まる（予算を保�
 # CSV の文言（「（30秒）」）は正のままで、**読み取った秒数にここで掛ける**。
 SKILL_DUR_SCALE = 1.0
 
+# 打ち切りの効果への補償（§7.151・テストプレイの整理）。**既定 1.0 は挙動不変。**
+#
+# 発動回数を k 倍にしたとき、何で予算を戻すかは**兵法の種類で変える**:
+#
+#   打ち切りダメージ・回復   … 威力しか持たないので **威力**（この定数）
+#   継続ダメージ・継続回復   … 毎秒の威力 × 秒数 なので **効果時間**
+#   強化・弱体・畏怖        … % × 秒数 なので **効果時間**
+#   混乱・行動阻害・打消し   … 秒数しか持たないので **効果時間**
+#
+# 効果時間で調整するほうが**札の個性が壊れない**（「攻撃力+30%」は +30% のまま
+# 短くなる。威力で調整すると +20% になって別の札になる）。
+# **両方に掛けてはいけない** — 継続ダメージは威力と秒数の積なので、両方 1/k に
+# すると 1/k² になる（§7.151 の掃引で一度踏んだ）。だから SKILL_SCALE 側ではなく
+# ここを分けてある: この定数は `sk.dur == 0` の打ち切りにだけ掛かる。
+SKILL_BURST_SCALE = 1.0
+
 
 def skill_dur(sec: float) -> float:
     """CSV の秒数を盤面の秒数へ（§7.151）。**読み取りは全部ここを通す。**"""
@@ -2905,7 +2921,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         pool = [f for f in own if _men_now(f) > 0.0]
         if pool:
             f = min(pool, key=lambda x: _men_now(x) / max(x.men0, 1e-9))
-            amt = min(f.men0 * sk.heal_pct, f.men0 - _men_now(f))
+            amt = min(f.men0 * sk.heal_pct * SKILL_BURST_SCALE,
+                      f.men0 - _men_now(f))
             if amt > 0.0:
                 _men_add(f, amt)
                 u.healed += amt          # 表示専用（§7.88）
@@ -2914,7 +2931,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         return
     if sk.heal > 0.0:
         # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
-        amt = HEAL_SCALE * sk.heal * coef / n
+        # 打ち切りの回復だけ補償を掛ける（継続回復は効果時間側・§7.151）
+        amt = (HEAL_SCALE * sk.heal * coef / n
+               * (SKILL_BURST_SCALE if sk.dur <= 0.0 else 1.0))
         done = 0.0
         for f in tgts:
             if f.men <= 0.0:
@@ -2939,7 +2958,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 種の無い測定では中央値 — 零点・dt不変は従来と同一に保たれる。
         p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
                  else u.rand.uniform(sk.power, sk.power_hi))
-    dmg = SKILL_SCALE * p_eff * coef / n
+    # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）
+    burst = SKILL_BURST_SCALE if sk.dur <= 0.0 else 1.0
+    dmg = SKILL_SCALE * burst * p_eff * coef / n
     if SUPPRESS_SKILL and u.typ == ARC:
         # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの
         # 資源であって矢筒ではない。距離だけの連続な形（§13）。弓兵のみ
