@@ -44,19 +44,23 @@ DELTA = 2.0
 _S = {}
 
 
+def _apply_override(override):
+    """効果文の差し替え（案の測定用）: 札名 → 効果文。本番の器で読み直す。"""
+    for name, eff in (override or {}).items():
+        sk = [r for r in R.skills() if r["武将"] == name][0]
+        F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(eff, sk["対象"])
+
+
 def _init(npers, seeds, override=None):
     R.load_skills_into_field()
     R.load_traits_into_field()
-    if override:
-        # 効果文の差し替え（案の測定用）: 札名 → 効果文。本番の器で読み直す
-        for name, eff in override.items():
-            sk = [r for r in R.skills() if r["武将"] == name][0]
-            F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(eff, sk["対象"])
     F.SKILLS_ON = F.TRAITS_ON = True
-    cards = M._roster_cards()
+    cards = M._roster_cards()       # ここで兵法表が読み直されることがある
     _S["cards"] = {c.name: c for c in cards}
     _S["opps"] = [D.make_entry(cards, p, s, caps=(("官渡", TOTAL),)).units[0]
                   for p in D.PERSONAS[:npers] for s in range(seeds)]
+    _S["override"] = override
+    _apply_override(override)       # **名簿を読んだ後に**差し替える（前は上書きされて空振りした）
 
 
 def _army(card, filler_bump=0.0):
@@ -73,6 +77,7 @@ def _army(card, filler_bump=0.0):
 
 def _one(job):
     name, mode, bump = job
+    _apply_override(_S.get("override"))     # 念のため局ごとにも当てる
     c = _S["cards"][name]
     if _S.get("strip"):
         # 特性を**両方の案から**外す。自分の兵法で発動する特性（節制＝自身の
