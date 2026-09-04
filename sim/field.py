@@ -1851,6 +1851,7 @@ class Unit:
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
+        "null_cap", "null_pool",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
@@ -2026,6 +2027,12 @@ class Unit:
         self.refl = 0.0         # 兵法反射の割合（§7.51）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
         self.nullify = False    # 兵法打消しの構え（§7.51 機構5）
+        # 構えは「窓の秒数のあいだ、**その一度で** N発まで」（§7.152）。
+        # 残りは1回の発動ごとに1つの入れ物を作り、対象になった隊で**分け合う**
+        # （味方前衛に張れば前衛3隊あわせて N発。隊ごとに N発ではない）。
+        # None なら回数無制限＝旧表記。cap は表示と値付けのための控え。
+        self.null_cap = 0.0
+        self.null_pool = None   # 分け合う残り回数 [n]。発動のたびに作り直す
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
         self.covered = 0.0      # 馬前で代わりに受けた被害（表示専用・§7.144）
@@ -2470,11 +2477,19 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
         out.append(("stun", -1.0, skill_dur(float(m.group(1)))))
-    m = re.search(r"兵法打消し（(\d+)秒）", effect)
+    m = re.search(r"兵法打消し(?:\s*(\d+)発)?（(\d+)秒）", effect)
     if m:
-        # 打消しは量を持たない（構えが有るか無いか）。回数制は段差になって
-        # 値段が付かない（ゲージ付与と同じ轍）ので**時間の窓**にする。
-        out.append(("null", 1.0, skill_dur(float(m.group(1)))))
+        # 打消しは「窓の秒数のあいだ、その一度で N発まで」（§7.152）。
+        # 【昔の判断】回数制は段差になって値段が付かない（ゲージ付与と同じ轍）
+        # ので窓だけにしていた。**窓と併記なら段差にならない** — 窓の中で敵が
+        # 何発撃つかは連続に散らばるので、N発の頭打ちは「窓の実測値 × 頭打ちの
+        # 効き」という滑らかな形になる（§7.152 で実測）。
+        # 発数を書かない旧表記は「窓の中なら何発でも」＝上限なし。
+        # 発数は**1回の発動につき**で、対象の隊で分け合う（味方前衛に張れば
+        # 前衛あわせて N発。隊ごとに N発ではない）。隊ごとにすると対象が
+        # 広い札ほど頭打ちが効かなくなり、実測で 2発＝無制限（差 0.26%）だった。
+        out.append(("null", float(m.group(1)) if m.group(1) else math.inf,
+                    skill_dur(float(m.group(2)))))
     # 【廃止】ゲージ付与。**段差なので値段が付かない。**
     # 「自然増加のN秒ぶん」でも「消費のX%」でも、受け手が1回ぶんの閾値を越えるか
     # 越えないかで 0 か丸ごと1回ぶんになる。実測（味方全体・標準の段・2回）で
@@ -2690,7 +2705,11 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
             who, name, where, mins(secs))
     if kind == "buff":
         if stat == "null":
-            # 打消しは量を持たないので % を出さない
+            # 打消しは量ではなく回数（§7.152）なので % ではなく発数を出す
+            if amount != math.inf and amount > 0.0:
+                return ("{}の【{}】発動！　{}が打消しの構えを取った！"
+                        "（あわせて{:.0f}発まで・{:.0f}分）".format(
+                            who, name, where, amount, mins(secs)))
             return "{}の【{}】発動！　{}が打消しの構えを取った！（{:.0f}分）".format(
                 who, name, where, mins(secs))
         what = {"def": "守り", "spd": "足", "rate": "気勢",
@@ -2828,19 +2847,33 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 七星宝刀（§7.138）: 持ち主の兵法は構えに阻まれない。**貫通は語らない** —
         # 実況も打消しの帳簿も触れない（語ると宝物の存在が割れる。相手には
         # 「構えたのに通った」という類推だけが残る＝§7.136 の許容範囲）。
+        # 残りは入れ物を直に見る（同じティックに続けて撃たれたとき、まだ
+        # 組み直されていない古い nullify で遮ってしまわないように）。
         blocker = next((f for f in tgts
-                        if f.side != u.side and f.nullify), None)
+                        if f.side != u.side and f.nullify
+                        and (f.null_pool is None or f.null_pool[0] > 0.0)),
+                       None)
         if "t_shichisei" in u.traits:
             blocker = None
         if blocker is not None:
             blocker.null_blocked += 1          # 帳簿（§7.126・表示専用）
+            # 残り回数を1つ使う（§7.152）。入れ物は対象の隊で共有しているので、
+            # 誰が遮っても同じ残りが減る。使い切ったら構えは下りる。
+            if blocker.null_pool is not None:
+                blocker.null_pool[0] -= 1.0
+                blocker.nullify = blocker.null_pool[0] > 0.0
             if name and name not in blocker.null_names:
                 blocker.null_names.append(name)
             if ev is not None and name:
+                left = ""
+                if blocker.null_pool is not None:
+                    rest = int(max(0.0, blocker.null_pool[0]))
+                    left = ("　構えは尽きた！" if rest <= 0
+                            else "　（あと{}発）".format(rest))
                 ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp],
                                 "{}の【{}】！　だが{}の構えに阻まれ、"
-                                "霧散した！".format(_who(u), name,
-                                                _who(blocker)), 1.0,
+                                "霧散した！{}".format(_who(u), name,
+                                                  _who(blocker), left), 1.0,
                                 side=_side_of(u)))
             return
         # 攻め兵法が**実際に解決した**ことを記録する（§7.129・持重が見る）。
@@ -2915,7 +2948,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
+        # 打消しの残り回数（§7.152）。**この一度の発動につき1つ**の入れ物を作り、
+        # 対象になった隊で分け合う（味方前衛なら前衛あわせて N発）。次にこの
+        # 兵法を撃てば作り直される＝残りも戻る。inf は旧表記の「何発でも」。
+        pool = None if key != "null" or amt == math.inf else [amt]
         for f in hit:
+            if key == "null":
+                f.null_pool = pool
             _fx_add(f, (t + secs, key, amt, src))
         if hit:
             m = abs(amt) * secs * len(hit)
@@ -3216,6 +3255,8 @@ def _recalc_mods(u: Unit) -> None:
     for (kind, _), amt in best.items():
         tot[kind] += amt
     for k in tot:
+        if k == "null":
+            continue    # 打消しは「量」ではなく残り回数なので丸めない（§7.152）
         tot[k] = min(MOD_CAP, max(-MOD_CAP, tot[k]))
     # 行動阻害は能力補正ではないので ±50% の丸めを受けない（§6.5 は別項）。
     # 宝物の恒久項（perm_*・§7.138）は時限効果の山の**外**で足す — 常在で
@@ -3233,9 +3274,17 @@ def _recalc_mods(u: Unit) -> None:
     u.refl = max(0.0, tot["refl"])
     # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
     u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
-    # 兵法打消し（§7.51 機構5）。構えの有無だけ（±50%の丸めは通るが
-    # 符号しか見ないので影響しない）。
-    u.nullify = tot["null"] > 0.0
+    # 兵法打消し（§7.51 機構5・§7.152）。「窓のあいだ、その一度で N発まで」。
+    # **残り回数はここで組み直さない。** 倍率と違って消費で減るので、山から
+    # 作り直すと毎ティック満タンに戻ってしまう（宝物の恒久項と同じ罠）。
+    # 入れ物（null_pool）は発動のときに作り、窓が切れたら捨てる。
+    if tot["null"] > 0.0:
+        u.null_cap = tot["null"]
+        u.nullify = u.null_pool is None or u.null_pool[0] > 0.0
+    else:
+        u.null_cap = 0.0
+        u.null_pool = None
+        u.nullify = False
 
 
 def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:

@@ -247,10 +247,15 @@ def _skill_display(g, sk_row) -> str:
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
         parts.append("代償 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
-    m = _re.search(r"兵法打消し（(\d+)秒）", raw)
+    m = _re.search(r"兵法打消し(?:\s*(\d+)発)?（(\d+)秒）", raw)
     if m:
-        parts.append("打消し 構えた隊を狙う敵の兵法を丸ごと無効化（{:.0f}分間）"
-                     .format(F.mins(float(m.group(1)))))
+        # 「あわせて」が要る（§7.152）— 発数は1回の発動につきで、対象の隊で
+        # 分け合う。隊ごとにN発と読まれると、前衛3隊なら3倍だと誤解される。
+        # 発数を書かない旧表記は「窓の中なら何発でも」。
+        parts.append("打消し 構えた隊を狙う敵の兵法を{}丸ごと無効化（{:.0f}分間）"
+                     .format("あわせて{}発まで".format(m.group(1))
+                             if m.group(1) else "",
+                             F.mins(float(m.group(2)))))
     m = _re.search(r"ゲージ付与", raw)
     if m:
         parts.append("味方のゲージを進める")
