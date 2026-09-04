@@ -195,22 +195,21 @@ class TreasureEngineTest(unittest.TestCase):
             self.assertAlmostEqual(u.rate_mult, 1.0)
 
     # 11. 青嚢書: 最大兵力の6%を一度だけ回復
-    #     **CSV の 6% に予算の縮尺（SKILL_BURST_SCALE）が掛かる**（§7.151）。
-    #     固有特性・宝物は兵法とまったく同じ器（_parse_skill / _apply_skill）を
-    #     通るので、兵法の予算を上げると誘発型もそのぶん強くなる。盤面としては
-    #     取り分をそう測って採ったので正しいが、**値札のほうが追いついていない**
-    #     （design.TRAIT_PRICE も宝物の功も旧盤面の実測値のまま）。引き直しは
-    #     別タスク。ここは器の倍率どおりに効いていることだけを確かめる。
+    #     **CSV の数字がそのまま盤面に出る**（§7.152 の裁定）。固有特性・宝物は
+    #     兵法と同じ器を通るが、**予算の縮尺（SKILL_DUR/BURST_SCALE）は掛けない** —
+    #     縮尺の理屈は「ゲージの供給が増えたぶんの補償」で、誘発型はゲージで
+    #     撃たないから当てはまらない。ここは縮尺が漏れていないことの見張りでもある
+    #     （§7.151 では漏れていて 9% になっていた）。
     def test_seino_heal(self):
         cond, target, cap, sk, jp = F.TRAITS["t_seino"]
+        self.assertFalse(sk.scaled, "誘発型に予算の縮尺は掛からない")
         ua = F.build(_army([_synth_with("t_seino")] + _filler(5)), 1)
         ub = F.build(_army(_filler(6)), -1)
         u = ua[0]
         u.men = u.men0 * 0.3    # 自分が最少になるよう削っておく
         F._apply_skill(u, sk, target, ua, ub, 0.0, src="t_seino",
                        kind_jp="誘発")
-        want = 0.30 + 0.06 * F.SKILL_BURST_SCALE
-        self.assertAlmostEqual(u.men, u.men0 * want, delta=u.men0 * 1e-6)
+        self.assertAlmostEqual(u.men, u.men0 * 0.36, delta=u.men0 * 1e-6)
 
     # 12. 杜康の酒: 決めゼリフが開幕から必ず・一度だけ出る
     def test_toko_quote_guaranteed(self):

@@ -940,9 +940,36 @@ SKILL_BURST_SCALE = 1.5
 SKILL_MAG_SCALE = 1.0
 
 
+# 固有特性・宝物を読み込むあいだ True（§7.152・テストプレイの裁定「かけない」）。
+#
+# **予算の縮尺は兵法にだけ掛ける。** 縮尺の理屈は「ゲージの供給を上げて発動が
+# 増えたぶん、1回あたりを薄める／補償する」だが、**誘発型はゲージで撃たない** —
+# 味方の潰走や自分の残兵で撃つので、供給を上げても発動回数は増えない。
+# 補償する理由が無いのに掛けると、特性だけが黙って 1.5倍 強くなる（実際そうなって
+# いた。§7.152 で気付いた）。
+#
+# 読み込みは起動時の1回きりで並行しないので、旗で切り替える。実行時に効く
+# ぶん（打ち切りの威力・回復）は Skill.scaled が運ぶ。
+_PARSE_UNSCALED = False
+
+
+class unscaled:
+    """このブロックの中で読んだ効果文には予算の縮尺を掛けない（§7.152）。"""
+
+    def __enter__(self):
+        global _PARSE_UNSCALED
+        _PARSE_UNSCALED = True
+        return self
+
+    def __exit__(self, *exc):
+        global _PARSE_UNSCALED
+        _PARSE_UNSCALED = False
+        return False
+
+
 def skill_dur(sec: float) -> float:
     """CSV の秒数を盤面の秒数へ（§7.151）。**読み取りは全部ここを通す。**"""
-    return sec * SKILL_DUR_SCALE
+    return sec if _PARSE_UNSCALED else sec * SKILL_DUR_SCALE
 
 
 def skill_mag(v: float) -> float:
@@ -951,7 +978,7 @@ def skill_mag(v: float) -> float:
     **入り切り（行動阻害・兵法打消し）には掛けない** — 量を持たないので、
     掛けても意味が無いか、1.0 を超えて壊れる。
     """
-    return v * SKILL_MAG_SCALE
+    return v if _PARSE_UNSCALED else v * SKILL_MAG_SCALE
 
 
 # 回復の倍率。**測ったら6倍ではなく約0.6倍だった**（`sim/field.py heal`）。
@@ -2388,6 +2415,10 @@ class Skill:
     # 威力の幅（§7.67）: 0 より大きければ、発動ごとに power〜power_hi の一様
     # 乱数（battle_seed 由来・リプレイ再現可）。種が無い測定では中央値。
     power_hi: float = 0.0
+    # 予算の縮尺（§7.151）を受けるか。**兵法は True・固有特性と宝物は False**
+    # （§7.152 の裁定）。秒数と量は読み込みのときに済んでいるが、打ち切りの
+    # 威力・回復は実行時に掛かるので、その口が見る印をここで運ぶ。
+    scaled: bool = True
 
 
 def _skill_kind(effect: str, target: str) -> str:
@@ -2555,7 +2586,8 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
                  self_mods=_skill_self_mods(effect),
                  wits_mods=_skill_wits_mods(effect),
-                 power_hi=float(hi.group(1)) / 100.0 if hi else 0.0)
+                 power_hi=float(hi.group(1)) / 100.0 if hi else 0.0,
+                 scaled=not _PARSE_UNSCALED)
 
 
 def _fame_wits(u: "Unit") -> float:
@@ -2987,7 +3019,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         pool = [f for f in own if _men_now(f) > 0.0]
         if pool:
             f = min(pool, key=lambda x: _men_now(x) / max(x.men0, 1e-9))
-            amt = min(f.men0 * sk.heal_pct * SKILL_BURST_SCALE,
+            amt = min(f.men0 * sk.heal_pct * (SKILL_BURST_SCALE if sk.scaled
+                                              else 1.0),
                       f.men0 - _men_now(f))
             if amt > 0.0:
                 _men_add(f, amt)
@@ -2999,7 +3032,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
         # 打ち切りの回復だけ補償を掛ける（継続回復は効果時間側・§7.151）
         amt = (HEAL_SCALE * sk.heal * coef / n
-               * (SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE))
+               * ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
+                  if sk.scaled else 1.0))
         done = 0.0
         for f in tgts:
             if f.men <= 0.0:
@@ -3024,8 +3058,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 種の無い測定では中央値 — 零点・dt不変は従来と同一に保たれる。
         p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
                  else u.rand.uniform(sk.power, sk.power_hi))
-    # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）
-    burst = SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE
+    # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）。
+    # 固有特性・宝物には掛けない（§7.152。ゲージで撃たないので発動は増えていない）
+    burst = ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
+             if sk.scaled else 1.0)
     dmg = SKILL_SCALE * burst * p_eff * coef / n
     if SUPPRESS_SKILL and u.typ == ARC:
         # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの

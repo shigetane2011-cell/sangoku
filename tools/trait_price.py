@@ -30,6 +30,7 @@ margin を読む計器で、§7.151 の盤面ではこれが**段になってし
 前衛・後衛の両方で測り、**高いほう＝安全側**を採る（既存の表と同じ約束）。
 陣頭・馬前は前衛にしか効かないので後衛は 0.000 と出る（それでよい）。
 """
+import json
 import os
 import statistics
 import sys
@@ -87,12 +88,23 @@ def _one(job):
             for i, o in enumerate(_STATE["opps"])]
 
 
+def _load(path):
+    try:
+        return json.load(open(path))
+    except Exception:
+        return {}
+
+
 def _jp(k):
     return F.TRAITS[k][4] if k in F.TRAITS else k
 
 
-def _measure(pool, keys, slot):
-    """1つの席（前衛／後衛）で全特性を測る。戻り値は key → (値段, Δ, ±95%, 違)。"""
+def _measure(pool, keys, slot, store):
+    """1つの席（前衛／後衛）で全特性を測る。戻り値は key → (値段, Δ, ±95%, 違)。
+
+    **1本ずつ控えへ書く。** 測定は30分を超えるが実行環境は入れ替わることが
+    あるので、落ちても続きから走れるようにしておく（2回とばされた）。
+    """
     jobs = [("", BASE, slot, False),
             ("", BASE + DELTA, slot, False),
             ("", BASE - DELTA, slot, False),
@@ -100,7 +112,15 @@ def _measure(pool, keys, slot):
             ("", BASE + DELTA, slot, True),
             ("", BASE - DELTA, slot, True)]
     jobs += [(k, BASE, slot, k in NEEDS_CAV_NEIGHBOR) for k in keys]
-    res = pool.map(_one, jobs, chunksize=1)
+    got = _load(store)
+    todo = [(i, j) for i, j in enumerate(jobs)
+            if "{}|{}".format(slot, i) not in got]
+    if todo:
+        print("  席{} 残り {}/{} 本".format(slot, len(todo), len(jobs)), flush=True)
+        for (i, _), col in zip(todo, pool.imap(_one, [j for _, j in todo])):
+            got["{}|{}".format(slot, i)] = col
+            json.dump(got, open(store, "w"))
+    res = [got["{}|{}".format(slot, i)] for i in range(len(jobs))]
     base = {False: res[0], True: res[3]}
     slope = {}
     for j, cav in ((0, False), (3, True)):
@@ -136,10 +156,12 @@ def main():
     print("  本陣（command）はこの計器では測れない（残存差が符号ごと嘘になる）"
           " — 勝率の通貨で別測", flush=True)
 
+    store = os.environ.get("TRAIT_STORE", os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".trait_price_cache.json"))
     pool = Pool(int(os.environ.get("W", "4")), _init, (npers, seeds))
     got = {}
     for label, slot in seats:
-        slope, out = _measure(pool, keys, slot)
+        slope, out = _measure(pool, keys, slot, store)
         got[label] = out
         print("\n【{}】局所勾配 歩隣 {:.5f} / 騎隣 {:.5f}（残存差／コスト点）"
               .format(label, slope[False], slope[True]), flush=True)
@@ -165,6 +187,7 @@ def main():
             _jp(k), cells[0], cells[1], v, old, v - old))
     print()
     print("  ±95% の 1コスト点は勝率 {:.2f}%（為替 {}）".format(RATE, RATE))
+    print("  控え: {}（消せば測り直す）".format(store))
     print("  sim/design.py の TRAIT_PRICE へ貼る形（本陣は別測なので据え置き）:")
     for k, v in sorted(take.items(), key=lambda kv: -kv[1]):
         print("        {!r}: {:.4f},".format(k, v))

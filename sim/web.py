@@ -172,15 +172,23 @@ _MOD_JP = {"攻撃力": "攻撃力", "命中率": "攻撃力（命中）", "防�
            "畏怖": "畏怖（敵の攻撃力）"}
 
 
-def _skill_display(g, sk_row) -> str:
+def _skill_display(g, sk_row, scaled: bool = True) -> str:
     """効果文を**プレイヤーの読める量**へ焼き直す（§7.47）。
 
     「威力976%」は内部の武力・知力（隠した帳簿）に掛かる係数なので、そのまま
     見せても読めない。本物の式（SKILL_SCALE × 威力 × 武知の混合）でその武将の
     実数へ換算し、時間は実況と同じ「分」（§7.36 の表示比率）で語る。
+
+    scaled=False は固有特性・宝物（§7.152）。**盤面と同じ読み方をする** —
+    予算の縮尺は兵法にしか掛からないので、ここで掛けると画面だけ 1.5倍 長い
+    秒数を出すことになる。
     """
     import re as _re
-    sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
+    if scaled:
+        sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
+    else:
+        with F.unscaled():
+            sk = F._parse_skill(sk_row.get("効果", ""), sk_row.get("対象", ""))
     v = F.SKILL_WITS.get(sk.kind, 0.0)
     # g が無い（宝物パネルなど、まだ持ち主が決まっていない）ときは実数に
     # できないので、量がセット先しだいであることを言う。
@@ -296,7 +304,7 @@ def _trait_brief(g, key, t):
         # 明示する — 書かないと全部が自分バフに読める（テストプレイの指摘）。
         m = _re.search(r"対象 ([^/]+)", note)
         target = (m.group(1).strip() if m else "自分")
-        desc = _skill_display(g, {"効果": desc, "対象": target})
+        desc = _skill_display(g, {"効果": desc, "対象": target}, scaled=False)
         if target != "自分":
             cond = "・".join(x for x in ("対象 " + target, cond.lstrip("・")) if x)
     # 常在型の数字は field.py の定数から注入（定義を2箇所に持たない）

@@ -1012,8 +1012,9 @@ def load_traits_into_field() -> int:
         # 敵の攻め兵法の数に比例させる形なので、**上限を置くと density へ
         # 効かなくなる**（上限5では手数4枚への抑制が±0だった）。
         cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
-        F.TRAITS[t["キー"]] = (cond, target, cap,
-                               F._parse_skill(t["効果"], target), t["名前"])
+        with F.unscaled():      # 予算の縮尺は兵法だけに掛ける（§7.152）
+            sk = F._parse_skill(t["効果"], target)
+        F.TRAITS[t["キー"]] = (cond, target, cap, sk, t["名前"])
         n += 1
     n += load_treasures_into_field()
     return n
@@ -1069,8 +1070,9 @@ def load_treasures_into_field() -> int:
         target = m.group(1).strip() if m else "自分"
         m = re.search(r"1戦(\d+)回", note)
         cap = int(m.group(1)) if m else (10 ** 9 if "上限なし" in note else 1)
-        F.TRAITS[t["キー"]] = (cond, target, cap,
-                               F._parse_skill(t["効果"], target), t["名前"])
+        with F.unscaled():      # 宝物も誘発型は兵法ではない（§7.152）
+            sk = F._parse_skill(t["効果"], target)
+        F.TRAITS[t["キー"]] = (cond, target, cap, sk, t["名前"])
         n += 1
     return n
 
