@@ -911,6 +911,15 @@ ARC_MELEE_DEF_LOSS = 0.0
 SCREEN_MELEE = 0.0
 SCREEN_MEN = 20000.0
 
+# **回り込んだ攻め手には掛からない。** 騎兵は開戦時に迂回度 `Unit.detour`
+# （0＝正面 / `DETOUR_CAP`＝最大限に外縁を回る）を決め、実座標で敵前衛の外を
+# 回って後衛の裏へ着く（§7.108）。列に阻まれるのは**正面から来た者だけ**なので、
+# 遮蔽は (1 − detour/DETOUR_CAP) を掛けて薄める。これを入れないと、
+# **回り込みという正しい返し手を遮蔽が取り上げる**（実測: 弓の厚い雁行が相手だと
+# 騎兵の迂回度は 0.49〜0.50 と上限に張り付く。歩兵の迂回度は構造的に常に 0 なので、
+# 罰は騎兵にだけ当たる）。
+SCREEN_DETOUR = 1.0
+
 # 遮蔽を**接敵抑制にも掛ける**割合（§7.151）。**既定 0.0 は挙動不変。**
 #
 # 前衛に阻まれて後衛へ届かない近接の敵は、後衛の弓を「抑え込む」こともできない
@@ -2064,6 +2073,18 @@ def _screen_frac(m: float) -> float:
     return 1.0 - math.exp(-m / SCREEN_MEN)
 
 
+def _screen_past(u: Unit) -> float:
+    """攻め手 u に遮蔽がどれだけ効くか（0〜1）。回り込んだぶんだけ薄まる。
+
+    迂回（§7.108）は開戦時に決まり、実座標で敵前衛の外縁を回る。**列に阻まれるのは
+    正面から来た者だけ**なので、回り込みきった騎兵には遮蔽を掛けない。歩兵の
+    `detour` は構造的に常に 0 なので、この分岐は歩兵の挙動を変えない。
+    """
+    if SCREEN_DETOUR <= 0.0 or DETOUR_CAP <= 0.0:
+        return 1.0
+    return max(0.0, 1.0 - SCREEN_DETOUR * min(u.detour / DETOUR_CAP, 1.0))
+
+
 def _screen(u: Unit, f: Unit, foes: List[Unit]) -> float:
     """前衛が立っているあいだ、**近接の攻め手**は後衛へ届きにくい（§7.151）。
 
@@ -2079,7 +2100,10 @@ def _screen(u: Unit, f: Unit, foes: List[Unit]) -> float:
     """
     if SCREEN_MELEE <= 0.0 or u.rng > 0.0 or f.is_front:
         return 1.0
-    return 1.0 - SCREEN_MELEE * _screen_frac(
+    past = _screen_past(u)
+    if past <= 0.0:
+        return 1.0
+    return 1.0 - SCREEN_MELEE * past * _screen_frac(
         sum(b.men for b in foes if b.is_front))
 
 
@@ -3241,7 +3265,7 @@ def _suppress(u: Unit, gaps: List[float],
         for f, d in zip(foes, gaps):
             g = smooth_gate(d, 0.0, SUPPRESS_R)
             if f.rng <= 0.0:      # 近接の敵だけが前衛に阻まれる
-                g *= 1.0 - blk
+                g *= 1.0 - blk * _screen_past(f)   # 回り込んだ者は阻まれない
             if g > press:
                 press = g
     else:
