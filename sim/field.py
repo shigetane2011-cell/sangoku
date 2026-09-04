@@ -628,6 +628,24 @@ SPEAR_VS_CAV = 0.0
 # する。特攻（上）とは別のつまみにしてあるのは、「特攻を入れた効き」と
 # 「歪みを直した効き」を別々に測るため。
 SPEAR_NO_CAV_COVER = False
+
+# 接敵した後衛の槍が取り戻す威力（§7.151・テストプレイの案）。**既定 0.0 は挙動不変。**
+#
+# `SPEAR_REAR=0.40` は「**前線越しに**突く」ぶんの割引である。ところが回り込んだ
+# 騎兵は後衛に取り付いているので、そこは前線越しではなく普通の接近戦であり、
+# 0.40 のまま計算するのは単純に誤り。1.0 なら密着した相手へは本来の威力（＝1.00）で
+# 突き、離れた相手へは 0.40 のまま。撃ち手と的の距離で決まる連続な窓で、分岐は無い。
+#
+# **既存の規則と対になる**:
+#   弓 — 接敵されると出力を失う（SUPPRESS_MAX 0.85）… 撃てなくなるから
+#   槍 — 接敵されると出力を取り戻す（0.40 → 1.00）  … やっと突けるから
+# 窓の幅は接敵抑制と同じ SUPPRESS_R を使う（「接敵」の意味を1つにするため）。
+#
+# **兵種を見ない**ので相性表に項目を足さずに済み、対騎兵の効果は幾何から出る
+# （回り込んで後衛に取り付くのは騎兵だけなので、刺さるのも騎兵だけ）。
+# なお `Unit.__init__` の「配置で固定なので戦闘中に係数が切り替わることはない」は
+# **このつまみを入れると成り立たなくなる**（意図的にひっくり返している）。
+SPEAR_MELEE_BACK = 0.0
 # §6.1 の行動面の係数（歩1.00 / 騎0.90 / 弓1.12）は**旧レーンエンジンで実測した
 # 値**であり、この盤面では値付けが合わない。入れたままだと兵種補正を 0〜0.15、
 # FOCUS を 0〜3 まで振っても三すくみが 0/100/0 から一切動かず、係数だけで勝敗が
@@ -3303,6 +3321,18 @@ def _suppress(u: Unit, gaps: List[float],
     return sup
 
 
+def _spear_reach(u: Unit, d: float) -> float:
+    """後衛の槍が距離 d の相手へ出す威力の倍率（§7.151）。1.0 で後衛補正のまま。
+
+    密着した相手へは前線越しの割引（`SPEAR_REAR`）を返してもらう。
+    `SPEAR_MELEE_BACK=1.0` かつ密着なら 1/SPEAR_REAR 倍＝本来の威力。
+    """
+    if SPEAR_MELEE_BACK <= 0.0 or not u.pike or SPEAR_REAR <= 0.0:
+        return 1.0
+    back = (1.0 - SPEAR_REAR) / SPEAR_REAR * SPEAR_MELEE_BACK
+    return 1.0 + back * smooth_gate(d, 0.0, SUPPRESS_R)
+
+
 def _melee_dfn(f: "Unit", d: float) -> float:
     """距離 d の相手から受けるときの、的の実効防御（§7.150）。
 
@@ -3523,7 +3553,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + _melee_dfn(f, gap[i][j]))) \
-                        * f.ncut_mult * _cav_cover(u, f)
+                        * f.ncut_mult * _cav_cover(u, f) * _spear_reach(u, gap[i][j])
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
@@ -3591,7 +3621,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     if w <= 0.0:
                         continue
                     hit = base * w * (100.0 / (100.0 + _melee_dfn(f, col[i]))) \
-                        * f.ncut_mult * _cav_cover(u, f)
+                        * f.ncut_mult * _cav_cover(u, f) * _spear_reach(u, col[i])
                     if u.typ == CAV and f.typ == ARC and CAV_VS_ARC > 0.0:
                         hit *= 1.0 + CAV_VS_ARC      # 騎の白兵は弓を貫く（§7.123）
                     if u.pike and f.typ == CAV and SPEAR_VS_CAV > 0.0:
