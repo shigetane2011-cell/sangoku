@@ -122,12 +122,19 @@ def main():
     what = "特性" if trait else ("兵法（特性なし）" if strip else "兵法")
     if override:
         what += "＝" + "／".join(override.values())
+    # 控えの鍵に**名簿の効果文**を入れる。名簿（skills.csv）を書き換えて測り直す
+    # とき、鍵が同じだと古い控えを読んでしまう（1150% にしたのに 1300% の値が出た）。
+    R.load_skills_into_field(); R.load_traits_into_field()
+    if trait:
+        fp = {g["名前"]: g["固有特性"] for g in R.generals()}
+    else:
+        fp = {r["武将"]: r["効果"] for r in R.skills()}
     print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局".format(
         len(names), what, npers, seeds, npers * seeds), flush=True)
     jobs = []
     for n in names:
         for mode, bump in (("on", 0.0), ("off", 0.0), ("on", DELTA), ("on", -DELTA)):
-            k = "{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds)
+            k = "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
             if k not in got:
                 jobs.append((k, (n, mode, bump)))
     if jobs:
@@ -138,14 +145,13 @@ def main():
             got[k] = v
             json.dump(got, open(store, "w"))
             print("  済 {}".format(k), flush=True)
-    R.load_skills_into_field(); R.load_traits_into_field()
     cards = {c.name: c for c in M._roster_cards()}
     rows = {g["名前"]: g for g in R.generals()}
     print()
     print("{:<16}{:>6}{:>8}{:>9}{:>8}{:>9}{:>9}{:>9}{:>9}".format(
         "武将", "土台勝率", "Δ勝率", "±95%", "勝率通貨", "Δ残存差", "残存通貨", "請求", "釣り合い"))
     for n in names:
-        key = lambda mode, bump: "{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds)
+        key = lambda mode, bump: "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
         won, don = got[key("on", 0.0)]
         woff, doff = got[key("off", 0.0)]
         _, dhi = got[key("on", DELTA)]
