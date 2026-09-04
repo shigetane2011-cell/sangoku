@@ -925,10 +925,33 @@ SKILL_DUR_SCALE = 1.0
 # ここを分けてある: この定数は `sk.dur == 0` の打ち切りにだけ掛かる。
 SKILL_BURST_SCALE = 1.0
 
+# 持続する効果の**量**への倍率（§7.151・テストプレイの整理の続き）。
+# **既定 1.0 は挙動不変。**
+#
+# 「効果時間で調整する」は**予算を減らす**ときの話である。増やすときに秒数を
+# 伸ばすと、効果が戦闘より長くなって張りっぱなしになり、**タイミングを計る意味も
+# 切れ目を突く意味も消える**（実測: 予算2.2 で最長の強化が 60秒→132秒。決着は118秒）。
+# 増やすぶんは**効果量（%）**へ乗せる。
+#
+#   予算を減らす … 秒数を縮める（SKILL_DUR_SCALE < 1）。札の個性が壊れない
+#   予算を増やす … 量を増やす（この定数 > 1）。持続が戦闘を覆わない
+#
+# 継続ダメージ・継続回復は「毎秒の量」なので、ここが掛かれば総量も増える。
+SKILL_MAG_SCALE = 1.0
+
 
 def skill_dur(sec: float) -> float:
     """CSV の秒数を盤面の秒数へ（§7.151）。**読み取りは全部ここを通す。**"""
     return sec * SKILL_DUR_SCALE
+
+
+def skill_mag(v: float) -> float:
+    """持続する効果の量へ倍率を掛ける（§7.151）。
+
+    **入り切り（行動阻害・兵法打消し）には掛けない** — 量を持たないので、
+    掛けても意味が無いか、1.0 を超えて壊れる。
+    """
+    return v * SKILL_MAG_SCALE
 
 
 # 回復の倍率。**測ったら6倍ではなく約0.6倍だった**（`sim/field.py heal`）。
@@ -2430,17 +2453,19 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
             effect):
         if m.group(4):
             continue                    # 知力比の口（_skill_wits_mods）が読む
-        out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
+        out.append((_MOD_KEY[m.group(1)], skill_mag(float(m.group(2)) / 100.0),
                     skill_dur(float(m.group(3)))))
     # 畏怖（§7.64）: 敵の攻撃力を一定時間下げる弱体の呼び名。機構は攻撃力
     # マイナスそのもので、**新しい器は作らない**（命中率の注記と同じ理由）。
     for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒(・知力比)?）", effect):
         if m.group(3):
             continue                    # 知力比の口が読む
-        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
+        out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
+                    skill_dur(float(m.group(2)))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
     if m:
-        out.append(("chaos", float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
+        out.append(("chaos", skill_mag(float(m.group(1)) / 100.0),
+                    skill_dur(float(m.group(2)))))
     m = re.search(r"行動阻害\s*(\d+)秒", effect)
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
@@ -2482,7 +2507,8 @@ def _skill_self_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(r"反動\s*攻撃力\s*-(\d+)%（(\d+)秒）", effect):
-        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
+        out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
+                    skill_dur(float(m.group(2)))))
     return tuple(out)
 
 
@@ -2494,10 +2520,11 @@ def _skill_wits_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒・知力比）", effect):
-        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
+        out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
+                    skill_dur(float(m.group(2)))))
     for m in re.finditer(
             r"(攻撃力|命中率|防御力|移動速度)\s*(-\d+)%（(\d+)秒・知力比）", effect):
-        out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
+        out.append((_MOD_KEY[m.group(1)], skill_mag(float(m.group(2)) / 100.0),
                     skill_dur(float(m.group(3)))))
     return tuple(out)
 
@@ -2933,7 +2960,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
         # 打ち切りの回復だけ補償を掛ける（継続回復は効果時間側・§7.151）
         amt = (HEAL_SCALE * sk.heal * coef / n
-               * (SKILL_BURST_SCALE if sk.dur <= 0.0 else 1.0))
+               * (SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE))
         done = 0.0
         for f in tgts:
             if f.men <= 0.0:
@@ -2959,7 +2986,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
                  else u.rand.uniform(sk.power, sk.power_hi))
     # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）
-    burst = SKILL_BURST_SCALE if sk.dur <= 0.0 else 1.0
+    burst = SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE
     dmg = SKILL_SCALE * burst * p_eff * coef / n
     if SUPPRESS_SKILL and u.typ == ARC:
         # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの
