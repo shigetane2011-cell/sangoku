@@ -25,6 +25,10 @@ from multiprocessing import Pool
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tools.skill_price import _rows, _cost, local_slope, NF, FORMS
 
+# 局所勾配の床（§7.151）。これを割る（車台 × 陣形）は物差しにならないので外す。
+# 健全な組み合わせは 0.013〜0.072 なので、0.005 は退化したものだけを落とす。
+SLOPE_FLOOR = 0.005
+
 TIERS = {"手数": (75.0, 0.0), "標準": (150.0, 60.0), "大技": (300.0, 140.0)}
 E1 = "敵1体（正面）"; EL = "敵1列"; EF = "敵前衛"; EA = "敵全体"; ER = "敵後衛"
 AF = "味方前衛"; AA = "味方全体"; AL = "味方1列"; AR = "味方後衛"; A1 = "味方1体（残兵力が最少）"; ME = "自分"
@@ -148,6 +152,18 @@ def main():
     # **陣形の合算は勾配の重み付き**（Σ残存差 ÷ Σ勾配）。雁行の前衛（後衛4枠が決める）や
     # 鶴翼の後衛（後衛2枠）は局所勾配が 1/10 に落ち、その陣形だけで割ると値が10倍に化ける。
     # 生の残存差を足してから勾配の和で割れば「3陣形を通して、能力値の何点ぶんか」になる。
+    #
+    # **勾配が床を割る組み合わせは分子・分母の両方から外す**（§7.151）。歩兵の車台 ×
+    # 雁行は「前衛にコストを足しても、削っているのは後衛の弓」なので勾配がほぼ 0 で、
+    # delta を振ると符号まで反転する（+0.048 / -0.013 / +0.0003 / +0.032）。**物差しとして
+    # 成立していない。** 負のまま分母へ入れると総和を減らして比を膨らませる（5inf で 18%）。
+    dropped = set()
+    for key, by in agg.items():
+        for f in [f for f, v in by.items() if v[1] <= SLOPE_FLOOR]:
+            dropped.add((key[4], key[5], f)); del by[f]
+    if dropped:
+        print("物差しにならない組み合わせを外した（勾配 ≦ {:.3f}）: ".format(SLOPE_FLOOR)
+              + " ".join("{:.0f}{}/{}".format(c, t, f) for c, t, f in sorted(dropped)))
     print("{:<6}{:<26}{:<16}{:<4}{:>5}{:>4}{:>8}{:>8}{:>7}   {}".format("器", "効果", "対象", "段", "車台", "種", "実測", "請求", "比", "陣形別(鶴/魚/雁・勾配1/10未満は*)"))
     fam_ratios = {}
     for key in sorted(agg, key=lambda k: (P.index(k) if k in P else 0)):
