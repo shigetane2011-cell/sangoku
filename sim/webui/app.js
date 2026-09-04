@@ -2134,8 +2134,11 @@ function showCardInfo(name, card) {
     </div>
     <div class="ci-stats num">武勇 ${c.might}　知略 ${c.wits}</div>
     <div class="ci-stats num muted">兵力 ${c.men.toLocaleString()}
-      　攻勢 毎分約${c.atk_pm.toLocaleString()}人を削る
+      　攻勢 ${c.atk_pm2
+        ? `${esc(c.atk_pm2.a_label)} 毎分約${c.atk_pm2.a.toLocaleString()}人／${esc(c.atk_pm2.b_label)} 約${c.atk_pm2.b.toLocaleString()}人`
+        : `毎分約${c.atk_pm.toLocaleString()}人を削る`}
       　守勢 実効${c.eff_men.toLocaleString()}人ぶんを受ける</div>
+    ${c.atk_pm2 ? `<div class="ci-stats muted" style="font-size:.85em">※${esc(c.atk_pm2.note)}</div>` : ""}
     <div class="ci-row">
       <span class="tag skill-tag">兵法</span>
       <b>【${esc(c.skill)}】</b> <span class="muted">対象 ${esc(c.skill_target)}｜</span>${esc(c.skill_desc)}${

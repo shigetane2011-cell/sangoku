@@ -416,6 +416,10 @@ def _roster_json(only=None):
                 * 100.0 / (100.0 + _DEF_MEAN))),
             "eff_men": round(float(g["兵力"])
                              * (100.0 + float(g["防御力"])) / 100.0),
+            # 攻勢の二段（§7.151・テストプレイの指摘）。1つの数字だと実態と
+            # ずれて判断しづらい。**弓は状況で、槍は置き方で**変わるので、
+            # 見出しも分ける。値は field の定数1箇所から引く（重複定義しない）。
+            "atk_pm2": _atk_pm2(g),
             "atk": round(float(g["攻撃力"])),
             "dfn": round(float(g["防御力"])),
             "spear": bool((g.get("槍") or "").strip()),
@@ -430,6 +434,29 @@ def _roster_json(only=None):
             "quote": g.get("台詞", ""),
         })
     return out
+
+
+def _atk_pm2(g) -> "dict | None":
+    """攻勢の二段（§7.151）。弓＝遠射/近接（状況）・槍＝前衛/後衛（置き方）。
+
+    弓は密着されると `SUPPRESS_MAX` で出力を失い、後衛へ置いた槍は前線越しの
+    突きになって `SPEAR_REAR` まで落ちる。**性質が違うので見出しを分ける。**
+    後衛の槍には抑制が掛からない（§7.75。槍は近いほど強い）ので、槍側は
+    遠近の二段にしない。
+    """
+    pm = F.per_min(float(g["兵力"]) * F.LETHALITY
+                   * float(g["攻撃力"]) / F.BASE_ATK
+                   / R.INTERVAL[g["兵種"]]
+                   * 100.0 / (100.0 + _DEF_MEAN))
+    if g["兵種"] == "弓兵":
+        return {"kind": "arc", "a_label": "遠射", "a": round(pm),
+                "b_label": "密着されると", "b": round(pm * (1.0 - F.SUPPRESS_MAX)),
+                "note": "接敵されると矢継ぎが乱れる"}
+    if (g.get("槍") or "").strip():
+        return {"kind": "spear", "a_label": "前衛に置く", "a": round(pm),
+                "b_label": "後衛に置く", "b": round(pm * F.SPEAR_REAR),
+                "note": "後衛からは前線越しの突きになる"}
+    return None
 
 
 _TIER_JP = {"手数": "連発型", "標準": "標準型", "大技": "決戦型"}
