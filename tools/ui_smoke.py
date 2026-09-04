@@ -581,9 +581,16 @@ def replay_side_check(rep):
     rep.check(bool(mine) and bool(foe),
               "両軍の同名武将が自軍・敵軍に分かれる（自軍{}行・敵軍{}行）".format(
                   len(mine), len(foe)))
+    # **両軍の行が1行に合わさったものは陣営札を持たない**（narrate の sides は
+    # 主体が1つに決まらない行へ "" を詰める仕様）。同名デッキどうしだと同じ
+    # ティックに同じ兵法が飛ぶので、この行は普通に出る — 札の付いた行だけを見る。
+    sided = [(s, ln) for s, ln in pairs if s]
     ok = all(("先手" in ln) == (s == "mine")
-             for s, ln in pairs if "先手" in ln or "後手" in ln)
+             for s, ln in sided if "先手" in ln or "後手" in ln)
     rep.check(ok, "陣営札が文中の軍名と食い違わない")
+    mixed = [ln for s, ln in pairs if not s]
+    rep.check(all("先手" in ln and "後手" in ln for ln in mixed),
+              "札の無い行は両軍が混ざった行だけ（{}行）".format(len(mixed)))
     # 同名の札は文中でも軍名で分かれている（§7.93。「曹仁〔堅守〕（蜀・先手軍）」）
     rep.check(all("曹仁〔堅守〕（" in ln for _, ln in pairs),
               "両軍にいる武将は名前のうしろに軍名が付く")

@@ -19,9 +19,9 @@ def army(guard_trait="cover", rear_guard=False):
     return F.Army(tuple(order), F.FORM_STANDARD)
 
 
-def run(a, foe=ARCHERS, seed=22):
+def run(a, foe=ARCHERS, seed=22, t_max=400.0):
     ev = []
-    r = F.simulate(a, foe, dt=0.25, seed=seed, events=ev)
+    r = F.simulate(a, foe, dt=0.25, seed=seed, events=ev, t_max=t_max)
     return r, ev
 
 
@@ -33,7 +33,16 @@ class CoverTest(unittest.TestCase):
         g1 = r1["dealt_a"][1]
         self.assertGreater(g1[-1], 0.0, "庇う側の covered が増える")
         self.assertEqual(r0["dealt_a"][1][-1], 0.0, "特性なしでは 0")
-        self.assertGreater(me1[6] or 1e9, me0[6] or 0.0, "庇われた騎兵は長く立つ")
+        self.assertGreaterEqual(me1[6] or 1e9, me0[6] or 0.0, "崩れは早くならない")
+        # **「長く立つ」を崩れの時刻で測らない**（§7.151 以降）。この盤では
+        # 前衛の騎兵が受ける被害の 14% しか矢ではなく（残りは白兵）、庇える
+        # 3割は全体の 4.2% にしかならない。壊滅までやると被害は必ず men0 に
+        # 届くので、時刻の差はティックの刻みに埋もれる。**途中で切って残兵で
+        # 測る**（決定論なので刻みに依らない）。庇い自体は効いている。
+        s0, _ = run(army(guard_trait=""), t_max=30.0)
+        s1, _ = run(army(), t_max=30.0)
+        self.assertGreater(s1["dealt_a"][0][3], s0["dealt_a"][0][3],
+                           "庇われた騎兵は同じ時刻で兵が多く残る")
         mine = [e for e in ev if ("【" + F.COVER_NAME + "】") in e.text and e.side == "A"]
         self.assertEqual(len(mine), 1, "自軍の庇護は1戦1回だけ語る（相手の典韋・許褚は別）")
         self.assertTrue(mine[0].text.startswith("曹仁〔堅守〕"))
