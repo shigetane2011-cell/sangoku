@@ -900,6 +900,21 @@ SKILL_WITS = {"melee": 0.00, "area": 0.50, "scheme": 0.85}
 # 【計器】最初 150/300/600 で測って完全に同じ値が並んだ。1発45,000ダメージで札
 # （兵力10,000）が一撃で消えていたため。**同じ値の並びはゼロに限らず計器を疑う合図。**
 SKILL_SCALE = 1.482    # 上の GAUGE_PER_SEC と対で決まる（予算を保つ値）
+# 効果時間の一括縮尺（§7.151・テストプレイの方針）。**既定 1.0 は挙動不変。**
+#
+# ゲージの供給を上げて発動回数を増やすとき、威力（SKILL_SCALE）だけを下げても
+# **持続する効果（強化・弱体・混乱・打消し・継続ダメージ・継続回復）は総量が
+# 増えたままになる**。価値がおおよそ「効果量 × 秒数 × 発動回数」なので、
+# 回数を k 倍にするなら秒数も 1/k にしないと予算が保たれない。
+# CSV の文言（「（30秒）」）は正のままで、**読み取った秒数にここで掛ける**。
+SKILL_DUR_SCALE = 1.0
+
+
+def skill_dur(sec: float) -> float:
+    """CSV の秒数を盤面の秒数へ（§7.151）。**読み取りは全部ここを通す。**"""
+    return sec * SKILL_DUR_SCALE
+
+
 # 回復の倍率。**測ったら6倍ではなく約0.6倍だった**（`sim/field.py heal`）。
 # 旧盤面の「回復はダメージの6倍必要」は総大将撤退が決着の88%を占めていたからで、
 # 1枚を落とせば即勝ちなら回復では買えない価値がダメージにあった。いまの決着条件は
@@ -2348,7 +2363,7 @@ def _skill_power(effect: str) -> Tuple[float, float]:
     p = float(m.group(1)) / 100.0
     if "継続ダメージ" in effect:
         d = re.search(r"（(\d+)秒）", effect)
-        return p, float(d.group(1)) if d else 10.0
+        return p, skill_dur(float(d.group(1)) if d else 10.0)
     return p, 0.0
 
 
@@ -2375,7 +2390,7 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
         return 0.0, 0.0
     p = float(m.group(1)) / 100.0
     d = re.search(r"継続回復.*?（(\d+)秒）", effect)
-    return (p, float(d.group(1))) if d else (p, 0.0)
+    return (p, skill_dur(float(d.group(1)))) if d else (p, 0.0)
 
 
 # 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
@@ -2400,25 +2415,25 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
         if m.group(4):
             continue                    # 知力比の口（_skill_wits_mods）が読む
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
-                    float(m.group(3))))
+                    skill_dur(float(m.group(3)))))
     # 畏怖（§7.64）: 敵の攻撃力を一定時間下げる弱体の呼び名。機構は攻撃力
     # マイナスそのもので、**新しい器は作らない**（命中率の注記と同じ理由）。
     for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒(・知力比)?）", effect):
         if m.group(3):
             continue                    # 知力比の口が読む
-        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
+        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
     if m:
-        out.append(("chaos", float(m.group(1)) / 100.0, float(m.group(2))))
+        out.append(("chaos", float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
     m = re.search(r"行動阻害\s*(\d+)秒", effect)
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
-        out.append(("stun", -1.0, float(m.group(1))))
+        out.append(("stun", -1.0, skill_dur(float(m.group(1)))))
     m = re.search(r"兵法打消し（(\d+)秒）", effect)
     if m:
         # 打消しは量を持たない（構えが有るか無いか）。回数制は段差になって
         # 値段が付かない（ゲージ付与と同じ轍）ので**時間の窓**にする。
-        out.append(("null", 1.0, float(m.group(1))))
+        out.append(("null", 1.0, skill_dur(float(m.group(1)))))
     # 【廃止】ゲージ付与。**段差なので値段が付かない。**
     # 「自然増加のN秒ぶん」でも「消費のX%」でも、受け手が1回ぶんの閾値を越えるか
     # 越えないかで 0 か丸ごと1回ぶんになる。実測（味方全体・標準の段・2回）で
@@ -2451,7 +2466,7 @@ def _skill_self_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(r"反動\s*攻撃力\s*-(\d+)%（(\d+)秒）", effect):
-        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
+        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
     return tuple(out)
 
 
@@ -2463,11 +2478,11 @@ def _skill_wits_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     """
     out = []
     for m in re.finditer(r"畏怖\s*-?(\d+)%（(\d+)秒・知力比）", effect):
-        out.append(("atk", -float(m.group(1)) / 100.0, float(m.group(2))))
+        out.append(("atk", -float(m.group(1)) / 100.0, skill_dur(float(m.group(2)))))
     for m in re.finditer(
             r"(攻撃力|命中率|防御力|移動速度)\s*(-\d+)%（(\d+)秒・知力比）", effect):
         out.append((_MOD_KEY[m.group(1)], float(m.group(2)) / 100.0,
-                    float(m.group(3))))
+                    skill_dur(float(m.group(3)))))
     return tuple(out)
 
 
