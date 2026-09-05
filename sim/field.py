@@ -2836,6 +2836,14 @@ def _fx_add(f: Unit, eff) -> None:
         _SKILL_FX.append((f, "eff", eff))
 
 
+def _pool_set(f: Unit, pool) -> None:
+    """打消しの入れ物を積む。兵法のフェーズ中なら蓄積器へ回す（効果と同じ口・§7.165）。"""
+    if _SKILL_FX is None:
+        f.null_pool = pool
+    else:
+        _SKILL_FX.append((f, "pool", pool))
+
+
 def _chaos_add(f: Unit, amt: float, until: float) -> None:
     if _SKILL_FX is None:
         f.chaos = max(f.chaos, amt)
@@ -2859,6 +2867,8 @@ def _flush_men() -> None:
         for f, kind, v in _SKILL_FX:
             if kind == "eff":
                 f.effects.append(v)
+            elif kind == "pool":
+                f.null_pool = v
             else:
                 f.chaos = max(f.chaos, v[0])
                 f.chaos_until = max(f.chaos_until, v[1])
@@ -2996,7 +3006,12 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         pool = None if key != "null" or amt == math.inf else [amt]
         for f in hit:
             if key == "null":
-                f.null_pool = pool
+                # 入れ物は**効果と同じ口**（蓄積器）から入れる（§7.165）。ここで直に
+                # 代入すると、兵法のフェーズ中に走る _recalc_mods が「まだ打消しの
+                # 効果が無い」と見て入れ物を None に戻し、フェーズ明けに効果が
+                # 載った時点で「入れ物なし＝何発でも」になっていた（実戦では回数が
+                # 一度も効いていなかった。単体テストは蓄積器を通らないので見えず）。
+                _pool_set(f, pool)
             _fx_add(f, (t + secs, key, amt, src))
         if hit:
             m = abs(amt) * secs * len(hit)

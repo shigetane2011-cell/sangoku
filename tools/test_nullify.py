@@ -137,6 +137,26 @@ class Charges(unittest.TestCase):
 
 
 class Words(unittest.TestCase):
+    def test_pool_survives_phase_recalc(self):
+        """兵法のフェーズ（蓄積器）を通しても入れ物が残り、回数が効く（§7.165）。
+        以前は蓄積器の中で _recalc_mods が走ると入れ物が None に戻り、実戦では
+        「何発でも」になっていた（単体テストは蓄積器を通らないので見えなかった）。"""
+        ua = F.build(_army(_filler(6)), 1)
+        ub = F.build(_army(_filler(6)), -1)
+        tgt = F._skill_targets("敵1体（正面）", ub[0], ua, ub)[0]
+        sk = F._parse_skill("兵法打消し 1発（60秒）", "自分")
+        F._open_men_window()
+        F._apply_skill(tgt, sk, "自分", ua, ub, 0.0, src=STANCE, name=STANCE, kind_jp="兵法")
+        F._recalc_mods(tgt)          # フェーズ中の組み直し（ここで入れ物が消えていた）
+        F._flush_men()
+        F._recalc_mods(tgt)
+        self.assertIsNotNone(tgt.null_pool)
+        self.assertAlmostEqual(tgt.null_pool[0], 1.0)
+        self.assertFalse(_shoot(ua, ub, tgt))      # 1発目 霧散
+        self.assertTrue(_shoot(ua, ub, tgt))       # 2発目は通る（回数が効いている）
+        self.assertEqual(tgt.null_blocked, 1)
+        self.assertFalse(tgt.nullify)
+
     def test_line_says_count(self):
         ua = F.build(_army(_filler(6)), 1)
         def line(amount):
