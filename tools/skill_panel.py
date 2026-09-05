@@ -12,10 +12,17 @@
 歩騎は前衛）。相手は実カードの性格パネル（12性格 × N種・官渡30）。
 「あり／なし」を**同じ相手・同じ種**で対にして測る（差の分散が桁で小さい）。
 
-読み方は2つの通貨で出す:
-  勝率の通貨 … Δ勝率 ÷ 4.86（§7.52。土台が50%付近のときだけ信用できる）
-  残存差の通貨 … Δ残存差 ÷ 局所勾配（詰め物1枚に ±2 コスト点。§7.117）
-両方が揃えば信用してよい。土台の勝率が 30% や 70% だと勝率の通貨は効きにくい。
+物差しは**その札自身の1コスト点**（§7.156）。同じ札の能力値をちょうど1コスト点ぶん
+削った版（兵法・特性・寄せ・詰め物は同じ）を同じ相手に当て、
+  兵法の値打ち（コスト点） ＝ Δ（あり−なし） ÷ Δ（あり−1点削り）
+で出す。勝率でも残存差でも同じ式なので、定数（4.86 勝点%/点）も詰め物の勾配も
+要らない。以前の物差し（Δ勝率÷4.86・Δ残存差÷詰め物の局所勾配）は、詰め物の
+1点が 4.86 の半分（2.47 勝点%）しか効かず、値を約2倍に膨らませていた（§7.156）。
+`--filler-slope` で旧物差しも並べて出せる。
+
+相手の数（性格 12 × 種 N）は**組み合わせの数**であって同じ対戦の繰り返しではない。
+種ごとに相手の編成が変わり、1組の対戦は1局しか打たない。既定 N=20（240組）。
+差が誤差の幅に収まるときだけ `--seeds 60`。
 
 なぜ要るか。`skill_price.py` は合成軍どうしの1局で陣形ごとに測るので、
 勾配が退化する（車台×陣形）で +51／−8／+15 のように暴れる（効果予算の許容超え
@@ -39,10 +46,31 @@ from sim import dummies as D        # noqa: E402
 from sim import design as DS        # noqa: E402
 
 DT = 0.25
-RATE = 4.86
+RATE = 4.86          # 旧物差し（--filler-slope）だけが使う
 TOTAL = 30.0
 DELTA = 2.0
 _S = {}
+
+
+def _minus_one(card, g):
+    """同じ札から能力値をちょうど1コスト点ぶん削った札（物差し用）。
+
+    盤面は 兵力 を stat_cost から、攻撃力 を 武力・知力 から作るので、
+    stat_cost を 1 下げ、武力・知力 は「効果に1点多く払った設計」から引き直す。
+    Card.cost は据え置く（詰め物の額と役割の混ぜ方が動かないように）。
+    効果予算の上限（EFFECT_CAP）は外して引く — 上限に当たっている札は、
+    上限を効かせると能力値が1点ぶん減らない。"""
+    d = R.to_design(g)
+    paid = d.cost - card.stat_cost          # 名簿がその札の効果に払っている額
+    d2 = DS.Design(**{**d.__dict__, "effect": paid + 1.0})
+    cap = DS.EFFECT_CAP
+    DS.EFFECT_CAP = 99.0
+    try:
+        v = DS.derive(d2)
+    finally:
+        DS.EFFECT_CAP = cap
+    return replace(card, stat_cost=card.stat_cost - 1.0,
+                   might=round(v["武力"], 1), wits=round(v["知力"], 1))
 
 
 def _apply_override(override):
@@ -77,6 +105,7 @@ def _init(npers, seeds, override=None):
         F.sync_type_atk()
     cards = M._roster_cards()       # ここで兵法表が読み直されることがある
     _S["cards"] = {c.name: c for c in cards}
+    _S["rows"] = {g["名前"]: g for g in R.generals()}
     _S["opps"] = [D.make_entry(cards, p, s, caps=(("官渡", TOTAL),)).units[0]
                   for p in D.PERSONAS[:npers] for s in range(seeds)]
     _S["override"] = override
@@ -109,6 +138,8 @@ def _one(job):
         c = replace(c, gauge_cost=gc, gauge_init=gi)
     if mode == "off":
         c = replace(c, skill="") if not _S.get("trait") else replace(c, trait="")
+    elif mode == "m1":                   # 物差し: 能力値を1コスト点ぶん削った同じ札
+        c = _minus_one(c, _S["rows"][name])
     a = _army(c, bump)
     w, d = [], []
     for i, o in enumerate(_S["opps"]):
@@ -133,8 +164,9 @@ def main():
             k, v = sys.argv[i + 1].split("=", 1); override["const:" + k] = v
         if a == "--gauge":                  # --gauge 札名 消費,初期（段の診断用）
             override["gauge:" + sys.argv[i + 1]] = sys.argv[i + 2]
+    filler = "--filler-slope" in sys.argv   # 旧物差し（詰め物 ±2 点）も並べる
     seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv \
-        else (20 if quick else 60)
+        else 20
     npers = 4 if quick else len(D.PERSONAS)
     # 旗の引数は**位置で**外す。値で外すと --effect の札名と測る札名が同じ文字列の
     # とき両方消えて「0枚」になる（一度踏んだ）。
@@ -172,11 +204,18 @@ def main():
             fp[g["名前"]] = ";".join("{}={}|{}".format(k, tdef.get(k, ""), consts.get(k, "")) for k in ks)
     else:
         fp = {r["武将"]: r["効果"] for r in R.skills()}
-    print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局".format(
-        len(names), what, npers, seeds, npers * seeds), flush=True)
+    # 札の能力値も鍵に入れる（regenerate で引き直すと同じ効果文でも別の札になる）。
+    for g in R.generals():
+        fp[g["名前"]] = "{}|c{}/s{}/m{}/w{}".format(
+            fp.get(g["名前"], ""), g["コスト"], g["能力値コスト"], g["武力"], g["知力"])
+    print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局（1組1局・組み合わせ {} 通り）".format(
+        len(names), what, npers, seeds, npers * seeds, npers * seeds), flush=True)
+    variants = [("on", 0.0), ("off", 0.0), ("m1", 0.0)]
+    if filler:
+        variants += [("on", DELTA), ("on", -DELTA)]
     jobs = []
     for n in names:
-        for mode, bump in (("on", 0.0), ("off", 0.0), ("on", DELTA), ("on", -DELTA)):
+        for mode, bump in variants:
             k = "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
             if k not in got:
                 jobs.append((k, (n, mode, bump)))
@@ -188,37 +227,50 @@ def main():
             got[k] = v
             json.dump(got, open(store, "w"))
             print("  済 {}".format(k), flush=True)
-    cards = {c.name: c for c in M._roster_cards()}
     rows = {g["名前"]: g for g in R.generals()}
     print()
-    print("{:<16}{:>6}{:>8}{:>9}{:>8}{:>9}{:>9}{:>9}{:>9}".format(
-        "武将", "土台勝率", "Δ勝率", "±95%", "勝率通貨", "Δ残存差", "残存通貨", "請求", "釣り合い"))
+    hdr = "{:<14}{:>6}{:>8}{:>8}{:>7}{:>9}{:>9}{:>7}{:>7}{:>7}{:>7}".format(
+        "武将", "土台勝率", "Δ勝率", "1点Δ勝", "勝率点", "Δ残存差", "1点Δ残", "残存点", "±", "請求", "釣り合い")
+    if filler:
+        hdr += "{:>8}{:>8}".format("旧勝率", "旧残存")
+    print(hdr)
     for n in names:
         key = lambda mode, bump: "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
         won, don = got[key("on", 0.0)]
         woff, doff = got[key("off", 0.0)]
-        _, dhi = got[key("on", DELTA)]
-        _, dlo = got[key("on", -DELTA)]
-        slope = (statistics.mean(dhi) - statistics.mean(dlo)) / (2.0 * DELTA)
-        dw = [a - b for a, b in zip(won, woff)]
-        dd = [a - b for a, b in zip(don, doff)]
+        wm1, dm1 = got[key("m1", 0.0)]
+        dw = [a - b for a, b in zip(won, woff)]       # 兵法の差（勝率）
+        sw = [a - b for a, b in zip(won, wm1)]        # 1コスト点の差（勝率）
+        dd = [a - b for a, b in zip(don, doff)]       # 兵法の差（残存差）
+        sd = [a - b for a, b in zip(don, dm1)]        # 1コスト点の差（残存差）
         n_ = len(dw)
-        mw = statistics.mean(dw); ci = 1.96 * statistics.pstdev(dw) / (n_ ** 0.5)
-        md = statistics.mean(dd)
-        v_win = mw * 100.0 / RATE
-        v_diff = md / slope if abs(slope) > 1e-9 else float("nan")
+        mw, ms = statistics.mean(dw), statistics.mean(sw)
+        md, msd = statistics.mean(dd), statistics.mean(sd)
+        ci = lambda xs: 1.96 * statistics.pstdev(xs) / (n_ ** 0.5)
+        v_win = mw / ms if abs(ms) > 1e-9 else float("nan")
+        v_diff = md / msd if abs(msd) > 1e-9 else float("nan")
+        # 比の誤差（両方の相対誤差を足し合わせる近似）
+        rel = ((ci(dd) / md) ** 2 + (ci(sd) / msd) ** 2) ** 0.5 if md and msd else float("nan")
         g = rows[n]
+        ks = [k.strip() for k in (g["固有特性"] or "").replace("／", "/").split("/") if k.strip()]
         if trait:
-            ks = [k.strip() for k in (g["固有特性"] or "").replace("／", "/").split("/") if k.strip()]
             charged = sum(DS.trait_value(k, g["人物"]) for k in ks)
         else:
-            ks = [k.strip() for k in (g["固有特性"] or "").replace("／", "/").split("/") if k.strip()]
             charged = float(g["効果予算"]) - sum(DS.trait_value(k, g["人物"]) for k in ks)
-        print("{:<16}{:>7.1%}{:>+8.2%}{:>8.2%}{:>+8.2f}{:>+9.4f}{:>+9.2f}{:>9.2f}{:>+9.2f}".format(
-            n, statistics.mean(won), mw, ci, v_win, md, v_diff, charged, v_diff - charged),
-            flush=True)
+        line = "{:<14}{:>7.1%}{:>+8.2%}{:>+8.2%}{:>+7.2f}{:>+9.4f}{:>+9.4f}{:>+7.2f}{:>7.2f}{:>7.2f}{:>+7.2f}".format(
+            n, statistics.mean(won), mw, ms, v_win, md, msd, v_diff,
+            abs(v_diff * rel) if rel == rel else float("nan"), charged, v_diff - charged)
+        if filler:
+            _, dhi = got[key("on", DELTA)]
+            _, dlo = got[key("on", -DELTA)]
+            slope = (statistics.mean(dhi) - statistics.mean(dlo)) / (2.0 * DELTA)
+            line += "{:>+8.2f}{:>+8.2f}".format(mw * 100.0 / RATE,
+                                                md / slope if abs(slope) > 1e-9 else float("nan"))
+        print(line, flush=True)
     print()
-    print("  請求 = 名簿がその札から引いている額（{}のぶん）。釣り合い = 残存通貨 − 請求。"
+    print("  1点Δ勝・1点Δ残 = 同じ札の能力値を1コスト点ぶん削ったときの差（物差し）。")
+    print("  勝率点・残存点 = 兵法の差 ÷ 物差し（＝コスト点）。± は残存点の誤差（95%）。")
+    print("  請求 = 名簿がその札から引いている額（{}のぶん）。釣り合い = 残存点 − 請求。"
           "マイナスが払い過ぎ".format(what))
     print("  控え: {}".format(store))
     print("PANEL DONE")
