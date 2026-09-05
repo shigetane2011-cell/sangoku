@@ -101,6 +101,8 @@ def _apply_override(override):
 
 
 def _init(npers, seeds, override=None):
+    global TOTAL
+    TOTAL = float(os.environ.get("PANEL_TOTAL", TOTAL))   # --cap は子プロセスへ環境で渡す
     R.load_skills_into_field()
     R.load_traits_into_field()
     F.SKILLS_ON = F.TRAITS_ON = True
@@ -204,6 +206,10 @@ def main():
         if a == "--gauge":                  # --gauge 札名 消費,初期（段の診断用）
             override["gauge:" + sys.argv[i + 1]] = sys.argv[i + 2]
     filler = "--filler-slope" in sys.argv   # 旧物差し（詰め物 ±2 点）も並べる
+    if "--cap" in sys.argv:                 # 戦場の総コスト（既定 30＝官渡。18 なら汜水関の的）
+        global TOTAL
+        TOTAL = float(sys.argv[sys.argv.index("--cap") + 1])
+        os.environ["PANEL_TOTAL"] = str(TOTAL)
     real_base = "--real-base" in sys.argv   # 土台を実カードの性格デッキに
     nbases = int(sys.argv[sys.argv.index("--bases") + 1]) if "--bases" in sys.argv else 6
     bare = "--bare-base" in sys.argv       # 土台の味方の特性を外す（--real-base と併用）
@@ -219,7 +225,7 @@ def main():
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
     width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2,
-             "--bases": 1}
+             "--bases": 1, "--cap": 1}
     for i, a in enumerate(sys.argv):        # 同じ旗が複数回出ても全部の引数を除く
         if a in width:
             skip.update(range(i + 1, i + 1 + width[a]))
@@ -234,6 +240,8 @@ def main():
     what = "特性" if trait else ("兵法（特性なし）" if strip else "兵法")
     if real_base:
         what += "・実カードの土台{}{}".format(nbases, "・特性なし" if bare else "")
+    if TOTAL != 30.0:
+        what += "・総コスト{:g}".format(TOTAL)
     if override:
         what += "＝" + "／".join("{}:{}".format(k, v) if k.startswith(("const:", "gauge:")) else v
                                 for k, v in override.items())
