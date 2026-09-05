@@ -788,6 +788,12 @@ TIER_WEIGHT = {"手数": 1.600, "標準": 1.000, "大技": 0.479}
 # 能力値の何倍にもなり、歩・騎は能力値のほうが得になる。実カードの残差の地図で当てる。
 # **兵種の層（ACT_COEF）とは別の層** — こちらを動かしたら辺（type_edges）を測り直す。
 TYPE_EFFECT_MULT = {F.INF: 0.513, F.CAV: 0.417, F.ARC: 1.000}
+# 「回復 攻撃力のN%」の兵種の乗数（§7.170・仮）。回復量は撃ち手の**攻撃力**に比例するが、弓の攻撃力は
+# 歩の 3〜4 倍の尺度（遠射の層）なので、同じ文でも弓が撃つと歩の何倍も回復する。TYPE_EFFECT_MULT は
+# 打撃・弱体で当てた乗数で、回復には足りない。名簿で初めての弓の回復役（華佗〔神医〕）を skill_panel で
+# 測ると、歩の劉備（値札どおり 0.67／1.13 対 1.00）に対して弓は 4.14 ±2.02（合成の土台）／6.33 ±3.44
+# （実の土台）対 1.74 — 相対で ×3.2〜3.5。中を取って 3.4。**弓の回復札を増やしたら測り直す。**
+HEAL_TYPE_MULT = {F.ARC: 3.4}
 # 【§7.127】手数 1.758 → 0.850。旧値は時間給3.2（手数4回/戦）の経済で測った
 # もの。時間給1.6では手数の自然回転が約2回/戦に落ち、1発あたりの相対価値が
 # 上がる — 大技と同値の威力の比を車台4/6×3陣形×相手3性格の18文脈で実測すると
@@ -928,7 +934,8 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
              * target_dmg_f(target)
     elif skill.power > 0.0:
         v += damage_price(skill.power * tc) * target_dmg_f(target)
-    v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target)
+    v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target) \
+        * HEAL_TYPE_MULT.get(typ, 1.0)
     for key, amt, secs in skill.mods:
         if key == "stun":
             v += EFFECT_PRICE["stun"] * secs * fx
