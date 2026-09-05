@@ -7,6 +7,7 @@
     python3 tools/skill_panel.py --effect 諸葛恪〔元遜〕 "ダメージ 威力1000%" 諸葛恪〔元遜〕  # 案の測定
     python3 tools/skill_panel.py --trait --trait-effect hakuba "移動速度 +30%（20秒）|enemy_retreat で発動 / 対象 自分 / 1戦3回まで" 公孫瓚〔白馬義従〕
     python3 tools/skill_panel.py --quick ...                          # 4性格×20種
+    python3 tools/skill_panel.py --real-base 李典〔慎重〕                # 土台を実カードの性格デッキに
 
 土台: その札 ＋ 合成の詰め物5枚（総コスト30・詰め物は同コスト・弓は後衛、
 歩騎は前衛）。相手は実カードの性格パネル（12性格 × N種・官渡30）。
@@ -19,6 +20,11 @@
 要らない。以前の物差し（Δ勝率÷4.86・Δ残存差÷詰め物の局所勾配）は、詰め物の
 1点が 4.86 の半分（2.47 勝点%）しか効かず、値を約2倍に膨らませていた（§7.156）。
 `--filler-slope` で旧物差しも並べて出せる。
+
+`--real-base` は土台を合成の詰め物ではなく**実カードの性格デッキ**にする（§7.158 の切り分け用）。
+性格デッキ（既定6組・`--bases N`）の同じ兵種で最もコストの近い1枚をその札に差し替え、
+1組の土台につき相手 240÷6 組を当てる（合計は同じ 240局・あり/なし/1点削りは同じ組で対）。
+合成の土台で「弓の1点が騎の1点の 0.4倍」と出たのが土台のせいか弓の性質かを見る。
 
 相手の数（性格 12 × 種 N）は**組み合わせの数**であって同じ対戦の繰り返しではない。
 種ごとに相手の編成が変わり、1組の対戦は1局しか打たない。既定 N=20（240組）。
@@ -108,6 +114,10 @@ def _init(npers, seeds, override=None):
     _S["rows"] = {g["名前"]: g for g in R.generals()}
     _S["opps"] = [D.make_entry(cards, p, s, caps=(("官渡", TOTAL),)).units[0]
                   for p in D.PERSONAS[:npers] for s in range(seeds)]
+    nb = int(os.environ.get("PANEL_BASES", "0"))
+    if nb > 0:                      # --real-base: 土台の性格デッキ（相手とは別の種）
+        _S["bases"] = [D.make_entry(cards, D.PERSONAS[b % npers], 5000 + b,
+                                    caps=(("官渡", TOTAL),)).units[0] for b in range(nb)]
     _S["override"] = override
     _apply_override(override)       # **名簿を読んだ後に**差し替える（前は上書きされて空振りした）
 
@@ -122,6 +132,20 @@ def _army(card, filler_bump=0.0):
     else:
         cards = [card] + front + rear + [F._synth(fc, F.ARC, F.DPS)]
     return F.Army(tuple(cards), F.FORM_STANDARD)
+
+
+def _swap_into(base, card):
+    """実カードの土台へ差し替える。同じ人物がいればその枠、なければ同じ兵種で
+    コストが最も近い枠（前衛/後衛は兵種で決まるので位置も正しく入る）。"""
+    me = M.person_of(card)
+    cards = list(base.cards)
+    idx = [i for i, c in enumerate(cards) if M.person_of(c) == me]
+    if not idx:
+        same = [i for i, c in enumerate(cards) if c.typ == card.typ]
+        pool = same or list(range(len(cards)))
+        idx = [min(pool, key=lambda i: (abs(cards[i].cost - card.cost), i))]
+    cards[idx[0]] = card
+    return F.Army(tuple(cards), base.form)
 
 
 def _one(job):
@@ -140,8 +164,17 @@ def _one(job):
         c = replace(c, skill="") if not _S.get("trait") else replace(c, trait="")
     elif mode == "m1":                   # 物差し: 能力値を1コスト点ぶん削った同じ札
         c = _minus_one(c, _S["rows"][name])
-    a = _army(c, bump)
     w, d = [], []
+    bases = _S.get("bases")
+    if bases:                            # 実カードの土台: 土台ごとに相手を分ける
+        per = len(_S["opps"]) // len(bases)
+        for b, base in enumerate(bases):
+            a = _swap_into(base, c)
+            for i in range(b * per, (b + 1) * per):
+                r = F.simulate(a, _S["opps"][i], dt=DT, seed=i * 7 + 1)
+                w.append(r["score"]); d.append(r["diff"])
+        return w, d
+    a = _army(c, bump)
     for i, o in enumerate(_S["opps"]):
         r = F.simulate(a, o, dt=DT, seed=i * 7 + 1)
         w.append(r["score"]); d.append(r["diff"])
@@ -165,13 +198,19 @@ def main():
         if a == "--gauge":                  # --gauge 札名 消費,初期（段の診断用）
             override["gauge:" + sys.argv[i + 1]] = sys.argv[i + 2]
     filler = "--filler-slope" in sys.argv   # 旧物差し（詰め物 ±2 点）も並べる
+    real_base = "--real-base" in sys.argv   # 土台を実カードの性格デッキに
+    nbases = int(sys.argv[sys.argv.index("--bases") + 1]) if "--bases" in sys.argv else 6
+    if real_base:
+        os.environ["PANEL_BASES"] = str(nbases)
+        filler = False                      # 詰め物が無いので旧物差しは出せない
     seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv \
         else 20
     npers = 4 if quick else len(D.PERSONAS)
     # 旗の引数は**位置で**外す。値で外すと --effect の札名と測る札名が同じ文字列の
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
-    width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2}
+    width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2,
+             "--bases": 1}
     for i, a in enumerate(sys.argv):        # 同じ旗が複数回出ても全部の引数を除く
         if a in width:
             skip.update(range(i + 1, i + 1 + width[a]))
@@ -184,6 +223,8 @@ def main():
     except Exception:
         got = {}
     what = "特性" if trait else ("兵法（特性なし）" if strip else "兵法")
+    if real_base:
+        what += "・実カードの土台{}".format(nbases)
     if override:
         what += "＝" + "／".join("{}:{}".format(k, v) if k.startswith(("const:", "gauge:")) else v
                                 for k, v in override.items())
