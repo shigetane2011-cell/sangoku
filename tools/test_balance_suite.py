@@ -35,7 +35,7 @@ class BalanceSuiteTest(unittest.TestCase):
         for _where, _name, entry in C.all_fixture_entries(self.data, self.index):
             self.assertEqual(M.validate(entry), [])
             seen += 1
-        self.assertEqual(seen, 74)  # two named sets + 24 + 48
+        self.assertEqual(seen, 76)  # four named sets (chappy, counter, chappy_prev_20260828, red2_20260905) + 24 + 48
 
     def test_distribution_reproduces_saved_sample_shape(self):
         report = B.distribution_report(self.data, self.cards)
