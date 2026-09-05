@@ -118,6 +118,12 @@ def _init(npers, seeds, override=None):
     if nb > 0:                      # --real-base: 土台の性格デッキ（相手とは別の種）
         _S["bases"] = [D.make_entry(cards, D.PERSONAS[b % npers], 5000 + b,
                                     caps=(("官渡", TOTAL),)).units[0] for b in range(nb)]
+        if os.environ.get("PANEL_BARE_BASE"):
+            # --bare-base: 土台の味方から固有特性を全部外す（測る札は残す）。味方の
+            # 誘発型（呼応・号令など「味方の兵法で発動」）が、測る札の兵法の値打ちに
+            # 乗っていないかを切り分ける（§7.158 追記3）。
+            _S["bases"] = [F.Army(tuple(replace(c, trait="", hidden_trait="") for c in a.cards), a.form)
+                           for a in _S["bases"]]
     _S["override"] = override
     _apply_override(override)       # **名簿を読んだ後に**差し替える（前は上書きされて空振りした）
 
@@ -200,8 +206,11 @@ def main():
     filler = "--filler-slope" in sys.argv   # 旧物差し（詰め物 ±2 点）も並べる
     real_base = "--real-base" in sys.argv   # 土台を実カードの性格デッキに
     nbases = int(sys.argv[sys.argv.index("--bases") + 1]) if "--bases" in sys.argv else 6
+    bare = "--bare-base" in sys.argv       # 土台の味方の特性を外す（--real-base と併用）
     if real_base:
         os.environ["PANEL_BASES"] = str(nbases)
+        if bare:
+            os.environ["PANEL_BARE_BASE"] = "1"
         filler = False                      # 詰め物が無いので旧物差しは出せない
     seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv \
         else 20
@@ -224,7 +233,7 @@ def main():
         got = {}
     what = "特性" if trait else ("兵法（特性なし）" if strip else "兵法")
     if real_base:
-        what += "・実カードの土台{}".format(nbases)
+        what += "・実カードの土台{}{}".format(nbases, "・特性なし" if bare else "")
     if override:
         what += "＝" + "／".join("{}:{}".format(k, v) if k.startswith(("const:", "gauge:")) else v
                                 for k, v in override.items())
