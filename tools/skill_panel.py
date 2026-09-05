@@ -5,6 +5,7 @@
     python3 tools/skill_panel.py --trait 袁紹〔盟主〕 費禕〔大将軍〕   # 特性を外した差
     python3 tools/skill_panel.py --strip-trait 陸抗〔羊陸之交〕        # 特性を両案から外して兵法だけ
     python3 tools/skill_panel.py --effect 諸葛恪〔元遜〕 "ダメージ 威力1000%" 諸葛恪〔元遜〕  # 案の測定
+    python3 tools/skill_panel.py --effect 周倉〔刀持ち〕 "兵法打消し 1発（30秒）|味方後衛" --gauge 周倉〔刀持ち〕 150,60 --cap 18 周倉〔刀持ち〕  # 対象と段も替えた案
     python3 tools/skill_panel.py --trait --trait-effect hakuba "移動速度 +30%（20秒）|enemy_retreat で発動 / 対象 自分 / 1戦3回まで" 公孫瓚〔白馬義従〕
     python3 tools/skill_panel.py --quick ...                          # 4性格×20種
     python3 tools/skill_panel.py --real-base 李典〔慎重〕                # 土台を実カードの性格デッキに
@@ -97,7 +98,11 @@ def _apply_override(override):
                 F.TRAITS[key] = (cond, target, cap, F._parse_skill(text, target), jp)
             continue
         sk = [r for r in R.skills() if r["武将"] == name][0]
-        F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(eff, sk["対象"])
+        # "効果文|対象" なら対象も差し替える（構えの案は対象＝味方後衛などで値打ちが決まる）
+        text, tgt = (eff.split("|", 1) + [""])[:2]
+        tgt = tgt.strip() or sk["対象"]
+        F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(text, tgt)
+        F.SKILL_TARGET[sk["兵法名"]] = tgt
 
 
 def _init(npers, seeds, override=None):
