@@ -395,7 +395,14 @@ def search(args) -> dict:
     cfg = PROFILES[args.profile]
     data, cards, named, official, special, final_blind = _load()
     rng = random.Random(args.seed)
-    starts = _dedupe(list(named.values()) + official)
+    # --ban: 使えない札（王者の18枚を禁じて「二番目の種」を探す・§7.163）。相手（在野・殿堂・性格）は
+    # 全札のままで、**探索する側だけ**が使えない。--fresh: chappy／破陣を初期個体にしない。
+    ban = {x.strip() for x in (getattr(args, "ban", "") or "").split(",") if x.strip()}
+    pool_cards = [c for c in cards if c.name not in ban]
+    def _clean(e):
+        return not any(c.name in ban for a in e.units for c in a.cards)
+    seeds0 = ([] if getattr(args, "fresh", False) else list(named.values())) + official
+    starts = _dedupe([e for e in seeds0 if _clean(e)]) or _dedupe(persona_entries(pool_cards, len(D.PERSONAS), args.seed))
 
     train_official = official[:]
     rng.shuffle(train_official)
@@ -404,7 +411,7 @@ def search(args) -> dict:
 
     population = _dedupe(starts)
     while len(population) < cfg["population"]:
-        child = mutate(rng.choice(population), cards, rng, rng.choice(cfg["mutations"]))
+        child = mutate(rng.choice(population), pool_cards, rng, rng.choice(cfg["mutations"]))
         population = _dedupe(population + [child])
     population = population[: cfg["population"]]
 
@@ -449,9 +456,9 @@ def search(args) -> dict:
         tries = 0
         while len(next_pop) < cfg["population"] and tries < cfg["population"] * 100:
             tries += 1
-            next_pop = _dedupe(next_pop + [mutate(rng.choice(parent_pool), cards, rng, rng.choice(cfg["mutations"]))])
+            next_pop = _dedupe(next_pop + [mutate(rng.choice(parent_pool), pool_cards, rng, rng.choice(cfg["mutations"]))])
         while len(next_pop) < cfg["population"]:
-            next_pop = _dedupe(next_pop + [mutate(rng.choice(starts), cards, rng, rng.choice(cfg["mutations"]))])
+            next_pop = _dedupe(next_pop + [mutate(rng.choice(starts), pool_cards, rng, rng.choice(cfg["mutations"]))])
         population = next_pop[: cfg["population"]]
 
     # 最終候補: 殿堂を official24 全部・性格パネル・殿堂どうしで再評価 → 多様性を見て採る
@@ -498,6 +505,7 @@ def search(args) -> dict:
         "train": {"official": len(train_official), "hall_max": cfg["train_hall"], "personas": len(personas)},
         "search_seeds": list(cfg["search_seeds"]), "validation_seeds": list(cfg["validate_seeds"]),
         "max_overlap": cfg["max_overlap"], "skipped_as_same_lineage": skipped,
+        "ban": sorted(ban), "fresh": bool(getattr(args, "fresh", False)),
         "special48_warning": "retired_validation; already used in past tuning, not a true blind set",
         "final_blind_available": bool(final_blind),
         "history": history, "results": results, "pair_overlap": pair_overlap,
@@ -515,7 +523,9 @@ def markdown(report: Mapping) -> str:
              "- special48: 検証用だが**盲検ではない**（過去の調整に使用済み）",
              "- final_blind: {}".format("あり" if report["final_blind_available"] else "空（release判定には使わない）"),
              "- 同系統として省いた候補: {}（18人中 {} 枚超の重なり）".format(
-                 report["skipped_as_same_lineage"], report["max_overlap"]), ""]
+                 report["skipped_as_same_lineage"], report["max_overlap"]),
+             "- 禁止札: {}".format("、".join(report.get("ban", [])) or "なし"),
+             "- 初期個体: {}".format("在野だけ（chappy・破陣を種にしない）" if report.get("fresh") else "chappy・破陣・在野"), ""]
     lines += ["## 世代ごとの最良（適応度＝重み付き BO3）", "", "| 世代 | 適応 | 在野 | 殿堂 | 性格 | 交代 | 陣形 |", "|---|---|---|---|---|---|---|"]
     for h in report["history"]:
         g = h["best"]["by_group"]
@@ -887,6 +897,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=20260903)
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--output", type=Path, default=None)
+    ap.add_argument("--ban", default="", help="探索する側が使えない札（読点区切り・王者の18枚を禁じて二番目の種を探す）")
+    ap.add_argument("--fresh", action="store_true", help="chappy・破陣を初期個体にしない（在野だけから始める）")
     ap.add_argument("--solve", action="store_true", help="メタ解析（§7.149）: 利得行列→混合均衡→最良応答のループ")
     ap.add_argument("--candidates", default="", help="--solve の赤チーム/殿堂の元（既定 docs/balance/bo3-goodstuff.json）")
     ap.add_argument("--br-threshold", type=float, default=BR_THRESHOLD)
