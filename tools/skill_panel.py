@@ -68,6 +68,11 @@ def _init(npers, seeds, override=None):
     R.load_skills_into_field()
     R.load_traits_into_field()
     F.SKILLS_ON = F.TRAITS_ON = True
+    for k, v in (override or {}).items():
+        if k.startswith("const:"):       # 診断用: field の定数を振る（相手にも掛かる）
+            setattr(F, k[6:], float(v))
+    if hasattr(F, "sync_type_atk"):
+        F.sync_type_atk()
     cards = M._roster_cards()       # ここで兵法表が読み直されることがある
     _S["cards"] = {c.name: c for c in cards}
     _S["opps"] = [D.make_entry(cards, p, s, caps=(("官渡", TOTAL),)).units[0]
@@ -96,6 +101,10 @@ def _one(job):
         # 特性を**両方の案から**外す。自分の兵法で発動する特性（節制＝自身の
         # 初回兵法後）は、兵法を外すと特性まで消えて差が混ざるため。
         c = replace(c, trait="")
+    g = (_S.get("override") or {}).get("gauge:" + name)
+    if g:                                # 診断用: 段（消費, 初期）を振る
+        gc, gi = (float(x) for x in g.split(","))
+        c = replace(c, gauge_cost=gc, gauge_init=gi)
     if mode == "off":
         c = replace(c, skill="") if not _S.get("trait") else replace(c, trait="")
     a = _army(c, bump)
@@ -117,13 +126,18 @@ def main():
     if "--trait-effect" in sys.argv:        # --trait-effect キー "効果文|備考"（特性の案）
         i = sys.argv.index("--trait-effect")
         override["trait:" + sys.argv[i + 1]] = sys.argv[i + 2]
+    for i, a in enumerate(sys.argv):
+        if a == "--const":                  # --const 名前=値（field の定数・診断用）
+            k, v = sys.argv[i + 1].split("=", 1); override["const:" + k] = v
+        if a == "--gauge":                  # --gauge 札名 消費,初期（段の診断用）
+            override["gauge:" + sys.argv[i + 1]] = sys.argv[i + 2]
     seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv \
         else (20 if quick else 60)
     npers = 4 if quick else len(D.PERSONAS)
     # 旗の引数は**位置で**外す。値で外すと --effect の札名と測る札名が同じ文字列の
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
-    for flag, n in (("--seeds", 1), ("--effect", 2), ("--trait-effect", 2)):
+    for flag, n in (("--seeds", 1), ("--effect", 2), ("--trait-effect", 2), ("--const", 1), ("--gauge", 2)):
         if flag in sys.argv:
             i = sys.argv.index(flag)
             skip.update(range(i + 1, i + 1 + n))
@@ -137,12 +151,23 @@ def main():
         got = {}
     what = "特性" if trait else ("兵法（特性なし）" if strip else "兵法")
     if override:
-        what += "＝" + "／".join(override.values())
+        what += "＝" + "／".join("{}:{}".format(k, v) if k.startswith(("const:", "gauge:")) else v
+                                for k, v in override.items())
     # 控えの鍵に**名簿の効果文**を入れる。名簿（skills.csv）を書き換えて測り直す
     # とき、鍵が同じだと古い控えを読んでしまう（1150% にしたのに 1300% の値が出た）。
     R.load_skills_into_field(); R.load_traits_into_field()
     if trait:
-        fp = {g["名前"]: g["固有特性"] for g in R.generals()}
+        # 特性は**定義まで**鍵に入れる。名前だけだと中身を変えても古い控えを返す
+        # （白馬を移動速度→馬上回避に作り替えたとき、同じ数字が出て気付いた）。
+        tdef = {t["キー"]: "{}/{}/{}".format(t["型"], t["効果"], t["備考"]) for t in R.traits()}
+        consts = {"hakuba": getattr(F, "HAKUBA_COVER", None), "cover": F.COVER_SHARE,
+                  "vanguard": F.VANGUARD_MEN, "command": (F.COMMAND_MEN, F.COMMAND_ROUT),
+                  "restraint": getattr(F, "RESTRAINT_NATURAL_MULT", None),
+                  "drunk": getattr(F, "DRUNK_CHAOS", None)}
+        fp = {}
+        for g in R.generals():
+            ks = [k.strip() for k in (g["固有特性"] or "").replace("／", "/").split("/") if k.strip()]
+            fp[g["名前"]] = ";".join("{}={}|{}".format(k, tdef.get(k, ""), consts.get(k, "")) for k in ks)
     else:
         fp = {r["武将"]: r["効果"] for r in R.skills()}
     print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局".format(
