@@ -5,6 +5,7 @@
     python3 tools/skill_panel.py --trait 袁紹〔盟主〕 費禕〔大将軍〕   # 特性を外した差
     python3 tools/skill_panel.py --strip-trait 陸抗〔羊陸之交〕        # 特性を両案から外して兵法だけ
     python3 tools/skill_panel.py --effect 諸葛恪〔元遜〕 "ダメージ 威力1000%" 諸葛恪〔元遜〕  # 案の測定
+    python3 tools/skill_panel.py --trait --trait-effect hakuba "移動速度 +30%（20秒）|enemy_retreat で発動 / 対象 自分 / 1戦3回まで" 公孫瓚〔白馬義従〕
     python3 tools/skill_panel.py --quick ...                          # 4性格×20種
 
 土台: その札 ＋ 合成の詰め物5枚（総コスト30・詰め物は同コスト・弓は後衛、
@@ -45,8 +46,20 @@ _S = {}
 
 
 def _apply_override(override):
-    """効果文の差し替え（案の測定用）: 札名 → 効果文。本番の器で読み直す。"""
+    """効果文の差し替え（案の測定用）: 札名 → 効果文。本番の器で読み直す。
+    鍵が "trait:<キー>" なら特性の差し替え（値は "効果文|備考"）。"""
+    import re
     for name, eff in (override or {}).items():
+        if name.startswith("trait:"):
+            key = name[6:]
+            text, note = (eff.split("|", 1) + [""])[:2]
+            cond, target, cap, _sk, jp = F.TRAITS[key]
+            m = re.search(r"(\w+) で発動", note); cond = m.group(1) if m else cond
+            m = re.search(r"対象 ([^/]+)", note); target = m.group(1).strip() if m else target
+            m = re.search(r"1戦(\d+)回", note); cap = int(m.group(1)) if m else cap
+            with F.unscaled():
+                F.TRAITS[key] = (cond, target, cap, F._parse_skill(text, target), jp)
+            continue
         sk = [r for r in R.skills() if r["武将"] == name][0]
         F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(eff, sk["対象"])
 
@@ -101,13 +114,16 @@ def main():
     if "--effect" in sys.argv:              # --effect 札名 効果文（案の測定）
         i = sys.argv.index("--effect")
         override[sys.argv[i + 1]] = sys.argv[i + 2]
+    if "--trait-effect" in sys.argv:        # --trait-effect キー "効果文|備考"（特性の案）
+        i = sys.argv.index("--trait-effect")
+        override["trait:" + sys.argv[i + 1]] = sys.argv[i + 2]
     seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv \
         else (20 if quick else 60)
     npers = 4 if quick else len(D.PERSONAS)
     # 旗の引数は**位置で**外す。値で外すと --effect の札名と測る札名が同じ文字列の
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
-    for flag, n in (("--seeds", 1), ("--effect", 2)):
+    for flag, n in (("--seeds", 1), ("--effect", 2), ("--trait-effect", 2)):
         if flag in sys.argv:
             i = sys.argv.index(flag)
             skip.update(range(i + 1, i + 1 + n))
