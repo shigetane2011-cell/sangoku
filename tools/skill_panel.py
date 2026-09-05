@@ -50,6 +50,8 @@ def _apply_override(override):
     鍵が "trait:<キー>" なら特性の差し替え（値は "効果文|備考"）。"""
     import re
     for name, eff in (override or {}).items():
+        if name.startswith(("const:", "gauge:")):
+            continue                         # 定数・段の診断は _init / _one が扱う
         if name.startswith("trait:"):
             key = name[6:]
             text, note = (eff.split("|", 1) + [""])[:2]
@@ -137,10 +139,10 @@ def main():
     # 旗の引数は**位置で**外す。値で外すと --effect の札名と測る札名が同じ文字列の
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
-    for flag, n in (("--seeds", 1), ("--effect", 2), ("--trait-effect", 2), ("--const", 1), ("--gauge", 2)):
-        if flag in sys.argv:
-            i = sys.argv.index(flag)
-            skip.update(range(i + 1, i + 1 + n))
+    width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2}
+    for i, a in enumerate(sys.argv):        # 同じ旗が複数回出ても全部の引数を除く
+        if a in width:
+            skip.update(range(i + 1, i + 1 + width[a]))
     names = [a for i, a in enumerate(sys.argv) if i > 0 and i not in skip
              and not a.startswith("--")]
     store = os.environ.get("PANEL_STORE", os.path.join(
