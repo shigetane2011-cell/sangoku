@@ -2,3 +2,13 @@ __pycache__/
 *.pyc
 .DS_Store
 ~$*.docx
+
+# 登録者の DB。個人情報が入るので追跡しない
+sim/data/*.db
+price_audit.json
+
+# type_edges の --act が名簿を複製して regenerate する作業場（結果の edge_*.json は残す）
+docs/balance/experiments/data_*/
+.trait_price_cache.json
+.skill_panel_cache.json
+.treasure_price_cache/
