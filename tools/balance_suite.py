@@ -105,6 +105,11 @@ def _timed_module_check(module: str) -> dict:
     }
 
 
+# 名簿の形（§7.170・2026-09-05 に 18枚足して 139枚＝138人・呂布は2版）。札を足したらここも直す。
+ROSTER_PERSONS = 138
+EXPECTED_COST_COUNTS = {1: 14, 2: 14, 3: 14, 4: 14, 5: 14, 6: 14, 7: 14, 8: 14, 9: 14, 10: 13}
+
+
 def spec_report(data: Mapping, cards: Sequence[F.Card],
                 run_modules: bool = True) -> dict:
     """Registration invariants and fixture drift checks."""
@@ -115,14 +120,14 @@ def spec_report(data: Mapping, cards: Sequence[F.Card],
 
     # 版（§7.135）があるので枚数でなく**人物の数**で見る。同じ人物の別版は重複ではない
     people = [M.person_of(c) for c in cards]
-    if len(set(people)) != 120:
-        errors.append("名簿の人物数が120ではない: {}".format(len(set(people))))
+    if len(set(people)) != ROSTER_PERSONS:
+        errors.append("名簿の人物数が{}ではない: {}".format(ROSTER_PERSONS, len(set(people))))
     keys = [(M.person_of(c), R.version_of(c.name)) for c in cards]
     if len(set(keys)) != len(keys):
         errors.append("名簿に同一人物・同一版の重複がある")
     cost_counts = collections.Counter(int(c.cost) for c in cards)
-    if cost_counts != collections.Counter({i: 12 for i in range(1, 11)}):
-        warnings.append("コスト帯が従来の各12枚から変化: {}".format(dict(cost_counts)))
+    if cost_counts != collections.Counter(EXPECTED_COST_COUNTS):
+        warnings.append("コスト帯が §7.170 の枚数から変化: {}".format(dict(cost_counts)))
 
     for where, name, entry in C.all_fixture_entries(data, idx):
         checked += 1
