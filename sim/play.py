@@ -1024,6 +1024,10 @@ def ensure_unlocks(cx, player_id: str) -> set:
         from . import rosterdata as R
         P.unlock(cx, player_id, R.senki_start(), "start")
         unl = P.unlocked(cx, player_id)
+    # 越えた戦の登用を配り直す（§7.170）。章へ後から登用を足しても取りこぼさない。
+    from . import senki as SK
+    if SK.backfill_recruits(cx, player_id):
+        unl = P.unlocked(cx, player_id)
     return unl
 
 

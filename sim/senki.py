@@ -152,6 +152,24 @@ def cleared(cx, player_id: str) -> int:
     return r["cleared"] if r else 0
 
 
+def backfill_recruits(cx, player_id: str) -> int:
+    """越えた戦の登用を配り直す（§7.170）。後から章へ登用を足したとき（18枚の追加）、
+    すでにその戦を越えている人にも届くように。解放は INSERT OR IGNORE なので
+    何度呼んでも増えず、足りないときだけ書く。戻りは新しく増えた数。"""
+    n = cleared(cx, player_id)
+    if n <= 0:
+        return 0
+    have = P.unlocked(cx, player_id)
+    got = 0
+    for b in battles()[:n]:
+        miss = [p for p in b["recruits"] if p not in have]
+        if miss:
+            got += P.unlock(cx, player_id, miss,
+                            "senki:{}-{}".format(b["ch"], b["no"]))
+            have.update(miss)
+    return got
+
+
 def set_cleared(cx, player_id: str, n: int) -> None:
     with cx:
         cx.execute(
