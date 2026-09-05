@@ -62,6 +62,20 @@ class CoverTest(unittest.TestCase):
         self.assertEqual(r1["diff"], r0["diff"], "歩兵の隣では特性なしと同じ戦い")
         self.assertFalse(any(("【" + F.COVER_NAME + "】") in e.text and e.side == "A" for e in ev))
 
+    def test_hakuba_evades_more_arrows(self):
+        """白馬（§7.155）: 持ち主の騎兵は矢を余計に避ける（同じ種・途中で切って残兵で測る）。"""
+        def cav_army(trait):
+            lb = replace(CARDS["呂布〔飛将〕"], trait=trait)
+            return F.Army((lb, CARDS["曹仁〔堅守〕"], CARDS["郝昭〔陳倉〕"], CARDS["文聘〔江夏〕"],
+                           CARDS["李典〔慎重〕"], CARDS["貂蝉〔傾国〕"]), F.FORM_STANDARD)
+        r0, _ = run(cav_army(""), t_max=30.0)
+        r1, _ = run(cav_army("hakuba"), t_max=30.0)
+        self.assertGreater(r1["dealt_a"][0][3], r0["dealt_a"][0][3], "白馬の騎兵は同じ時刻で兵が多く残る")
+        # 歩兵に持たせても何も起きない（馬上回避の上乗せなので）
+        r2, _ = run(army(guard_trait="hakuba"), t_max=30.0)
+        r3, _ = run(army(guard_trait=""), t_max=30.0)
+        self.assertEqual(r2["diff"], r3["diff"], "歩兵の白馬は特性なしと同じ戦い")
+
     def test_no_cover_against_melee_only(self):
         melee = F.Army(tuple(CARDS[n] for n in ("張飛〔当陽橋〕", "許褚〔虎痴〕", "曹仁〔堅守〕")), F.FORM_STANDARD)
         r, _ = run(army(), foe=melee)

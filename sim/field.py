@@ -1257,6 +1257,12 @@ CAV_COVER = 0.45        # 接敵前の騎兵が射撃被害を免れる割合（
 # 実測⑤）: 弓型へ +3〜11・近接型へ −5〜10（相手の騎兵にも効く）・全体 ±3。
 # 分岐でなく smooth_gate の連続な窓（§13）。
 CAV_COVER_SOFT = 40.0   # 射手の縁が触れる手前、この幅で滑らかに消える（m）
+# 白馬（§7.155・常在特性 hakuba・テストプレイの決定）: 持ち主の馬上回避に上乗せする割合。
+# 白馬義従は史実では騎射・軽騎の精鋭なので「矢を避ける」で像を表す。移動速度で表す道は
+# 無い（騎兵はもともと最速で、発動する頃には走る場面が無い — 実測で値打ちゼロ）。
+# 馬上回避と同じ窓（射手が遠いあいだ・構えた槍には効かない）に乗る。値段は
+# tools/skill_panel.py --trait で実カードの的で測る（design.TRAIT_PRICE）。
+HAKUBA_COVER = 0.25
 CAV_COVER_SKILL = True  # 射程持ちの兵法直撃にも掛ける（延焼には掛けない）
 
 # 馬前（§7.144・テストプレイの提案「歩兵に周りをカバーする固有能力」。旧名「庇護」）。
@@ -3460,7 +3466,10 @@ def _cav_cover(shooter: "Unit", f: "Unit") -> float:
     if SPEAR_NO_CAV_COVER and shooter.pike:
         return 1.0          # 構えた槍は馬では避けられない（§7.151）
     near = smooth_gate(box_gap(shooter, f), 1.0, CAV_COVER_SOFT)   # 触れていれば 1
-    return 1.0 - CAV_COVER * (1.0 - near)
+    cover = CAV_COVER
+    if TRAITS_ON and HAKUBA_COVER > 0.0 and "hakuba" in f.traits:
+        cover = min(cover + HAKUBA_COVER, 0.95)     # 白馬（§7.155）: 上乗せ
+    return 1.0 - cover * (1.0 - near)
 
 
 def _cover_map(units: List["Unit"]) -> List["int | None"]:
