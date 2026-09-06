@@ -2920,7 +2920,7 @@ async function viewReplay(state) {
           (u.heal || 0) >= 300 ? `<span class="fx heal" title="味方へ入れた回復の総量">癒し ${k(u.heal)}</span>` : "",
           (u.lost || 0) >= 300 ? `<span class="fx lost" title="弱体を受けて出せなかった火力">封じられ ${k(u.lost)}</span>` : "",
         ].join("");
-        const face = `/portrait/${encodeURIComponent(u.person || u.name)}`;
+        const face = `/portrait/${encodeURIComponent(u.name || u.person)}`;   // 版の絵が先（§7.135・§7.171）
         return `<div class="unit-row ${gone ? "dead" : ""} ${i % 2 ? "alt" : ""}">
           <img class="u-face" src="${face}" alt="">
           <span class="uname">${esc(u.name)} ${icoTyp(u.typ)}</span>

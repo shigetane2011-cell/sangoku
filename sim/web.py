@@ -157,6 +157,21 @@ def _deck_records(cx, pid):
     return out
 
 
+def _portrait_v(name: str, person: str) -> str:
+    """顔絵の版の印（`?v=更新時刻-大きさ`）。App._portrait と同じ順で探す（名前→人物）。
+    絵を差し替えた瞬間に URL が変わるので、ブラウザの古い控えを引かない（§7.171 追記）。
+    無ければ空（生成の置き絵）。"""
+    d = os.path.join(WEBUI, "portraits")
+    for cand in ((name, person) if name != person else (name,)):
+        for ext in ("png", "jpg", "jpeg", "webp", "svg"):
+            try:
+                st = os.stat(os.path.join(d, cand + "." + ext))
+            except OSError:
+                continue
+            return "?v=%x-%x" % (int(st.st_mtime), st.st_size)
+    return ""
+
+
 def _trait_names():
     """特性キー → 表示名。**traits.csv の 名前 列が一次**（旧実装はここに
     別の対応表を持っていて、同じ量の定義が2箇所になっていた）。"""
@@ -422,7 +437,7 @@ def _roster_json(only=None):
             # なので、UIは1のときはバッジを出さない。顔絵は名前優先で
             # 探す（無ければ人物名の絵、それも無ければ生成プレースホルダ）。
             "version": int((g.get("版") or "").strip() or 1),
-            "portraitUrl": "/portrait/" + urllib.parse.quote(g["名前"]),
+            "portraitUrl": "/portrait/" + urllib.parse.quote(g["名前"]) + _portrait_v(g["名前"], g["人物"]),
             "typ": g["兵種"], "faction": g["勢力"], "role": g["役割"],
             # 武勇・知略は**歴史イメージの演出値**（1〜100・盤面に不干渉）。
             # エンジン内部の武力・知力は帳簿なので出さない（§7.47）。
@@ -815,16 +830,22 @@ class App(BaseHTTPRequestHandler):
         顔絵120枚で約16MB あり、既定の no-store のままだと画面を開くたびに
         全部を引き直す。スマホの回線ではこれが一番効く。差し替え式なので
         中身の版は「更新時刻＋大きさ」を印にして見分ける。
+
+        max_age=0 は「毎回問い合わせる（no-cache）」。顔絵は置くだけで差し替わる
+        ので、1日の鮮度を持たせると**同じURLのまま中身が変わった**とき（呂布の
+        版の絵を足した時に踏んだ）に古い絵が出続ける。印が同じなら 304 で本体は
+        送らないので、回線の負担は変わらない。
         """
         try:
             st = os.stat(path)
         except OSError:
             return False
         tag = '"%x-%x"' % (int(st.st_mtime), st.st_size)
+        cache = "no-cache" if max_age <= 0 else "max-age=%d" % max_age
         if self.headers.get("If-None-Match") == tag:
             self.send_response(304)
             self.send_header("ETag", tag)
-            self.send_header("Cache-Control", "max-age=%d" % max_age)
+            self.send_header("Cache-Control", cache)
             self.end_headers()
             return True
         with open(path, "rb") as f:
@@ -833,7 +854,7 @@ class App(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("ETag", tag)
-        self.send_header("Cache-Control", "max-age=%d" % max_age)
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(body)
         return True
@@ -910,7 +931,7 @@ class App(BaseHTTPRequestHandler):
                 if os.path.exists(path):
                     ctype = {"svg": "image/svg+xml", "png": "image/png",
                              "webp": "image/webp"}.get(ext, "image/jpeg")
-                    if self._send_file(path, ctype):
+                    if self._send_file(path, ctype, max_age=0):
                         return
         g = next((x for x in R.generals() if x["名前"] == key), None) \
             or next((x for x in R.generals() if x["人物"] == person), None)
