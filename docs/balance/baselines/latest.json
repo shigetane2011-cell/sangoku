@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "manifest": {
-    "created_at_utc": "2026-09-06T11:33:50+00:00",
+    "created_at_utc": "2026-09-06T14:41:44+00:00",
     "command": "run",
     "profile": "quick",
     "git": {
-      "commit": "e68bf8336e746326bcbda149ac993ba33ddba15b",
+      "commit": "80f6e95bd8638397f2e95a46efa1382029fea42a",
       "branch": "claude/dev-handoff-balance-adjustments-8ezltu",
-      "dirty": true
+      "dirty": false
     },
     "python": "3.11.15",
     "platform": "Linux-6.18.44-fc-v24-x86_64-with-glibc2.39",
@@ -72,7 +72,9 @@
         "chappy",
         "official24",
         "special48"
-      ]
+      ],
+      "bo3_protocol": "production_v1",
+      "treasures": "none"
     }
   },
   "historical": {
@@ -150,7 +152,7 @@
         "returncode": 0,
         "accepted_known_exceptions": false,
         "accepted_note": "",
-        "seconds": 0.52,
+        "seconds": 0.36,
         "tail": "  1         14    100.28    100.32    0.9996      0.08\n  2         14     99.89     99.91    0.9998      0.08\n  3         14    104.67    104.69    0.9998      0.05\n  4         14    130.57    130.58    1.0000      0.05\n  5         14    133.24    133.25    0.9999      0.03\n  6         14    142.49    142.50    1.0000      0.03\n  7         14    157.30    157.29    1.0000      0.03\n  8         14    157.51    157.49    1.0001      0.03\n  9         14    151.46    151.45    1.0001      0.03\n  10        13    194.94    194.93    1.0001      0.03\n\n全帯がコスト曲線の上"
       },
       {
@@ -1394,8 +1396,12 @@
   },
   "battle": {
     "candidate": "破陣",
+    "bo3_protocol": "production_v1",
+    "treasures": "none",
     "pools": {
       "chappy": {
+        "bo3_protocol": "production_v1",
+        "treasures": "none",
         "opponents": 1,
         "seeds": [
           600,
@@ -1411,50 +1417,74 @@
           "A",
           "B"
         ],
-        "single_wins": 27,
+        "single_wins": 28,
+        "single_losses": 20,
+        "single_draws": 0,
         "single_games": 48,
-        "bo3_wins": 11,
+        "bo3_wins": 12,
+        "bo3_losses": 4,
+        "bo3_draws": 0,
         "bo3_games": 16,
+        "bo3_win_rate": 0.75,
+        "bo3_point_rate": 0.75,
+        "mean_match_diff": -0.012121,
         "by_regulation": [
           {
             "regulation": "汜水関",
-            "wins": 11,
+            "wins": 13,
+            "losses": 3,
+            "draws": 0,
             "games": 16,
-            "win_rate": 0.6875,
-            "mean_diff": 0.0003,
-            "min_diff": -0.134288,
-            "max_diff": 0.109775
+            "win_rate": 0.8125,
+            "point_rate": 0.8125,
+            "mean_diff": 0.053144,
+            "min_diff": -0.078315,
+            "max_diff": 0.213043,
+            "mean_remain_diff": 0.053144
           },
           {
             "regulation": "官渡",
             "wins": 0,
+            "losses": 16,
+            "draws": 0,
             "games": 16,
             "win_rate": 0.0,
-            "mean_diff": -0.099858,
-            "min_diff": -0.137018,
-            "max_diff": -0.050604
+            "point_rate": 0.0,
+            "mean_diff": -0.100966,
+            "min_diff": -0.141826,
+            "max_diff": -0.062594,
+            "mean_remain_diff": -0.100966
           },
           {
             "regulation": "赤壁",
-            "wins": 16,
+            "wins": 15,
+            "losses": 1,
+            "draws": 0,
             "games": 16,
-            "win_rate": 1.0,
-            "mean_diff": 0.037119,
-            "min_diff": 0.013773,
-            "max_diff": 0.055804
+            "win_rate": 0.9375,
+            "point_rate": 0.9375,
+            "mean_diff": 0.035701,
+            "min_diff": -0.009122,
+            "max_diff": 0.076623,
+            "mean_remain_diff": 0.035701
           }
         ],
         "worst_opponents": [
           {
             "name": "赤チーム 20260906 #1（quick seed 20260912・§7.171 後）",
-            "single_win_rate": 0.5625,
-            "mean_diff": -0.020813,
-            "bo3_wins": 11,
-            "bo3_games": 16
+            "single_win_rate": 0.5833,
+            "mean_diff": -0.012121,
+            "bo3_wins": 12,
+            "bo3_losses": 4,
+            "bo3_draws": 0,
+            "bo3_games": 16,
+            "bo3_win_rate": 0.75
           }
         ]
       },
       "official24": {
+        "bo3_protocol": "production_v1",
+        "treasures": "none",
         "opponents": 24,
         "seeds": [
           0
@@ -1463,127 +1493,184 @@
           "A",
           "B"
         ],
-        "single_wins": 92,
+        "single_wins": 98,
+        "single_losses": 46,
+        "single_draws": 0,
         "single_games": 144,
-        "bo3_wins": 36,
+        "bo3_wins": 39,
+        "bo3_losses": 9,
+        "bo3_draws": 0,
         "bo3_games": 48,
+        "bo3_win_rate": 0.8125,
+        "bo3_point_rate": 0.8125,
+        "mean_match_diff": 0.310137,
         "by_regulation": [
           {
             "regulation": "汜水関",
             "wins": 42,
+            "losses": 6,
+            "draws": 0,
             "games": 48,
             "win_rate": 0.875,
+            "point_rate": 0.875,
             "mean_diff": 0.204663,
             "min_diff": -0.212075,
-            "max_diff": 0.450562
+            "max_diff": 0.450562,
+            "mean_remain_diff": 0.204663
           },
           {
             "regulation": "官渡",
-            "wins": 14,
+            "wins": 15,
+            "losses": 33,
+            "draws": 0,
             "games": 48,
-            "win_rate": 0.2917,
-            "mean_diff": -0.002089,
-            "min_diff": -0.175193,
-            "max_diff": 0.253435
+            "win_rate": 0.3125,
+            "point_rate": 0.3125,
+            "mean_diff": -0.001917,
+            "min_diff": -0.19937,
+            "max_diff": 0.27537,
+            "mean_remain_diff": -0.001917
           },
           {
             "regulation": "赤壁",
-            "wins": 36,
+            "wins": 41,
+            "losses": 7,
+            "draws": 0,
             "games": 48,
-            "win_rate": 0.75,
-            "mean_diff": 0.096438,
-            "min_diff": -0.171121,
-            "max_diff": 0.269387
+            "win_rate": 0.8542,
+            "point_rate": 0.8542,
+            "mean_diff": 0.10739,
+            "min_diff": -0.131184,
+            "max_diff": 0.264449,
+            "mean_remain_diff": 0.10739
           }
         ],
         "worst_opponents": [
           {
             "name": "猛攻03",
-            "single_win_rate": 0.0,
-            "mean_diff": -0.106393,
+            "single_win_rate": 0.3333,
+            "mean_diff": -0.272517,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "猛攻01",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.046256,
+            "mean_diff": -0.091252,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "疾風02",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.029847,
+            "mean_diff": -0.085868,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "強弓01",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.012106,
+            "mean_diff": 0.002773,
             "bo3_wins": 0,
-            "bo3_games": 2
-          },
-          {
-            "name": "疾風01",
-            "single_win_rate": 0.3333,
-            "mean_diff": 0.060828,
-            "bo3_wins": 0,
-            "bo3_games": 2
-          },
-          {
-            "name": "鉄壁03",
-            "single_win_rate": 0.5,
-            "mean_diff": 0.026328,
-            "bo3_wins": 1,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "斉射03",
             "single_win_rate": 0.5,
-            "mean_diff": 0.07268,
+            "mean_diff": 0.219207,
             "bo3_wins": 1,
-            "bo3_games": 2
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
           },
           {
             "name": "強弓02",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.03996,
+            "mean_diff": 0.116957,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
+          },
+          {
+            "name": "鉄壁03",
+            "single_win_rate": 0.8333,
+            "mean_diff": 0.118182,
+            "bo3_wins": 2,
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           },
           {
             "name": "強弓03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.058255,
+            "mean_diff": 0.168245,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           },
           {
             "name": "斉射01",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.070808,
+            "mean_diff": 0.209913,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           },
           {
             "name": "軍師03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.087455,
+            "mean_diff": 0.26389,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           },
           {
             "name": "重装03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.093786,
+            "mean_diff": 0.272356,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
+          },
+          {
+            "name": "疾風01",
+            "single_win_rate": 0.6667,
+            "mean_diff": 0.283012,
+            "bo3_wins": 2,
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           }
         ]
       },
       "special48": {
+        "bo3_protocol": "production_v1",
+        "treasures": "none",
         "opponents": 48,
         "seeds": [
           0
@@ -1592,128 +1679,183 @@
           "A",
           "B"
         ],
-        "single_wins": 198,
+        "single_wins": 201,
+        "single_losses": 87,
+        "single_draws": 0,
         "single_games": 288,
-        "bo3_wins": 80,
+        "bo3_wins": 82,
+        "bo3_losses": 14,
+        "bo3_draws": 0,
         "bo3_games": 96,
+        "bo3_win_rate": 0.8542,
+        "bo3_point_rate": 0.8542,
+        "mean_match_diff": 0.332922,
         "by_regulation": [
           {
             "regulation": "汜水関",
             "wins": 86,
+            "losses": 10,
+            "draws": 0,
             "games": 96,
             "win_rate": 0.8958,
+            "point_rate": 0.8958,
             "mean_diff": 0.210549,
             "min_diff": -0.13713,
-            "max_diff": 0.502423
+            "max_diff": 0.502423,
+            "mean_remain_diff": 0.210549
           },
           {
             "regulation": "官渡",
-            "wins": 36,
+            "wins": 35,
+            "losses": 61,
+            "draws": 0,
             "games": 96,
-            "win_rate": 0.375,
-            "mean_diff": -0.014325,
-            "min_diff": -0.185948,
-            "max_diff": 0.372143
+            "win_rate": 0.3646,
+            "point_rate": 0.3646,
+            "mean_diff": -0.017087,
+            "min_diff": -0.207265,
+            "max_diff": 0.392678,
+            "mean_remain_diff": -0.017087
           },
           {
             "regulation": "赤壁",
-            "wins": 76,
+            "wins": 80,
+            "losses": 16,
+            "draws": 0,
             "games": 96,
-            "win_rate": 0.7917,
-            "mean_diff": 0.128366,
-            "min_diff": -0.140136,
-            "max_diff": 0.521056
+            "win_rate": 0.8333,
+            "point_rate": 0.8333,
+            "mean_diff": 0.13946,
+            "min_diff": -0.181542,
+            "max_diff": 0.539633,
+            "mean_remain_diff": 0.13946
           }
         ],
         "worst_opponents": [
           {
             "name": "別猛攻12",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.05269,
+            "mean_diff": -0.127762,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "新槍陣02",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.007679,
+            "mean_diff": -0.015664,
             "bo3_wins": 0,
-            "bo3_games": 2
-          },
-          {
-            "name": "別疾風12",
-            "single_win_rate": 0.3333,
-            "mean_diff": -0.00688,
-            "bo3_wins": 0,
-            "bo3_games": 2
-          },
-          {
-            "name": "別猛攻13",
-            "single_win_rate": 0.3333,
-            "mean_diff": 0.01146,
-            "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "別強弓12",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.012315,
+            "mean_diff": 0.032707,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "試雑兵03",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.03322,
+            "mean_diff": 0.132993,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
             "name": "別疾風13",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.042778,
+            "mean_diff": 0.134375,
             "bo3_wins": 0,
-            "bo3_games": 2
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
           },
           {
-            "name": "試雑兵01",
-            "single_win_rate": 0.3333,
-            "mean_diff": 0.04657,
-            "bo3_wins": 0,
-            "bo3_games": 2
+            "name": "別疾風12",
+            "single_win_rate": 0.5,
+            "mean_diff": -0.061978,
+            "bo3_wins": 1,
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
           },
           {
             "name": "別疾風11",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.026548,
-            "bo3_wins": 2,
-            "bo3_games": 2
+            "single_win_rate": 0.5,
+            "mean_diff": -0.026147,
+            "bo3_wins": 1,
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
           },
           {
-            "name": "別猛攻11",
-            "single_win_rate": 0.8333,
-            "mean_diff": 0.036978,
-            "bo3_wins": 2,
-            "bo3_games": 2
+            "name": "別猛攻13",
+            "single_win_rate": 0.5,
+            "mean_diff": 0.090272,
+            "bo3_wins": 1,
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
+          },
+          {
+            "name": "試雑兵01",
+            "single_win_rate": 0.5,
+            "mean_diff": 0.378649,
+            "bo3_wins": 1,
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
           },
           {
             "name": "試精鋭03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.048494,
+            "mean_diff": 0.121409,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
+          },
+          {
+            "name": "別猛攻11",
+            "single_win_rate": 0.8333,
+            "mean_diff": 0.135302,
+            "bo3_wins": 2,
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           },
           {
             "name": "新先手03",
             "single_win_rate": 0.6667,
-            "mean_diff": 0.048732,
+            "mean_diff": 0.145835,
             "bo3_wins": 2,
-            "bo3_games": 2
+            "bo3_losses": 0,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 1.0
           }
         ]
       }
     },
-    "note": "全測定を左右両側で実行。special48 は retired_validation で盲検ではない"
+    "note": "本番の BO3（sim.match.play）を各マッチシードで左右両側。宝物なし。special48 は retired_validation で盲検ではない"
   },
   "archetypes": {
     "members_per_archetype": 1,
