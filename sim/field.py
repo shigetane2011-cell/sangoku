@@ -4970,10 +4970,15 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                     "（{}組が交戦）。".format(
                         _who(best[1]), _who(best[2]), n),
                     side=_side_of(best[1])))
-    # 迂回の到達
+    # 迂回の到達。**倒れた隊は語らない** — 盤面では倒れた隊の位置も経路上を進み
+    # 続ける（勝敗に効かない）が、壊滅した隊が「敵陣の背後へ現れる」のは嘘になる
+    # （実測: 08:36 に壊滅した呂布が 09:07 に側背を突いた）。壊滅の行が「回り込む
+    # 途中で」と締める（下）。
     for u in list(ua) + list(ub):
         k = ("着", id(u))
         if k in seen or ("賭", id(u)) not in seen:
+            continue
+        if u.men <= 0.0 or u.ratio() < ANNIHIL_UNIT:
             continue
         if u.progress / u.total_len > 0.97:
             seen.add(k)
@@ -5002,7 +5007,7 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
     for units, foes, idx in ((ua, ub, lambda i, j: gap[i][j]),
                              (ub, ua, lambda i, j: gap[j][i])):
         for i, u in enumerate(units):
-            if u.typ != ARC or ("抑", id(u)) in seen:
+            if u.typ != ARC or ("抑", id(u)) in seen or u.men <= 0.0:
                 continue
             g = [idx(i, j) for j in range(len(foes))]
             sup = _suppress(u, g, foes, units)
@@ -5052,28 +5057,36 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             killers = ([r_ for r_ in _CASTS
                         if abs(r_["t"] - t) < 1e-9 and me in r_["kills"]]
                        if _CASTS is not None else [])
+            # 迂回の賭け（予告した札）が回り込む前に倒れたら、対の結果はここで
+            # 締める。以後「到達」の行は出ない（("着") を消化）。
+            detour = ""
+            if ("賭", id(u)) in seen and ("着", id(u)) not in seen:
+                seen.add(("着", id(u)))
+                detour = "敵陣の背後へ回り込む途中（道のりの{:.0f}%）で".format(
+                    100 * u.progress / u.total_len)
             if len(killers) >= 2:
                 joined = "と".join("{}の【{}】".format(r_["who"], r_["skill"])
                                    for r_ in killers)
                 ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
-                    "{}で{}の隊が壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
-                        joined, me, u.men0 - u.men,
+                    "{}で{}の隊が{}壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                        joined, me, detour, u.men0 - u.men,
                         _JP["A" if u.side > 0 else "B"], 100 * rest),
                     side=_side_of(u), must=True))
             else:
                 ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
-                    "{}の隊、ついに壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
-                        me, u.men0 - u.men,
+                    "{}の隊、{}ついに壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                        me, detour, u.men0 - u.men,
                         _JP["A" if u.side > 0 else "B"], 100 * rest),
-                    side=_side_of(u)))
+                    side=_side_of(u), must=bool(detour)))
 
 
 def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
     if reason != "time":
         return
-    # 賭けの結果は必ず語る。届かなかった側も拾う。
+    # 賭けの結果は必ず語る。届かなかった側も拾う（倒れた隊は壊滅の行で締めて
+    # あり、("着") が消化されているのでここには来ない）。
     for u in list(ua) + list(ub):
-        if (("賭", id(u)) in seen_bets
+        if (("賭", id(u)) in seen_bets and ("着", id(u)) not in seen_bets
                 and u.progress / u.total_len <= 0.97):
             ev.append(Event(t, "結果", LINE_PRIO["結果"],
                 "{}、敵陣の背後へ回り込めぬまま日が暮れる"

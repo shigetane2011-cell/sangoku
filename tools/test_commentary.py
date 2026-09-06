@@ -325,6 +325,61 @@ class Scene6_SameNameBothSides(unittest.TestCase):
             _unregister(name)
 
 
+class WipedUnitsStaySilent(unittest.TestCase):
+    """壊滅した隊は、その後の出来事（迂回の到達・矢継ぎの乱れ）を語らない。"""
+
+    def _bettor(self):
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        F._DUP_NAMES = set()
+        ua = F.build(_army(_filler(6, typ=F.CAV)), 1)
+        ub = F.build(_army(_filler(6)), -1)
+        u = ua[0]
+        u.total_len = max(u.total_len, 100.0)
+        return ua, ub, u
+
+    def test_wiped_bettor_never_arrives_and_wipe_line_closes_the_bet(self):
+        ua, ub, u = self._bettor()
+        seen = {("賭", id(u))}
+        ev = []
+        gap = [[10.0] * len(ub) for _ in ua]
+        # 回り込む途中（道のりの 60%）で壊滅
+        u.progress = 0.6 * u.total_len
+        u.men = 0.0
+        F._log_tick(ev, seen, 20.0, ua, ub, gap)
+        wipe = [e for e in ev if e.kind == "壊滅" and F._who(u) in e.text]
+        self.assertEqual(len(wipe), 1)
+        self.assertIn("敵陣の背後へ回り込む途中（道のりの60%）で", wipe[0].text)
+        self.assertTrue(wipe[0].must)
+        self.assertIn(("着", id(u)), seen)
+        # その後に経路を進み切っても「背後へ現れる」とは言わない
+        u.progress = u.total_len
+        F._log_tick(ev, seen, 40.0, ua, ub, gap)
+        self.assertFalse(any("背後へ現れる" in e.text for e in ev))
+        # 日没の締めでも「回り込めぬまま日が暮れる」を重ねない
+        F._log_close(ev, seen, 400.0, "time", ua, ub, 0.5, 0.4)
+        self.assertFalse(any("回り込めぬまま" in e.text and F._who(u) in e.text for e in ev))
+
+    def test_living_bettor_still_arrives(self):
+        ua, ub, u = self._bettor()
+        seen = {("賭", id(u))}
+        ev = []
+        gap = [[10.0] * len(ub) for _ in ua]
+        u.progress = u.total_len
+        F._log_tick(ev, seen, 40.0, ua, ub, gap)
+        self.assertTrue(any("背後へ現れる" in e.text and F._who(u) in e.text for e in ev))
+
+    def test_wiped_archer_is_not_suppressed(self):
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        ua = F.build(_army(_filler(6, typ=F.ARC)), 1)
+        ub = F.build(_army(_filler(6)), -1)
+        for x in ua:
+            x.men = 0.0
+        ev, seen = [], set()
+        gap = [[0.1] * len(ub) for _ in ua]     # 間近に迫られている
+        F._log_tick(ev, seen, 20.0, ua, ub, gap)
+        self.assertFalse(any(e.kind == "抑制" for e in ev))
+
+
 class Wording(_Recording):
     """文言: 兵法への備え・混乱した・弱体の言い分け・複合兵法と代償・反動。"""
 
