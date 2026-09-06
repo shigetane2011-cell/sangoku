@@ -2962,6 +2962,7 @@ async function viewReplay(state) {
         <thead><tr><th>武将</th><th title="前衛／後衛と左右（同名武将の見分け用）">配置</th>
           <th>与ダメ</th><th>うち兵法</th><th>被ダメ</th>
           <th>軽減</th><th>癒し</th><th>発動</th><th>阻害</th>
+          <th title="撃破に関与した回数（共同撃破を含む）。同じ刻に同じ隊を討ち取った発動は全部に付くので、合計は敵の隊数を超え得る">撃破に関与</th>
           <th title="・壊＝真に壊滅した時刻（残0.5%割れ）。表示のみ">残存</th></tr></thead>
         <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
           <td class="uname">${esc(u.name)}</td>
@@ -2974,6 +2975,9 @@ async function viewReplay(state) {
             ? `<span title="発動: ${u.fire_times.map(esc).join("、")}">初回${esc(u.fire_times[0])}／計${u.fires}回</span>`
             : (u.fires ? u.fires + "回" : "—")}</td>
           <td>${u.stun ? u.stun + "分" : "—"}</td>
+          <td>${(u.kills_involved || 0) > 0
+            ? `${u.kills_involved}回${(u.kills_shared || 0) > 0 ? `<small class="over">うち共同 ${u.kills_shared}</small>` : ""}`
+            : "—"}</td>
           <td>${u.men / u.men0 <= 0.005 ? "壊滅" : "残" + Math.round(100 * u.men / u.men0) + "%"}${
             u.wiped ? `<span class="wiped">・${u.wiped}壊</span>` : ""}</td>
         </tr>`).join("")}</tbody>
@@ -3054,7 +3058,8 @@ async function viewReplay(state) {
       const parts = [];
       if (c.sac > 0) parts.push(`代償 自隊の兵 ${people(c.sac)}`);
       for (const [name, amt, mins] of (c.recoil || [])) parts.push(`反動 ${esc(name)} ${pct(amt)}（${mins}分）`);
-      if ((c.kills || []).length) parts.push(`<b>撃破 ${c.kills.map(esc).join("・")}</b>`);
+      if ((c.kills || []).length) parts.push(`<b>撃破に関与 ${c.kills.map((n2) =>
+        esc(n2) + ((c.shared_kills || []).includes(n2) ? "（共同）" : "")).join("・")}</b>`);
       if (c.decisive) parts.push(`<b class="decisive">決め手</b>`);
       return parts.join("　");
     };

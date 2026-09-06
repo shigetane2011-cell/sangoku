@@ -2820,7 +2820,8 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
                    max(1, u.fired.get(src, 0) if src else 1)),
            "intended": [_who(f) for f in tgts], "hit": [],
            "nullified": False, "blocker": "", "stance_by": "", "stance_skill": "",
-           "left": None, "damage": 0.0, "over": 0.0, "per": [], "kills": [], "spill": [],
+           "left": None, "damage": 0.0, "over": 0.0, "per": [], "kills": [], "shared_kills": [],
+           "spill": [],
            "reflected": 0.0, "heal": 0.0, "hot": None, "hot_actual": 0.0,
            "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
            "decisive": False}
@@ -2940,7 +2941,8 @@ def _open_men_window() -> None:
 def _cast_acc(rec):
     """発動1回ぶんの精算の受け皿。記録（rec）が無くても帳簿は付ける。"""
     return {"rec": rec, "damage": 0.0, "over": 0.0, "heal": 0.0, "sac": 0.0,
-            "reflected": 0.0, "kills": [], "hit_dmg": [], "hit_heal": [], "per": {}}
+            "reflected": 0.0, "kills": [], "shared": [], "hit_dmg": [], "hit_heal": [],
+            "per": {}}
 
 
 def _ledger(kind: str, src: Unit, tgt: Unit, amount: float, acc=None) -> None:
@@ -3050,6 +3052,22 @@ def _settle_window() -> None:
         s_d, s_h, killed = scale[id(tgt)]
         sc = s_h if kind == "heal" else s_d
         _credit(kind, src, tgt, amount * sc, amount * (1.0 - sc), acc, killed)
+    # 共同撃破（§7.174 後記）: 同じ窓で同じ隊を討ち取った発動が2つ以上なら、その
+    # 発動すべてに「共同」の印を付ける。各発動の行は「討ち取る」を言わず、壊滅の行が
+    # 「○○の【甲】と△△の【乙】で□□の隊が壊滅」とまとめて語る（_log_tick）。
+    killers: Dict[int, dict] = {}
+    for kind, src, tgt, amount, acc in led:
+        if acc is None or kind not in ("skill", "spill"):
+            continue
+        s_d, _s_h, killed = scale[id(tgt)]
+        if killed and amount * s_d > 0.0:
+            killers.setdefault(id(tgt), {})[id(acc)] = acc
+    for k, accs in killers.items():
+        if len(accs) >= 2:
+            name = _who(units[k])
+            for acc in accs.values():
+                if name not in acc["shared"]:
+                    acc["shared"].append(name)
 
 
 def _flush_men() -> None:
@@ -3095,6 +3113,7 @@ def _finish_cast(p) -> None:
         rec["sac"] = acc["sac"]
         rec["reflected"] = acc["reflected"]
         rec["kills"] = list(acc["kills"])
+        rec["shared_kills"] = list(acc["shared"])
         rec["per"] = [[k, v[0], v[1]] for k, v in acc["per"].items() if v[2] != "spill"]
         rec["spill"] = [[k, v[0], v[1]] for k, v in acc["per"].items() if v[2] == "spill"]
         hit = []
@@ -3162,8 +3181,9 @@ def _finish_cast(p) -> None:
     for key, amt, secs in sk.self_mods:
         text += "　反動で自身の{}（{:+.0%}・{:.0f}分）。".format(
             _stat_down_jp(key), amt, mins(secs))
-    if acc["kills"]:
-        text += "　{}を討ち取る！".format("・".join(acc["kills"]))
+    solo = [k for k in acc["kills"] if k not in acc["shared"]]
+    if solo:
+        text += "　{}を討ち取る！".format("・".join(solo))
     mag = main[3]
     e = p["event"]
     kind_jp, t = p["kind_jp"], p["t"]
@@ -5025,11 +5045,27 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
             seen.add(k)
             own = ua if u.side > 0 else ub
             rest = sum(x.men for x in own) / sum(x.men0 for x in own)
-            ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
-                "{}の隊、ついに壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
-                    _who(u), u.men0 - u.men,
-                    _JP["A" if u.side > 0 else "B"], 100 * rest),
-                side=_side_of(u)))
+            # 共同撃破（§7.174 後記）: この刻に同じ隊を討ち取った発動が2つ以上なら、
+            # 「○○の【甲】と△△の【乙】で□□の隊が壊滅」と1行にまとめる（各発動の
+            # 行は討ち取りを言わない）。1つだけなら発動の行が「討ち取る」と言う。
+            me = _who(u)
+            killers = ([r_ for r_ in _CASTS
+                        if abs(r_["t"] - t) < 1e-9 and me in r_["kills"]]
+                       if _CASTS is not None else [])
+            if len(killers) >= 2:
+                joined = "と".join("{}の【{}】".format(r_["who"], r_["skill"])
+                                   for r_ in killers)
+                ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
+                    "{}で{}の隊が壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                        joined, me, u.men0 - u.men,
+                        _JP["A" if u.side > 0 else "B"], 100 * rest),
+                    side=_side_of(u), must=True))
+            else:
+                ev.append(Event(t, "壊滅", LINE_PRIO["壊滅"],
+                    "{}の隊、ついに壊滅（{:,.0f}人を失う）。{}軍、残り{:.0f}%。".format(
+                        me, u.men0 - u.men,
+                        _JP["A" if u.side > 0 else "B"], 100 * rest),
+                    side=_side_of(u)))
 
 
 def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:

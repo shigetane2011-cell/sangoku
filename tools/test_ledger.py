@@ -85,14 +85,25 @@ class _Window(unittest.TestCase):
                                c1["damage"] + c1["over"] + c2["damage"] + c2["over"], places=6)
         self.assertAlmostEqual(tgt.over_taken, c1["over"] + c2["over"], places=6)
         self.assertAlmostEqual(ua[0].over_dealt, c1["over"], places=6)
-        # 討ち取りは同じ窓で寄与した両方に付き、実況も両方が語る（量が小さくても）
+        # 討ち取りは同じ窓で寄与した両方に付き、**共同撃破**の印が付く
         self.assertEqual(c1["kills"], [F._who(tgt)])
         self.assertEqual(c2["kills"], [F._who(tgt)])
+        self.assertEqual(c1["shared_kills"], [F._who(tgt)])
+        self.assertEqual(c2["shared_kills"], [F._who(tgt)])
+        # 実況: 各発動の行は量を語るが「討ち取る」とは言わず（二重に名乗らない）、
+        # 壊滅の行が「○○の【試】と△△の【試】で□□の隊が壊滅」とまとめる
         texts = [e.text for e in ev if e.kind == "兵法"]
         self.assertEqual(len(texts), 2)
         for tx in texts:
             self.assertIn("に 50 の損害", tx)
-            self.assertIn("討ち取る", tx)
+            self.assertNotIn("討ち取る", tx)
+        gap = [[10.0] * len(ub) for _ in ua]
+        F._log_tick(ev, set(), 1.0, ua, ub, gap)
+        wipe = [e for e in ev if e.kind == "壊滅"]
+        self.assertEqual(len(wipe), 1)
+        self.assertIn("{}の【試】と{}の【試】で{}の隊が壊滅".format(
+            F._who(ua[0]), F._who(ua[1]), F._who(tgt)), wipe[0].text)
+        self.assertTrue(wipe[0].must)
         # 矛先も実損害（鍵は _pair_add と同じ: 名のある札は _who、合成は兵種名）
         key = F._who(tgt) if tgt.name else F.TYPE_JP[tgt.typ]
         self.assertAlmostEqual(ua[0].pair[key], 50.0, places=6)
@@ -165,16 +176,55 @@ class _Window(unittest.TestCase):
         self.assertAlmostEqual(tgt.heal_taken, 40.0, places=6)
         self.assertAlmostEqual(ub[1].healed + ub[2].healed, 40.0, places=6)
 
-    # 単独の寄与（窓なし）: 実損害は残兵で頭打ち、超過は別
+    # 単独の寄与（窓なし）: 実損害は残兵で頭打ち、超過は別。討ち取りは単独なので
+    # 発動の行が「討ち取る」と言い、壊滅の行は従来どおり
     def test_single_hit_without_window(self):
         ua, ub, tgt = self._units()
-        self._cast(ua[0], self.big, ua, ub)
+        ev = []
+        self._cast(ua[0], self.big, ua, ub, ev=ev)
         c = F._CASTS[-1]
         self.assertAlmostEqual(c["damage"], 100.0, places=6)
         self.assertGreater(c["over"], 1000.0)
         self.assertAlmostEqual(ua[0].dealt_skill, 100.0, places=6)
         self.assertAlmostEqual(ua[0].over_dealt, c["over"], places=6)
         self.assertEqual(tgt.men, 0.0)
+        self.assertEqual(c["kills"], [F._who(tgt)])
+        self.assertEqual(c["shared_kills"], [])
+        self.assertIn("討ち取る", ev[-1].text)
+        gap = [[10.0] * len(ub) for _ in ua]
+        F._log_tick(ev, set(), 1.0, ua, ub, gap)
+        wipe = [e for e in ev if e.kind == "壊滅"]
+        self.assertEqual(len(wipe), 1)
+        self.assertIn("ついに壊滅", wipe[0].text)
+
+    # 撃破に関与した回数（共同撃破を含む）がリプレイの行に載る
+    def test_kills_involved_in_replay_rows(self):
+        import sim.play as PL
+        name = "＿共同試験"
+        F.SKILL_INFO[name] = F._parse_skill("ダメージ 威力2000%", "敵全体")
+        F.SKILL_TARGET[name] = "敵全体"
+        try:
+            atk = F.Card(**{**F._synth(10.0, F.CAV).__dict__, "skill": name, "gauge_cost": 60.0})
+            a = _army([atk, atk] + _filler(4))
+            b = _army(_filler(6))
+            rep = PL.replay_data(a, b, 0.25, 3, True)
+        finally:
+            F.SKILL_INFO.pop(name, None)
+            F.SKILL_TARGET.pop(name, None)
+        for u in rep["mine"] + rep["foe"]:
+            self.assertIn("kills_involved", u)
+            self.assertIn("kills_shared", u)
+            self.assertLessEqual(u["kills_shared"], u["kills_involved"])
+        # 記録の側と一致: 各発動の kills（相手ごとに1回）を武将で束ねた数
+        from collections import defaultdict
+        by = defaultdict(set)
+        for c in rep["casts"]:
+            for tg in c["kills"]:
+                by[(c["side"], c["who"])].add(tg)
+        for u in rep["mine"] + rep["foe"]:
+            n = sum(len(v) for (sd, who), v in by.items()
+                    if sd == ("mine" if u in rep["mine"] else "foe") and who.startswith(u["card"]))
+            self.assertEqual(u["kills_involved"], n)
 
 
 class NormalPhase(unittest.TestCase):

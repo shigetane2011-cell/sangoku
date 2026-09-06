@@ -1787,7 +1787,9 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 "per": [[n2, round(v), round(o)] for n2, v, o in c["per"]],
                 "spill": [[n2, round(v), round(o)] for n2, v, o in c["spill"]],
                 "reflected": round(c["reflected"]),
-                "kills": list(c["kills"]), "heal": round(c["heal"]),
+                # 討ち取りは同じ窓で寄与した発動すべてに付く。共同撃破は別に印す
+                "kills": list(c["kills"]), "shared_kills": list(c.get("shared_kills", [])),
+                "heal": round(c["heal"]),
                 "hot": ({"per_min": round(F.per_min(hot["per_sec"])),
                          "mins": round(F.mins(hot["secs"])),
                          "planned": round(hot["planned"]), "n": hot["n"]} if hot else None),
@@ -1806,18 +1808,40 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 "decisive": c["decisive"],
             })
         return out
+    cast_list = cast_rows(nf["casts"])
+    # 撃破に関与した回数（§7.174 後記）。討ち取りは同じ窓で寄与した発動すべてに
+    # 付くので、単純な「撃破数」だと各武将の合計が敵の隊数を超える。行には
+    # 「関与の回数（うち共同）」として添え、相手ごとに1回だけ数える。
+    involved = {}
+    for c in cast_list:
+        for tg in c["kills"]:
+            key = (c["side"], c["who"])
+            involved.setdefault(key, {})[tg] = (involved.get(key, {}).get(tg, False)
+                                                or tg in c["shared_kills"])
+    def stamp_kills(rows_, side):
+        for u in rows_:
+            who = [k for k in involved if k[0] == side and k[1].startswith(u["card"])]
+            hits = {}
+            for k in who:
+                for tg, shared in involved[k].items():
+                    hits[tg] = hits.get(tg, False) or shared
+            u["kills_involved"] = len(hits)
+            u["kills_shared"] = sum(1 for v in hits.values() if v)
+    mine_rows, foe_rows = rows(mine, pos_mine), rows(foe, pos_foe)
+    stamp_kills(mine_rows, "mine")
+    stamp_kills(foe_rows, "foe")
     return {"lines": lines,
             "line_sides": [side_of(x) for x in line_sides],
             # 決着の理由と時刻は**盤面から**（§7.173。画面が実況文から推測しない）
             "end_reason": r["reason"], "end_clock": F.clock(r["t"]),
-            "casts": cast_rows(nf["casts"]),
+            "casts": cast_list,
             "notes": battle_notes(ua, ub, r, series, me_first),
             "mine_names": [u.name for u in (ua if me_first else ub).cards if u.name],
             "foe_names": [u.name for u in (ub if me_first else ua).cards if u.name],
             "series": [[round(F.mins(t), 1),
                         round((ra - rb) if me_first else (rb - ra), 4)]
                        for t, ra, rb in series[::step]],
-            "mine": rows(mine, pos_mine), "foe": rows(foe, pos_foe),
+            "mine": mine_rows, "foe": foe_rows,
             "verdict": "勝ち" if sc > 0.5 else ("負け" if sc < 0.5 else "引き分け")}
 
 
