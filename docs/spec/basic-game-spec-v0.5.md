@@ -11054,7 +11054,7 @@ sync、田豊の値打ちの再測、赤チームの直接対決。3発なら現
 足した登用が届く。解放は INSERT OR IGNORE なので何度呼んでも増えない（`tools/test_recruit_backfill.py`）。
 
 **顔絵**: 無い人物は生成の置き絵（勢力色＋姓一字）が出る（§7.135 の解決順）。`docs/design/portrait-list.csv` に 18 行
-（優先 3）を足した。
+（優先 3）を足し、発注書は `docs/design/portrait-order-no121-138.md`（共通プロンプト＋18人の個別指定・そのまま渡せる形）。
 
 **検証**: 回帰16本（`tools/test_recruit_backfill.py` を追加）・零点 0.00・ui_smoke・quick 基線 PASS。`balance_suite` の名簿の
 不変条件（人物120・各コスト12枚）を §7.170 の形（人物138・各14枚・10だけ13枚）へ直した。基線の「7型の総当たり」と
