@@ -32,6 +32,7 @@ try:  # script execution / module execution
 except ImportError:  # pragma: no cover - normal path for ``python tools/...``
     import balance_common as C
 
+from sim import bo3meter as B
 from sim import field as F
 from sim import match as M
 from sim import rosterdata as R
@@ -285,66 +286,47 @@ def distribution_report(data: Mapping, cards: Sequence[F.Card]) -> dict:
     return {"pools": pools}
 
 
-def _battle_job(job):
-    pool, foe_name, candidate, foe, reg, seed, side = job
-    if side == "A":
-        diff = M.play_one(candidate, foe, reg, dt=0.5, seed=seed)["diff"]
-    else:
-        diff = -M.play_one(foe, candidate, reg, dt=0.5, seed=seed)["diff"]
-    return pool, foe_name, reg, seed, side, diff
-
-
 def _run_pool(pool: str, candidate: M.Entry,
               opponents: Sequence[Tuple[str, M.Entry]], seeds: Sequence[int],
               jobs_n: int) -> dict:
-    jobs = [(pool, name, candidate, foe, reg, seed, side)
-            for name, foe in opponents
-            for reg in range(len(M.REGULATIONS))
-            for seed in seeds for side in ("A", "B")]
-    with mp.Pool(jobs_n) as workers:
-        rows = workers.map(_battle_job, jobs, chunksize=16)
+    """相手集合1つへ候補を当てる。**本番の BO3（sim.match.play）をそのまま使う**
+    （§7.175・`bo3_protocol: production_v1`）。以前は play_one を3戦場で同じ種のまま
+    束ねて「2勝で勝ち」と計器の側で判定していたが、本番と種の導出も引き分けの
+    扱いも違っていた。各マッチシードで左右両方を打ち、候補の視点へ戻す。
+    引き分けは別に数え、勝率＝勝÷全シリーズ。"""
+    rep = B.measure(candidate, opponents, seeds, sides=B.SIDES, dt=0.5, jobs_n=jobs_n,
+                    name=pool, treasures="none", validate=True, keep_records=False)
     by_reg = []
-    for reg, (label, _cap) in enumerate(M.REGULATIONS):
-        ds = [row[-1] for row in rows if row[2] == reg]
+    for r in rep["by_regulation"]:
         by_reg.append({
-            "regulation": label,
-            "wins": sum(d > 0 for d in ds),
-            "games": len(ds),
-            "win_rate": round(sum(d > 0 for d in ds) / len(ds), 4),
-            "mean_diff": round(statistics.mean(ds), 6),
-            "min_diff": round(min(ds), 6),
-            "max_diff": round(max(ds), 6),
+            "regulation": r["regulation"],
+            "wins": r["wins"], "losses": r["losses"], "draws": r["draws"], "games": r["games"],
+            "win_rate": r["win_rate"], "point_rate": r["point_rate"],
+            "mean_diff": r["mean_diff"], "min_diff": r["min_diff"], "max_diff": r["max_diff"],
+            "mean_remain_diff": r["mean_remain_diff"],
         })
-    lookup = {(foe, reg, seed, side): diff
-              for _pool, foe, reg, seed, side, diff in rows}
-    bo3 = []
-    per_foe = []
-    for foe, _entry in opponents:
-        foe_ds = [r[-1] for r in rows if r[1] == foe]
-        foe_bo3 = []
-        for seed in seeds:
-            for side in ("A", "B"):
-                foe_bo3.append(sum(lookup[foe, reg, seed, side] > 0
-                                   for reg in range(3)) >= 2)
-        bo3.extend(foe_bo3)
-        per_foe.append({
-            "name": foe,
-            "single_win_rate": round(sum(d > 0 for d in foe_ds) / len(foe_ds), 4),
-            "mean_diff": round(statistics.mean(foe_ds), 6),
-            "bo3_wins": sum(foe_bo3),
-            "bo3_games": len(foe_bo3),
-        })
+    per_foe = [{
+        "name": o["name"],
+        "single_win_rate": o["single"]["win_rate"],
+        "mean_diff": o["mean_match_diff"],
+        "bo3_wins": o["wins"], "bo3_losses": o["losses"], "bo3_draws": o["draws"],
+        "bo3_games": o["series"], "bo3_win_rate": o["win_rate"],
+    } for o in rep["per_opponent"]]
+    b, sg = rep["bo3"], rep["single"]
     return {
+        "bo3_protocol": B.PROTOCOL,
+        "treasures": "none",
         "opponents": len(opponents),
         "seeds": list(seeds),
-        "sides": ["A", "B"],
-        "single_wins": sum(row[-1] > 0 for row in rows),
-        "single_games": len(rows),
-        "bo3_wins": sum(bo3),
-        "bo3_games": len(bo3),
+        "sides": list(B.SIDES),
+        "single_wins": sg["wins"], "single_losses": sg["losses"], "single_draws": sg["draws"],
+        "single_games": sg["games"],
+        "bo3_wins": b["wins"], "bo3_losses": b["losses"], "bo3_draws": b["draws"],
+        "bo3_games": b["series"],
+        "bo3_win_rate": b["win_rate"], "bo3_point_rate": b["point_rate"],
+        "mean_match_diff": b["mean_match_diff"],
         "by_regulation": by_reg,
-        "worst_opponents": sorted(per_foe, key=lambda x: (x["bo3_wins"] / x["bo3_games"],
-                                                            x["mean_diff"]))[:12],
+        "worst_opponents": per_foe[:12],
     }
 
 
@@ -365,9 +347,12 @@ def battle_report(data: Mapping, cards: Sequence[F.Card], profile: Mapping,
                                 list(profile["pool_seeds"]))
     return {
         "candidate": candidate_name,
+        "bo3_protocol": B.PROTOCOL,
+        "treasures": "none",
         "pools": {key: _run_pool(key, candidate, opponents, seeds, jobs_n)
                   for key, (opponents, seeds) in pools.items()},
-        "note": "全測定を左右両側で実行。special48 は retired_validation で盲検ではない",
+        "note": ("本番の BO3（sim.match.play）を各マッチシードで左右両側。宝物なし。"
+                 "special48 は retired_validation で盲検ではない"),
     }
 
 
@@ -643,7 +628,14 @@ def compare_reports(current: Mapping, baseline: Mapping) -> dict:
                 key, cm.get(key), bm.get(key)))
     if cm.get("protocol") != bm.get("protocol"):
         compatible = False
-        warnings.append("protocol（seed・左右・相手集合）が不一致。勝率差を時系列比較しない")
+        if (cm.get("protocol", {}).get("bo3_protocol")
+                != bm.get("protocol", {}).get("bo3_protocol")):
+            warnings.append("BO3 の計測方式が違う（{} / {}）。旧方式との勝率差はバランスの変化ではない。"
+                            "同じ commit で基準値を測り直すこと".format(
+                                cm.get("protocol", {}).get("bo3_protocol"),
+                                bm.get("protocol", {}).get("bo3_protocol")))
+        else:
+            warnings.append("protocol（seed・左右・相手集合）が不一致。勝率差を時系列比較しない")
 
     out = {"compatible_protocol": compatible, "warnings": warnings,
            "baseline_commit": bm.get("git", {}).get("commit"), "battle": {},
@@ -718,13 +710,18 @@ def render_markdown(report: Mapping) -> str:
     battle = report.get("battle")
     if battle:
         lines += ["## 固定サンプルへの実戦", "",
-                  "候補: **{}**。すべて同じseedを左右両側で測定。".format(battle["candidate"]), "",
-                  "| 相手集合 | 単戦 | BO3 |", "|---|---:|---:|"]
+                  "候補: **{}**。計測方式 `{}`（本番 `sim.match.play`・各マッチシードで左右両側・宝物 **なし**）。"
+                  "勝率＝勝÷全シリーズ、引き分けは別に数える。".format(
+                      battle["candidate"], battle.get("bo3_protocol", "?")), "",
+                  "| 相手集合 | 単戦 勝/敗/分 | 単戦勝率 | BO3 勝/敗/分 | BO3勝率 | 得点率 |",
+                  "|---|---|---:|---|---:|---:|"]
         for key, p in battle["pools"].items():
-            lines.append("| {} | {}/{} ({}) | {}/{} ({}) |".format(
-                key, p["single_wins"], p["single_games"],
+            lines.append("| {} | {}/{}/{} | {} | {}/{}/{} | {} | {} |".format(
+                key, p["single_wins"], p.get("single_losses", "?"), p.get("single_draws", "?"),
                 _pct(p["single_wins"], p["single_games"]),
-                p["bo3_wins"], p["bo3_games"], _pct(p["bo3_wins"], p["bo3_games"])))
+                p["bo3_wins"], p.get("bo3_losses", "?"), p.get("bo3_draws", "?"),
+                _pct(p["bo3_wins"], p["bo3_games"]),
+                "{:.1f}%".format(100 * p["bo3_point_rate"]) if "bo3_point_rate" in p else "-"))
         lines += ["", "`special48` は最終調整に使用済みのため、現在は盲検ではありません。", ""]
 
     dist = report.get("distribution")
@@ -740,18 +737,18 @@ def render_markdown(report: Mapping) -> str:
 
     arche = report.get("archetypes")
     if arche:
-        lines += ["## 7型の総当たり", "",
+        lines += ["## 7型の総当たり（単戦・本番 BO3 の勝率ではない）", "",
                   "幅 **{:.1f}pt**／全型へ勝ち越す型: **{}**".format(
                       arche["width_points"], "、".join(arche["dominant_archetypes"]) or "なし"), "",
-                  "| 型 | 勝率 |", "|---|---:|"]
+                  "| 型 | 単戦勝率 |", "|---|---:|"]
         for k, v in arche["rates"].items():
             lines.append("| {} | {:.1f}% |".format(k, 100 * v))
         lines.append("")
 
     cadence = report.get("cadence")
     if cadence:
-        lines += ["## 手数型の密度", "",
-                  "| 1部隊の手数枚数 | 比較可能な層 | 対・手数0の平均勝率 | 平均差 |",
+        lines += ["## 手数型の密度（単戦・本番 BO3 の勝率ではない）", "",
+                  "| 1部隊の手数枚数 | 比較可能な層 | 対・手数0の平均単戦勝率 | 平均差 |",
                   "|---:|---:|---:|---:|"]
         for k, v in cadence["aggregate"].items():
             lines.append("| {} | {} | {:.1f}% | {:+.4f} |".format(
@@ -792,7 +789,7 @@ def render_markdown(report: Mapping) -> str:
                       "一致" if comp["compatible_protocol"] else "不一致",
                       (comp.get("baseline_commit") or "?")[:12]), ""]
         for key, v in comp["battle"].items():
-            lines.append("- {}: 単戦 {:+.1f}pt / BO3 {:+.1f}pt".format(
+            lines.append("- {}: 単戦 {:+.1f}pt / BO3勝率 {:+.1f}pt".format(
                 key, v["single_delta_points"], v["bo3_delta_points"]))
         if comp["archetypes"]:
             lines.append("- 7型の幅: {:+.1f}pt".format(
@@ -823,6 +820,10 @@ def build_report(command: str, profile_name: str, jobs_n: int,
         "battle_pool_seeds": list(profile["pool_seeds"]) if "battle" in sections else [],
         "sides": ["A", "B"] if sections & {"battle", "archetype", "cadence"} else [],
         "opponent_pools": ["chappy", "official24", "special48"] if "battle" in sections else [],
+        # §7.175: BO3 は本番の sim.match.play をそのまま使う。旧方式（play_one を同じ種で
+        # 束ねて2勝判定）の基線とは勝率を比べない（compare_reports が拒む）
+        "bo3_protocol": B.PROTOCOL if "battle" in sections else None,
+        "treasures": "none",
     }
     report = {
         "schema_version": 1,

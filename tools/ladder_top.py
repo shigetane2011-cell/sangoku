@@ -131,7 +131,7 @@ def cmd_field(args):
     res = Pool(args.jobs).map(_duel, jobs, chunksize=32)
     rate = _tally(res, names)
 
-    print("\n── 勝率 ──")
+    print("\n── 勝率（単戦・3戦場の合計。本番 BO3 の勝率ではない）──")
     order = sorted(names, key=lambda n: -rate[n])
     for n in order:
         print("  {:8s} {:5.1f}%".format(n, rate[n]))
@@ -177,7 +177,7 @@ def archetype_matrix(results, names, key=lambda n: n[:2]):
         elif diff < 0:
             win[b][a] += 1
 
-    print("\n── 型どうしの勝率（行が列に勝つ%）──")
+    print("\n── 型どうしの勝率（単戦・行が列に勝つ%）──")
     print("        " + "".join("{:>7s}".format(k) for k in kinds))
     for a in kinds:
         row = ["{:>7s}".format("--" if a == b else
@@ -234,7 +234,7 @@ def cmd_cand(args):
 
     field_names = [n for n, _ in field]
     base = sorted((rate[n] for n in field_names), reverse=True)
-    print("\n── 場の基線（在野24人が同じ場へ出した勝率）──")
+    print("\n── 場の基線（在野24人が同じ場へ出した単戦勝率）──")
     print("  最高 {:.1f}%  上位3 {:.1f}%  中央 {:.1f}%  最低 {:.1f}%".format(
         base[0], statistics.mean(base[:3]), statistics.median(base), base[-1]))
 

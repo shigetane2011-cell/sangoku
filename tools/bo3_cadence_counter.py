@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from sim import bo3meter as BM
 from sim import field as F
 from sim import match as M
 from tools import balance_common as C
@@ -157,16 +158,12 @@ def _variant(entry, cards, mask):
 
 
 def _job(args):
+    """守備側を候補として本番の BO3 を1シリーズ（§7.175・bo3meter）。勝者は winner から。
+    以前は wins > 1.5 で判定していたので 1.5 対 1.5 の引き分けが敗北に混ざっていた。"""
     rapid, defense, mask, seed, side = args
-    if side == 0:
-        result = M.play(defense, rapid, dt=0.5, seed=seed)
-        wins, diff = result["wins_a"], result["diff"]
-        game_diffs = [g["結果"]["diff"] for g in result["games"]]
-    else:
-        result = M.play(rapid, defense, dt=0.5, seed=seed)
-        wins, diff = result["wins_b"], -result["diff"]
-        game_diffs = [-g["結果"]["diff"] for g in result["games"]]
-    return mask, wins > 1.5, diff, tuple(game_diffs)
+    s = BM.play_series(defense, rapid, seed, "A" if side == 0 else "B", dt=0.5)
+    return (mask, s["outcome"], s["match_diff"], tuple(g["diff"] for g in s["games"]),
+            tuple(g["outcome"] for g in s["games"]))
 
 
 def _fire_job(args):
@@ -205,7 +202,8 @@ def fire_probe(cards, rapid_entries, defense_bases, seeds: Iterable[int], jobs_n
         rs = [r for r in rows if r[0] == mult]
         out["{:.2f}".format(mult)] = {
             "games": len(rs),
-            "defense_win_rate": round(sum(r[1] > 0 for r in rs) / len(rs), 4),
+            # 赤壁の単戦（play_one）。本番 BO3 の勝率ではない
+            "defense_single_win_rate": round(sum(r[1] > 0 for r in rs) / len(rs), 4),
             "mean_diff": round(statistics.mean(r[1] for r in rs), 6),
             "rapid_hand_fires": round(statistics.mean(r[2] for r in rs), 3),
             "rapid_all_fires": round(statistics.mean(r[3] for r in rs), 3),
@@ -235,28 +233,38 @@ def run(profile, jobs_n):
     by_mask: Dict[str, dict] = {}
     for mask in range(8):
         rs = [r for r in rows if r[0] == mask]
+        w = sum(r[1] == "W" for r in rs); l_ = sum(r[1] == "L" for r in rs); d = sum(r[1] == "D" for r in rs)
         by_mask[format(mask, "03b")] = {
             "coverage": mask.bit_count(),
             "counters": [SWAPS[i][2] for i in range(3) if mask & (1 << i)],
             "bo3_games": len(rs),
-            "defense_bo3_win_rate": round(sum(r[1] for r in rs) / len(rs), 4),
+            "defense_bo3_wins": w, "defense_bo3_losses": l_, "defense_bo3_draws": d,
+            "defense_bo3_win_rate": round(w / len(rs), 4),
+            "defense_bo3_point_rate": round((w + 0.5 * d) / len(rs), 4),
             "mean_match_diff": round(statistics.mean(r[2] for r in rs), 6),
+            # 単戦は本番の各戦の判定（勝÷全）。引き分けは数えない
             "single_win_rate_by_reg": [round(
-                sum(r[3][reg] > 0 for r in rs) / len(rs), 4) for reg in range(3)],
+                sum(r[4][reg] == "W" for r in rs) / len(rs), 4) for reg in range(3)],
+            "single_draws_by_reg": [sum(r[4][reg] == "D" for r in rs) for reg in range(3)],
             "mean_diff_by_reg": [round(
                 statistics.mean(r[3][reg] for r in rs), 6) for reg in range(3)],
         }
     by_coverage = {}
     for coverage in range(4):
         rs = [r for r in rows if r[0].bit_count() == coverage]
+        w = sum(r[1] == "W" for r in rs); l_ = sum(r[1] == "L" for r in rs); d = sum(r[1] == "D" for r in rs)
         by_coverage[str(coverage)] = {
             "subsets": sum(1 for m in range(8) if m.bit_count() == coverage),
             "bo3_games": len(rs),
-            "defense_bo3_win_rate": round(sum(r[1] for r in rs) / len(rs), 4),
+            "defense_bo3_wins": w, "defense_bo3_losses": l_, "defense_bo3_draws": d,
+            "defense_bo3_win_rate": round(w / len(rs), 4),
+            "defense_bo3_point_rate": round((w + 0.5 * d) / len(rs), 4),
             "mean_match_diff": round(statistics.mean(r[2] for r in rs), 6),
         }
     return {
         "profile": profile,
+        "bo3_protocol": BM.PROTOCOL, "dt": 0.5, "treasures": "none",
+        "commit": BM._commit(),
         "restraint_natural_mult": F.RESTRAINT_NATURAL_MULT,
         "rapid_split": list(RAPID_SPLIT),
         "rapid_cards": [c.name for c in cards if C.cadence(c) == "手数"],
@@ -277,14 +285,17 @@ def markdown(report: Mapping) -> str:
         "# BO3手数密度×対策面数", "",
         "- profile: `{}` / 手数配分 `3/3/2` / 節制の自然増加 `×{:.2f}`".format(
             report["profile"], report["restraint_natural_mult"]),
-        "- 同コスト・同兵種・同役割の札と対策札を差し替え、全subsetを左右両側で測定",
-        "", "| 対策面数 | subset数 | BO3数 | 守備側BO3勝率 | 平均match diff |",
-        "|---:|---:|---:|---:|---:|",
+        "- 計測方式: `{}`（本番 `sim.match.play`・各マッチシードで左右両側・dt {}・宝物なし）／commit `{}`".format(
+            report.get("bo3_protocol", "?"), report.get("dt", 0.5), report.get("commit", "?")),
+        "- 同コスト・同兵種・同役割の札と対策札を差し替え、全subsetを左右両側で測定。勝率＝勝÷全（引き分けは別）",
+        "", "| 対策面数 | subset数 | BO3数 | 守備 勝/敗/分 | 守備側BO3勝率 | 得点率 | 平均match diff |",
+        "|---:|---:|---:|---|---:|---:|---:|",
     ]
     for k, v in report["by_coverage"].items():
-        lines.append("| {} | {} | {} | {:.1f}% | {:+.4f} |".format(
-            k, v["subsets"], v["bo3_games"], 100 * v["defense_bo3_win_rate"],
-            v["mean_match_diff"]))
+        lines.append("| {} | {} | {} | {}/{}/{} | {:.1f}% | {:.1f}% | {:+.4f} |".format(
+            k, v["subsets"], v["bo3_games"], v.get("defense_bo3_wins", "?"), v.get("defense_bo3_losses", "?"),
+            v.get("defense_bo3_draws", "?"), 100 * v["defense_bo3_win_rate"],
+            100 * v.get("defense_bo3_point_rate", 0), v["mean_match_diff"]))
     lines += ["", "## subset別", "",
               "| mask(赤壁官渡汜水関) | 対策 | BO3勝率 | 汜水関 | 官渡 | 赤壁 | 平均diff |",
               "|---|---|---:|---:|---:|---:|---:|"]
@@ -295,12 +306,12 @@ def markdown(report: Mapping) -> str:
             100 * v["defense_bo3_win_rate"], *(100 * x for x in rates),
             v["mean_match_diff"]))
     lines += ["", "※ maskは右から 汜水関=持重 / 官渡=打消し / 赤壁=節制。", "",
-              "## 節制の因果（同じ陸抗で効果だけON/OFF）", "",
-              "| 自然増加 | 赤壁数 | 守備勝率 | 手数札発動 | 手数側全発動 | 守備側全発動 | 平均diff |",
+              "## 節制の因果（同じ陸抗で効果だけON/OFF・赤壁の単戦。本番 BO3 の勝率ではない）", "",
+              "| 自然増加 | 赤壁数 | 守備単戦勝率 | 手数札発動 | 手数側全発動 | 守備側全発動 | 平均diff |",
               "|---:|---:|---:|---:|---:|---:|---:|"]
     for mult, v in report["restraint_causal"].items():
         lines.append("| ×{} | {} | {:.1f}% | {:.2f} | {:.2f} | {:.2f} | {:+.4f} |".format(
-            mult, v["games"], 100 * v["defense_win_rate"],
+            mult, v["games"], 100 * v.get("defense_single_win_rate", v.get("defense_win_rate", 0)),
             v["rapid_hand_fires"], v["rapid_all_fires"],
             v["defense_all_fires"], v["mean_diff"]))
     lines.append("")

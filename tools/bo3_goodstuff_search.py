@@ -64,6 +64,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from sim import bo3meter as B
 from sim import field as F
 from sim import match as M
 from sim import dummies as D
@@ -100,13 +101,20 @@ WATCH_CARDS = ("田豊〔剛直〕", "沮授〔監軍〕", "陸抗〔羊陸之�
 
 @dataclass(frozen=True)
 class Metrics:
+    """候補1つの成績。**勝率（win_rate）は勝÷全シリーズ**、引き分けは別に数える。
+    探索の目的関数（utility）は従来どおり得点率（引き分け半勝・point_rate）を使う —
+    探索の挙動を変えないため（§7.175）。表示は両方を別名で出す。"""
     matches: int
-    match_win_rate: float          # 群の重み付き
+    point_rate: float              # 群の重み付き得点率（引き分け＝半勝・探索の目的）
     by_group: Dict[str, float]     # 群ごとの BO3 勝率
     mean_match_diff: float
     single_win_rate: Tuple[float, float, float]
     mean_diff_by_reg: Tuple[float, float, float]
     utility: float
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+    win_rate: float = 0.0          # 勝÷全シリーズ（引き分けは数えない）
 
 
 def _form_name(form: F.Formation) -> str:
@@ -261,16 +269,14 @@ def mutate(entry: M.Entry, cards: Sequence[F.Card], rng: random.Random, steps: i
 
 
 def _duel_job(args):
+    """1シリーズ。**本番の BO3（sim.match.play）を bo3meter 経由でそのまま**（§7.175）。
+    勝者は返ってくる winner から。候補の視点へ戻した 勝/敗/分・match diff・戦場ごとの
+    diff と勝敗を返す。"""
     cid, group, cand, opp, seed, side = args
-    if side == 0:
-        r = M.play(cand, opp, dt=0.5, seed=seed)
-        mpnt = 1.0 if r["wins_a"] > r["wins_b"] else (0.5 if r["wins_a"] == r["wins_b"] else 0.0)
-        diff = r["diff"]; reg_diff = tuple(g["結果"]["diff"] for g in r["games"])
-    else:
-        r = M.play(opp, cand, dt=0.5, seed=seed)
-        mpnt = 1.0 if r["wins_b"] > r["wins_a"] else (0.5 if r["wins_a"] == r["wins_b"] else 0.0)
-        diff = -r["diff"]; reg_diff = tuple(-g["結果"]["diff"] for g in r["games"])
-    return cid, group, mpnt, diff, reg_diff
+    s = B.play_series(cand, opp, seed, "A" if side == 0 else "B", dt=0.5)
+    mpnt = {"W": 1.0, "D": 0.5, "L": 0.0}[s["outcome"]]
+    return (cid, group, mpnt, s["match_diff"], tuple(g["diff"] for g in s["games"]),
+            s["outcome"], tuple(g["outcome"] for g in s["games"]))
 
 
 def evaluate(entries: Sequence[M.Entry], opponents: Sequence[Tuple[str, M.Entry]],
@@ -299,7 +305,7 @@ def evaluate(entries: Sequence[M.Entry], opponents: Sequence[Tuple[str, M.Entry]
         rs = by_id[cid]
         if not rs:
             # 相手が自分だけ（support が1登録のとき等）: 中立の値を置く（自分との対戦は 0.5）
-            out.append(Metrics(matches=0, match_win_rate=0.5, by_group={}, mean_match_diff=0.0,
+            out.append(Metrics(matches=0, point_rate=0.5, by_group={}, mean_match_diff=0.0,
                                single_win_rate=(0.5, 0.5, 0.5), mean_diff_by_reg=(0.0, 0.0, 0.0), utility=0.5))
             continue
         groups = {}
@@ -307,17 +313,22 @@ def evaluate(entries: Sequence[M.Entry], opponents: Sequence[Tuple[str, M.Entry]
             groups.setdefault(r[1], []).append(r[2])
         by_group = {g: statistics.mean(v) for g, v in groups.items()}
         wsum = sum(weights.get(g, 0.0) for g in by_group)
-        win = (sum(weights.get(g, 0.0) * v for g, v in by_group.items()) / wsum) if wsum > 0 else \
+        # 目的関数は従来どおり群の重み付き得点率（引き分け＝半勝）
+        pts = (sum(weights.get(g, 0.0) * v for g, v in by_group.items()) / wsum) if wsum > 0 else \
             statistics.mean(r[2] for r in rs)
         diffs = [r[3] for r in rs]
         regdiff = [[r[4][i] for r in rs] for i in range(3)]
-        single = tuple(sum(1.0 if x > 0 else (0.5 if abs(x) <= 1e-12 else 0.0) for x in xs) / len(xs)
-                       for xs in regdiff)
+        # 単戦の勝率は本番の各戦の判定（勝÷全）。引き分けは数えない
+        single = tuple(sum(1 for r in rs if r[6][i] == "W") / len(rs) for i in range(3))
         mean_diff = statistics.mean(diffs)
-        out.append(Metrics(matches=len(rs), match_win_rate=win, by_group=by_group,
+        w = sum(1 for r in rs if r[5] == "W")
+        l_ = sum(1 for r in rs if r[5] == "L")
+        d = sum(1 for r in rs if r[5] == "D")
+        out.append(Metrics(matches=len(rs), point_rate=pts, by_group=by_group,
                            mean_match_diff=mean_diff, single_win_rate=single,
                            mean_diff_by_reg=tuple(statistics.mean(xs) for xs in regdiff),
-                           utility=win + 0.03 * math.tanh(mean_diff * 2.0)))
+                           utility=pts + 0.03 * math.tanh(mean_diff * 2.0),
+                           wins=w, losses=l_, draws=d, win_rate=w / len(rs)))
     return out
 
 
@@ -338,7 +349,11 @@ def _spec(entry: M.Entry) -> dict:
 
 
 def _metrics_dict(m: Metrics) -> dict:
-    return {"matches": m.matches, "bo3_win_rate": round(m.match_win_rate, 4),
+    return {"matches": m.matches,
+            # 勝率＝勝÷全シリーズ。得点率（引き分け半勝）は別名。by_group は得点率（探索の目的）
+            "bo3_wins": m.wins, "bo3_losses": m.losses, "bo3_draws": m.draws,
+            "bo3_win_rate": round(m.win_rate, 4), "point_rate": round(m.point_rate, 4),
+            "by_group_point_rate": {g: round(v, 4) for g, v in m.by_group.items()},
             "by_group": {g: round(v, 4) for g, v in m.by_group.items()},
             "mean_match_diff": round(m.mean_match_diff, 6),
             "single_win_rate": [round(x, 4) for x in m.single_win_rate],
@@ -427,7 +442,7 @@ def search(args) -> dict:
                      + [("persona", e) for e in personas])
         metrics = evaluate(population, opponents, cfg["search_seeds"], args.jobs)
         ranked = sorted(zip(population, metrics),
-                        key=lambda x: (x[1].utility, x[1].match_win_rate, x[1].mean_match_diff), reverse=True)
+                        key=lambda x: (x[1].utility, x[1].point_rate, x[1].mean_match_diff), reverse=True)
         for e, m in ranked[: max(cfg["elite"], 3)]:
             k = _entry_key(e)
             if k not in hall or m.utility > hall[k][1].utility:
@@ -445,7 +460,7 @@ def search(args) -> dict:
         g = best_m.by_group
         print("gen {:02d}  適応 {:5.1f}%  在野 {:5.1f}%  殿堂 {:5.1f}%  性格 {:5.1f}%  diff {:+.3f}  "
               "単戦 [{:3.0f},{:3.0f},{:3.0f}]  {}  {}{}".format(
-                  gen, 100 * best_m.match_win_rate, 100 * g.get("official", float("nan")),
+                  gen, 100 * best_m.point_rate, 100 * g.get("official", float("nan")),
                   100 * g.get("hall", float("nan")), 100 * g.get("persona", float("nan")),
                   best_m.mean_match_diff, *(100 * x for x in best_m.single_win_rate),
                   "/".join("{:g}".format(a.total_cost()) for a in best_e.units),
@@ -468,7 +483,7 @@ def search(args) -> dict:
                 + [("persona", e) for e in all_personas])
     val_metrics = evaluate(finalists, val_opps, cfg["validate_seeds"], args.jobs)
     ranked_final = sorted(zip(finalists, val_metrics),
-                          key=lambda x: (x[1].utility, x[1].match_win_rate, x[1].mean_match_diff), reverse=True)
+                          key=lambda x: (x[1].utility, x[1].point_rate, x[1].mean_match_diff), reverse=True)
     picked, skipped = diverse_pick(ranked_final, cfg["validate_top"], cfg["max_overlap"])
     top_entries = [e for e, _m in picked]
     special_metrics = evaluate(top_entries, [("special", e) for e in special], cfg["validate_seeds"], args.jobs,
@@ -497,6 +512,12 @@ def search(args) -> dict:
                   for e, m in sorted(hall.values(), key=lambda x: x[1].utility, reverse=True)[:12]]
     return {
         "tool": "bo3_goodstuff_search", "profile": args.profile, "seed": args.seed, "jobs": args.jobs,
+        "bo3_protocol": B.PROTOCOL, "dt": 0.5, "sides": list(B.SIDES),
+        "manifest": C.manifest("bo3_goodstuff_search", args.profile,
+                               {"bo3_protocol": B.PROTOCOL, "dt": 0.5, "sides": list(B.SIDES),
+                                "search_seeds": list(cfg["search_seeds"]),
+                                "validation_seeds": list(cfg["validate_seeds"]), "treasures": "none"},
+                               data),
         "hall": hall_specs,
         "positioning": "再較正後に壊れた18人構成を探す赤チーム計器。値付け調整の根拠には使わない",
         "objective": "BO3 win rate (weighted: official24 / hall of fame / persona panel) primary; "
@@ -519,24 +540,30 @@ def markdown(report: Mapping) -> str:
              "- 目的関数: {}".format(report["objective"]),
              "- 相手: 在野 {official} + 殿堂 ≤{hall_max} + 性格 {personas}（重み {w}）".format(
                  **report["train"], w=report["group_weight"]),
-             "- 宝物: **探索外**",
+             "- 計測方式: `{}`（本番 `sim.match.play`・各マッチシードで左右両側・dt 0.5）／commit `{}`".format(
+                 report.get("bo3_protocol", "?"), (report.get("manifest") or {}).get("git", {}).get("commit", "?")),
+             "- 勝率＝勝÷全シリーズ。適応度（探索の目的）は得点率＝(勝＋0.5×分)÷全 の群重み付き",
+             "- 宝物: **なし**（探索外）",
              "- special48: 検証用だが**盲検ではない**（過去の調整に使用済み）",
              "- final_blind: {}".format("あり" if report["final_blind_available"] else "空（release判定には使わない）"),
              "- 同系統として省いた候補: {}（18人中 {} 枚超の重なり）".format(
                  report["skipped_as_same_lineage"], report["max_overlap"]),
              "- 禁止札: {}".format("、".join(report.get("ban", [])) or "なし"),
              "- 初期個体: {}".format("在野だけ（chappy・破陣を種にしない）" if report.get("fresh") else "chappy・破陣・在野"), ""]
-    lines += ["## 世代ごとの最良（適応度＝重み付き BO3）", "", "| 世代 | 適応 | 在野 | 殿堂 | 性格 | 交代 | 陣形 |", "|---|---|---|---|---|---|---|"]
+    lines += ["## 世代ごとの最良（適応度＝重み付き得点率・引き分け半勝）", "",
+              "| 世代 | 適応（得点率） | BO3勝率 | 在野 | 殿堂 | 性格 | 交代 | 陣形 |", "|---|---|---|---|---|---|---|---|"]
     for h in report["history"]:
         g = h["best"]["by_group"]
-        lines.append("| {} | {:.1f}% | {:.1f}% | {:.1f}% | {:.1f}% | {} | {} |".format(
-            h["generation"], 100 * h["best"]["bo3_win_rate"], 100 * g.get("official", 0), 100 * g.get("hall", 0),
+        lines.append("| {} | {:.1f}% | {:.1f}% | {:.1f}% | {:.1f}% | {:.1f}% | {} | {} |".format(
+            h["generation"], 100 * h["best"].get("point_rate", 0), 100 * h["best"]["bo3_win_rate"],
+            100 * g.get("official", 0), 100 * g.get("hall", 0),
             100 * g.get("persona", 0), "●" if h["changed"] else "", "/".join(h["forms"])))
     lines.append("")
     for row in report["results"]:
         v = row["validation"]; g = v["by_group"]
-        lines += ["## #{}  検証 BO3 {:.1f}%（在野 {:.1f}／殿堂 {:.1f}／性格 {:.1f}）".format(
-            row["rank"], 100 * v["bo3_win_rate"], 100 * g.get("official", 0), 100 * g.get("hall", 0), 100 * g.get("persona", 0)), ""]
+        lines += ["## #{}  検証 BO3 勝率 {:.1f}%（{}勝{}敗{}分）・得点率 {:.1f}%（在野 {:.1f}／殿堂 {:.1f}／性格 {:.1f}）".format(
+            row["rank"], 100 * v["bo3_win_rate"], v.get("bo3_wins", "?"), v.get("bo3_losses", "?"), v.get("bo3_draws", "?"),
+            100 * v.get("point_rate", 0), 100 * g.get("official", 0), 100 * g.get("hall", 0), 100 * g.get("persona", 0)), ""]
         for a in row["entry"]["armies"]:
             lines += ["### {} — {} / cost {:g}".format(a["regulation"], a["formation"], a["cost"]),
                       "- 前: " + " / ".join(a["front"]), "- 後: " + " / ".join(a["rear"]),
@@ -544,10 +571,12 @@ def markdown(report: Mapping) -> str:
         lines.append("- 対策札: {}".format("・".join(row["entry"]["watch_cards"]) or "なし"))
         lines.append("- 単戦 [{:.1f}, {:.1f}, {:.1f}] / diff {:+.4f}".format(*(100 * x for x in v["single_win_rate"]), v["mean_match_diff"]))
         if row["special48"]:
-            lines.append("- special48: BO3 {:.1f}% / 単戦 [{:.1f}, {:.1f}, {:.1f}]".format(
-                100 * row["special48"]["bo3_win_rate"], *(100 * x for x in row["special48"]["single_win_rate"])))
+            lines.append("- special48: BO3 勝率 {:.1f}%（{}勝{}敗{}分） / 単戦 [{:.1f}, {:.1f}, {:.1f}]".format(
+                100 * row["special48"]["bo3_win_rate"], row["special48"].get("bo3_wins", "?"),
+                row["special48"].get("bo3_losses", "?"), row["special48"].get("bo3_draws", "?"),
+                *(100 * x for x in row["special48"]["single_win_rate"])))
         if row["final_blind"]:
-            lines.append("- final_blind: BO3 {:.1f}%".format(100 * row["final_blind"]["bo3_win_rate"]))
+            lines.append("- final_blind: BO3 勝率 {:.1f}%".format(100 * row["final_blind"]["bo3_win_rate"]))
         for k, ov in row["overlap_with_named"].items():
             lines.append("- {} との重複: 18人中 {}（戦場別 {}）".format(k, ov["total"], "/".join(map(str, ov["per_reg"]))))
         lines.append("")
@@ -579,10 +608,10 @@ EQ_ITERS = 20000           # regret matching の反復
 
 def _pair_job(args):
     i, j, a, b, seed = args
-    r0 = M.play(a, b, dt=0.5, seed=seed)
-    u0 = 1.0 if r0["wins_a"] > r0["wins_b"] else (-1.0 if r0["wins_b"] > r0["wins_a"] else 0.0)
-    r1 = M.play(b, a, dt=0.5, seed=seed)
-    u1 = 1.0 if r1["wins_b"] > r1["wins_a"] else (-1.0 if r1["wins_a"] > r1["wins_b"] else 0.0)
+    # 本番の BO3（winner）から i の利得（+1 勝ち／0 引き分け／−1 負け）。両側の平均＝反対称化
+    u = {"W": 1.0, "D": 0.0, "L": -1.0}
+    u0 = u[B.play_series(a, b, seed, "A", dt=0.5)["outcome"]]
+    u1 = u[B.play_series(a, b, seed, "B", dt=0.5)["outcome"]]
     return i, j, seed, (u0 + u1) / 2.0        # i から見た利得（両側の平均＝反対称化）
 
 
@@ -668,7 +697,7 @@ def best_response_search(mixture, entries, cards, cfg, rng, jobs_n, seeds, valid
     best = None
     for gen in range(cfg["br_generations"]):
         metrics = evaluate(population, opps, seeds, jobs_n, weights=weights)
-        ranked = sorted(zip(population, metrics), key=lambda x: (x[1].utility, x[1].match_win_rate), reverse=True)
+        ranked = sorted(zip(population, metrics), key=lambda x: (x[1].utility, x[1].point_rate), reverse=True)
         if best is None or ranked[0][1].utility > best[1].utility:
             best = ranked[0]
         elite = [e for e, _m in ranked[: max(3, cfg["br_population"] // 3)]]
@@ -767,7 +796,7 @@ def solve(args) -> dict:
             rounds.append(rec)
             break
         br, bm = best_response_search(mix, entries, cards, cfg, rng, args.jobs, cfg["br_seeds"], cfg["br_validate_seeds"])
-        br_win = bm.match_win_rate
+        br_win = bm.point_rate
         nearest = max(((overlap(br, e)[0], names[i]) for i, e in enumerate(entries)), default=(0, ""))
         rec["best_response"] = {"win_vs_mixture": round(br_win, 4), "exploitability_pt": round(100 * (br_win - 0.5), 2),
                                 "nearest": {"name": nearest[1], "overlap": nearest[0]}, "entry": _spec(br)}
@@ -815,8 +844,9 @@ def solve(args) -> dict:
     special_check = None
     if special:
         ms = evaluate(sup_entries, [("special", e) for e in special], cfg["br_validate_seeds"][:2], args.jobs, weights={"special": 1.0})
-        special_check = [{"name": names[i], "bo3_vs_special48": round(m.match_win_rate, 4)} for i, m in zip(support, ms)]
-    protocol = {"solve_profile": cfg, "search_profile": scfg, "seeds": list(seeds), "dt": 0.5,
+        special_check = [{"name": names[i], "bo3_vs_special48": round(m.win_rate, 4)} for i, m in zip(support, ms)]
+    protocol = {"bo3_protocol": B.PROTOCOL, "treasures": "none", "sides": list(B.SIDES),
+                "solve_profile": cfg, "search_profile": scfg, "seeds": list(seeds), "dt": 0.5,
                 "br_threshold": threshold, "br_min_gain": BR_MIN_GAIN, "support_eps": SUPPORT_EPS, "eq_iters": EQ_ITERS,
                 "candidate_sources": ["chappy", "counter", "red(goodstuff.json)", "hall(goodstuff.json)", "official24 subset", "persona panel"]}
     report = {
@@ -845,7 +875,9 @@ def solve_markdown(rep: Mapping) -> str:
     f = rep["final"]
     L = ["# BO3 メタ解析（--solve・赤チーム計器）", "",
          "- 位置づけ: {}".format(rep["positioning"]),
-         "- profile: `{}` / seed: `{}` / dt 0.5 / commit `{}`".format(rep["profile"], rep["seed"], rep["manifest"]["git"].get("commit", "?")),
+         "- profile: `{}` / seed: `{}` / dt 0.5 / commit `{}` / 計測方式 `{}`（本番 sim.match.play・左右両側・宝物なし）".format(
+             rep["profile"], rep["seed"], rep["manifest"]["git"].get("commit", "?"),
+             rep["manifest"].get("protocol", {}).get("bo3_protocol", "?")),
          "- 候補集合: {}（近縁として省いた: {}）".format(f["n_candidates"], "・".join(rep["dropped_as_kin"]) or "なし")]
     L += ["- " + n for n in rep["notes"]]
     L += ["", "## ラウンド", "", "| round | 候補 | support（比率） | 均衡値 | 内部搾取 | 推移/巡回 | 最良応答 対均衡 | exploitability | 判定 |", "|---|---|---|---|---|---|---|---|---|"]

@@ -11321,6 +11321,47 @@ quick は種2で利得が ±1 に量子化されるので、探索の「殿堂 1
 
 ---
 
+### 7.175 BO3 の計器を本番の `sim.match.play()` に統一［v0.6・実装記録・`bo3_protocol: production_v1`］
+
+テストプレイの指示（2026-09-06）「BO3計器を、本番の sim.match.play() と同じ条件へ統一。戦闘エンジン・バランス値は変更せず、
+計器側を修正」。
+
+**直す前**: `tools/balance_suite.py` の相手集合への実戦は `play_one` を3戦場で**同じ種のまま**打ち、計器の側で「2勝で勝ち」と
+判定していた（本番は戦場ごとに match_seed×3+戦場番号 で種を導き、各戦の判定は score（引き分けの帯あり）、シリーズの勝者は
+winner）。引き分け（diff＝0）は敗北に混ざっていた。`bo3_goodstuff_search` と `bo3_cadence_counter` は `M.play` を呼んでいたが、
+勝率に引き分けを半勝で混ぜていた（cadence は `wins > 1.5` で 1.5対1.5 を敗北に）。
+
+**共通の計測部** `sim/bo3meter.py`:
+- `play_series(候補, 相手, seed, side, dt)`: 本番の `M.play` を **そのまま**呼ぶ（side "A" は 候補対相手、"B" は 相手対候補を
+  同じ match_seed で）。勝者は返ってくる `winner`、各戦は `score` から 勝/敗/分。候補側の視点へ戻す（diff・残存率差の符号）。
+- `measure(候補, 相手集合, seeds, sides=("A","B"), dt=0.5, treasures="none")`: 各シードで左右両方。登録は本番の `M.validate`
+  （人物重複・配置・コスト上限）を通す。集計は BO3 の勝・敗・分・**勝率＝勝÷全シリーズ**・得点率（引き分け半勝・別名）・平均
+  match diff、戦場ごとの勝・敗・分・勝率・平均残存率差（ra−rb）・平均 diff、相手ごと、シリーズごとの記録。条件
+  （`bo3_protocol`・engine・dt・seeds・sides・treasures・commit）を同梱。
+- `compare(前, 後)`: 相手（名前・配置）・シード・左右・dt・宝物が一致する2つだけ受け付け、BO3 と戦場ごとの勝・敗・分、
+  戦場ごとの平均残存率差の差、シリーズの勝敗が入れ替わった件数（前は敗北→後は勝利・その逆・引き分けの出入り）を出す。
+  平均残存率差が改善して勝率が下がる場合は両方をそのまま示し、注記する。
+- 単戦専用の計器（`play_one`・`simulate` のパネル）はそのまま。表示に「単戦・本番 BO3 の勝率ではない」と明記。
+
+**載せ替え**: `balance_suite.py` の相手集合への実戦（勝・敗・分と勝率・得点率、manifest の protocol に `bo3_protocol`・
+`treasures: none`。`compare_reports` は方式が違う基線との勝率差を「バランスの変化ではない」と拒む。7型・手数密度は単戦と明記）、
+`bo3_goodstuff_search.py`（`Metrics` に勝・敗・分・`win_rate`、従来の重み付き指標は `point_rate` に改名し**探索の目的関数は
+そのまま**、--solve の利得も winner から。報告に方式・commit・宝物なし）、`bo3_cadence_counter.py`（守備側の勝・敗・分・勝率・
+得点率、赤壁の単戦は「単戦」と明記）、`ladder_top.py`・`card_before_after.py`（単戦の明記）。
+新設 `tools/bo3_compare.py`: 登録の前後比較（`set:`／JSON／`player:<id>`＝本番 `entry_of` の装備反映・検証経路）。前後で相手・
+シード・左右・dt・宝物を固定し、宝物の条件が違えば拒む。
+
+**検証**（`tools/test_bo3meter.py`・9本）: ①各戦の結果とシリーズの勝者が直接呼んだ `M.play()` と一致（左右とも）②同じシードで
+再実行が一致（並列でも）③相手側から測ると勝敗が入れ替わり、候補先手＝相手後手が同じ盤 ④引き分けを敗北に混ぜない（勝率 0・
+得点率 0.5）⑤残存率差が改善して勝率が下がる場合をそのまま報告・条件が違えば拒む ⑥同じ軍を繰り返し測っても余剰コストの補正が
+累積しない（`gauge_init` 不変・結果一致）⑦本番の検証を通らない登録は測らない。
+
+**基準値の測り直し**: 同じ commit で quick 基線を新方式で取り直した（`docs/balance/baselines/latest.json`・manifest に
+`bo3_protocol: production_v1`）。旧方式の基線（`ee9887d` 系）とは勝率を比べない。`docs/balance/bo3-goodstuff.json`（seed 20260912）は
+旧方式の探索結果のまま残す（登録は変えない・探索のやり直しは別作業）。
+
+---
+
 ### 8.1 戦闘ティックの処理順序［暫定・新規］
 
 v0.1 が次版の課題としていた「戦闘の1ティックで何が起きるか」を定義する。

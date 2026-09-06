@@ -96,6 +96,7 @@ def main():
     with Pool(a.workers, maxtasksperchild=1) as p:
         for name, which, pos, out in p.imap_unordered(_run, jobs):
             got[(name, which)] = (pos, out)
+    print("※ 単戦（性格パネル・dt 0.25・片側）。本番 BO3 の勝率ではない — 登録の前後比較は tools/bo3_compare.py")
     print(f"{'武将':12s} 置き {'改修前':>7s} {'今':>7s} {'Δ勝率':>8s} {'±SE':>6s}  読み"
           f"   （{cap_name}{cap}・12性格×{a.seeds}種・同じ環境でペア）")
     for x in a.cards:
