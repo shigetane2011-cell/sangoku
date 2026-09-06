@@ -76,7 +76,7 @@ def parse_deck(cards, names_raw: str, form_name: str
         n = raw.strip()
         if not n:
             continue
-        c = idx.get(n)
+        c = idx.get(n) or idx.get(R.canonical(n))      # 旧名の読み替え（§7.176）
         if c is None:
             errs.append("{} というカードが見つからない（同名複数なら字号まで書く）"
                         .format(n))
@@ -626,7 +626,8 @@ def army_from_snap(cards, snap: dict) -> F.Army:
     idx = {c.name: c for c in cards}
     picked = []
     for it in snap["cards"]:
-        c = idx.get(it["n"])
+        # 旧名の陣容（改名前に記録したリプレイ）は読み替える（§7.176）
+        c = idx.get(it["n"]) or idx.get(R.canonical(it["n"]))
         if c is None:
             raise KeyError(it["n"])
         c = dataclasses.replace(
@@ -1204,7 +1205,7 @@ def _entry_from_armies(armies, idx, name):
     units = []
     for a in armies:
         form = FORM_BY_NAME[F.FORM_ALIAS.get(a["formation"], a["formation"])]
-        units.append(F.Army(tuple(idx[n] for n in a["cards"]), form))
+        units.append(F.Army(tuple(idx[R.canonical(n)] for n in a["cards"]), form))
     entry = M.Entry(tuple(units), name=name)
     return None if M.validate(entry) else entry
 

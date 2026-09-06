@@ -2119,6 +2119,7 @@ function showCardInfo(name, card) {
       <span class="tag trait-tag">特性・${esc(t.kind)}</span>
       <b>【${esc(t.name)}】</b> ${esc(t.desc)}
       ${t.cond ? `<span class="muted">（${esc(t.cond)}）</span>` : ""}
+      ${t.note ? `<div class="ci-note muted">${esc(t.note)}</div>` : ""}
     </div>`).join("")
     : `<div class="ci-row muted">
       <span class="tag trait-tag">特性</span>
@@ -2143,6 +2144,7 @@ function showCardInfo(name, card) {
       <span class="tag skill-tag">兵法</span>
       <b>【${esc(c.skill)}】</b> <span class="muted">対象 ${esc(c.skill_target)}｜</span>${esc(c.skill_desc)}${
         /損害|延焼/.test(c.skill_desc) ? '<span class="muted">　※損害は敵の守りで目減りする</span>' : ""}
+      ${c.skill_note ? `<div class="ci-note muted">${esc(c.skill_note)}</div>` : ""}
     </div>
     ${c.cadence ? `<div class="ci-row">
       <span class="tag skill-tag">兵法の巡り</span> <b>${esc(c.cadence.tier_jp)}</b>

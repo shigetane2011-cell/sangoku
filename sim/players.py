@@ -409,8 +409,24 @@ _NAME_MIGRATION = {"低コスト戦": "汜水関", "中コスト戦": "官渡",
                    "高コスト戦": "赤壁", "統一(BO3)": "天下"}
 
 
+# 札の改名（§7.176）。保存デッキ（decks.cards は「、」区切りの札名）・宝物と旧恩賞の
+# 装備先（general_name）に残る旧名を新名へ。対戦の陣容（matches の JSON）は触らず、
+# 再構成側（play.army_from_snap）が読み替える。冪等。表は rosterdata.CARD_ALIASES が正。
+def _card_renames():
+    from . import rosterdata as R
+    return R.CARD_ALIASES
+
+
 def _migrate_names(cx: sqlite3.Connection) -> None:
     with cx:
+        for old, new in _card_renames().items():
+            # 札名を「、」区切りの文字列で持つ表（登録デッキ・保存デッキ・戦記の手持ち）
+            for table in ("decks", "saved_decks", "senki_decks"):
+                cx.execute("UPDATE {} SET cards = REPLACE(cards, ?, ?) WHERE cards LIKE ?".format(table),
+                           (old, new, "%" + old + "%"))
+            for table in ("owned_treasures", "owned_traits"):
+                cx.execute("UPDATE {} SET general_name = ? WHERE general_name = ?".format(table),
+                           (new, old))
         for old, new in _NAME_MIGRATION.items():
             cx.execute("UPDATE decks SET regulation = ? WHERE regulation = ?",
                        (new, old))

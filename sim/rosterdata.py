@@ -408,6 +408,32 @@ def to_design(g: Dict[str, str]):
                     floor_adj=float(g.get("床調整") or 0.0))
 
 
+# 改名した札・兵法の旧名 → 新名（§7.176）。保存デッキ・陣容（リプレイ）・宝物の装備先・
+# 登録セット・戦記に残る旧名を読み替える。**名前で札を引く口は全部 canonical() を通す**
+# （to_cards・play.parse_deck・play.army_from_snap・balance_common.card_index・DB の移行）。
+# 武将ID・兵法IDに当たるものはこの名前そのものなので、表を消さないこと。
+CARD_ALIASES = {
+    "張昭〔文淵〕": "張昭〔子布〕",
+    "魯粛〔塌上策〕": "魯粛〔榻上策〕",
+    "凌統〔断金〕": "凌統〔公績〕",
+}
+SKILL_ALIASES = {
+    "塌上の策": "榻上の策", "断金の交": "逍遥津の奮戦", "沓中の斉射": "濡須の督戦",
+    "捨て身の盾": "捨て身の迎撃", "身代わり": "救主の奮戦", "苦肉の計": "火船突入",
+    "東南の風": "借風火攻", "陳倉の火矢": "陳倉の備え", "護軍": "護軍の迎撃",
+    "連環の計": "連営火攻",
+}
+
+
+def canonical(name: str) -> str:
+    """札の名前を今の名前へ読み替える（旧名でなければそのまま）。"""
+    return CARD_ALIASES.get(name, name)
+
+
+def canonical_skill(name: str) -> str:
+    return SKILL_ALIASES.get(name, name)
+
+
 def to_cards(names=None):
     """武将名のリストから field.Card を作る。名前を省くと全部を返す。
 
@@ -419,6 +445,7 @@ def to_cards(names=None):
     from . import field as F
     idx = {g["名前"]: g for g in generals()}
     if names:
+        names = [canonical(n) for n in names]          # 旧名の読み替え（§7.176）
         # **無い名前は全部まとめて出す。** KeyError を1件ずつ潰させると、札の
         # 入れ替えで名指しリスト（実況の題材など）を直すのに何往復もかかる。
         miss = [n for n in names if n not in idx]

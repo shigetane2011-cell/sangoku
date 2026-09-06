@@ -62,7 +62,13 @@ def roster() -> Tuple[F.Card, ...]:
 
 
 def card_index(cards: Sequence[F.Card]) -> Dict[str, F.Card]:
-    return {c.name: c for c in cards}
+    """名前→札。改名した札の旧名も引ける（§7.176。古い登録セット・実験の JSON 用）。"""
+    from sim import rosterdata as R
+    idx = {c.name: c for c in cards}
+    for old, new in R.CARD_ALIASES.items():
+        if new in idx and old not in idx:
+            idx[old] = idx[new]
+    return idx
 
 
 def army_from_spec(spec: Mapping, cards: Mapping[str, F.Card]) -> F.Army:

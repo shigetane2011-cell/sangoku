@@ -430,7 +430,9 @@ def _roster_json(only=None):
             t = tr.get(k, {})
             desc, cond = _trait_brief(g, k, t)
             traits.append({"key": k, "name": names_jp.get(k, k),
-                           "kind": t.get("型", ""), "cond": cond, "desc": desc})
+                           "kind": t.get("型", ""), "cond": cond, "desc": desc,
+                           # 人物像との結び付き・似た特性との区別（§7.176・traits.csv 説明）
+                           "note": t.get("説明", "")})
         out.append({
             "name": g["名前"], "person": g["人物"], "cost": float(g["コスト"]),
             # 武将版（§7.135）。同一人物の2枚目以降にだけ意味がある番号
@@ -464,6 +466,8 @@ def _roster_json(only=None):
             "spear": bool((g.get("槍") or "").strip()),
             "skill": g["兵法"], "skill_desc": _skill_display(g, s),
             "skill_target": s.get("対象", ""),
+            # 逸話との結び付きと、名前から誤解しやすい点の断り（§7.176・skills.csv 説明）
+            "skill_note": s.get("説明", ""),
             "gauge_cost": g["消費ゲージ%"], "gauge_rate": g["ゲージ上昇率"],
             "gauge_init": g["初期ゲージ"],
             # 兵法の巡り（§7.127）: 発動型と自然蓄積の目安。秒はサーバで計算して
