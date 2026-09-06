@@ -1,0 +1,25 @@
+三国布陣 呂布2版 生成記録
+
+生成日: 2026-09-06
+サービス: OpenAI built-in image generation
+参照画像: 現行の呂布人物肖像（同一人物性の参照にのみ使用）
+出力原寸: 1086×1448 PNG
+
+【共通プロンプト】
+Use case: historical-scene
+Asset type: alternate card portrait for the same Three Kingdoms strategy-game character.
+Reference image role: identity reference only. Create a new composition, not a duplicate.
+Identity lock: depict exactly the same fictional Lu Bu as the reference: young adult Chinese man of overwhelming athletic build; same long angular face and cheekbones; same thick sharply slanted eyebrows; same narrow piercing eyes; same straight broad nose; same short moustache and compact pointed chin beard; same swept-back black hair; same distinctive purple-gold crown with exactly TWO long pheasant-feather plumes. Preserve identity across the two variants.
+Style/medium: bold black sumi ink outlines, large simplified watercolor color fields, aged-paper pigment texture, graphic silhouette, restrained detail, matching the reference and recent portrait set. Original visual language; do not imitate any existing game, artist, or franchise.
+Composition: one person only, vertical 3:4 bust portrait, chest-up, near-front three-quarter view. Eyes at 30–35% from top, at least 8% headroom including the crown base; both long feathers must remain inside the frame while curving sideways. Large readable face for a 20 px circular crop.
+Background: MOST IMPORTANT — bright warlord ochre #8a7640 and pale ivory must remain continuous from above the head around both sides and behind both shoulders. No black wedges or dark cavities behind shoulders. Dark sumi only at outer corners; about 70% of the center square remains bright.
+Lighting/mood: single upper-side light and subtle rim light.
+Constraints: no text, no letters, no numbers, no seal, no calligraphy, no logo, no signature, no watermark, no frame, no second person, no horse head, no extra limbs, no modern objects, no photoreal living-person likeness, no anime exaggeration.
+
+【呂布〔飛将〕.png】
+Variant: Lu Bu "Flying General" (呂布〔飛将〕), cavalry/burst, martial 100, intellect 26. He is famed for mounted archery and repeated precise shots. Show him at the instant just before releasing a powerful bow: the strong bow crosses the frame on a bold diagonal, arrow fully inside the frame, no target or enemy. Lighter cavalry armor of leather and small lamellar plates; only a small red shoulder cloth; the two crown feathers stream in the wind. Background especially bright ochre-to-ivory around head and both shoulders. Cold distant concentration, mouth firmly closed. ABSOLUTELY NO halberd, no crescent blade, no spear, no polearm. The bow and arrow must remain legible in the center square and tiny crop.
+
+【呂布〔虓虎〕.png】
+Variant: Lu Bu "Roaring Tiger" (呂布〔虓虎〕), cavalry/burst, martial 100, intellect 26. He embodies one crushing tiger strike and a roar that breaks morale. Place the large crescent moon blade of his fangtian painted halberd beside his face, extending toward the frame edge as a bold unmistakable silhouette. Heavy dark lamellar armor, broad simplified black-and-ochre tiger-fur collar or shoulder mantle, dark red-black cloak. His mouth is slightly open, on the verge of a tiger-like battle roar, but not screaming wildly. Background stays bright ochre with broad dark-red patches flowing from above the head around both shoulders; still about 70% bright in the center square. ABSOLUTELY NO bow, no arrow, no quiver. The halberd crescent must remain legible in the center square and tiny crop.
+
+注意: `呂布.png`は既存の人物単位フォールバック用として残し、この納品物では作成・上書きしていない。

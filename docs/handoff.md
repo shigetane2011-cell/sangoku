@@ -41,7 +41,7 @@
 - 検証: 回帰17本（手数の段の枚数 9→10 と 呂布の特性の期待値を直した）・零点・ui_smoke・quick 基線 PASS。赤チーム quick
   （seed 20260911）: #1 は王者の系統 87.7%・上位に新しい3枚は入らない（曹操だけ）。
 - 呂布の版ごとの顔絵 2枚（`呂布〔飛将〕.png`・`呂布〔虓虎〕.png`）納品・設置済み（2026-09-06）。QC は虓虎 34.9 で目安 35 のすぐ下（作り直し不要）。
-  生成記録（`PROMPTS_lubu-versions.txt`）は未受領。
+  生成記録は `sim/webui/portraits/PROMPTS_lubu-versions.txt`。
 - 顔絵: 呂布の2版は版ごとの絵にする（発注書 `docs/design/portrait-order-lubu-versions.md`・`呂布〔飛将〕.png`／`呂布〔虓虎〕.png`。
   `呂布.png` は人物のフォールバックとして残す）。
 
