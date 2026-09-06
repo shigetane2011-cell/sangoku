@@ -2966,8 +2966,8 @@ async function viewReplay(state) {
         <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
           <td class="uname">${esc(u.name)}</td>
           <td class="pos">${esc(u.pos || "")}</td>
-          <td>${k(u.dealt)}千</td><td>${k(u.skill_dealt)}千</td>
-          <td>${k(u.taken)}千</td>
+          <td>${k(u.dealt)}千${(u.over || 0) >= 50 ? `<small class="over" title="残兵を超えて当てた分（実損害には入れない）">超過${k(u.over)}千</small>` : ""}</td><td>${k(u.skill_dealt)}千</td>
+          <td>${k(u.taken)}千${(u.over_taken || 0) >= 50 ? `<small class="over" title="残兵を超えて当てられた分">超過${k(u.over_taken)}千</small>` : ""}</td>
           <td>${u.cut >= 50 ? k(u.cut) + "千" : "—"}</td>
           <td>${u.heal >= 50 ? k(u.heal) + "千" : "—"}</td>
           <td>${(u.fire_times || []).length
@@ -2995,7 +2995,8 @@ async function viewReplay(state) {
       if ((u.ff || 0) >= 1)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　混乱し、同士討ちで味方に ${people(u.ff)}の損害${
           (u.ff_pair || []).length
-            ? `（${u.ff_pair.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}）` : ""}</div>`);
+            ? `（${u.ff_pair.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}）` : ""}${
+          (u.ff_over || 0) >= 1 ? `　超過 ${people(u.ff_over)}` : ""}</div>`);
       if ((u.refl || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　兵法を跳ね返し ${k(u.refl)}千</div>`);
       if ((u.lost || 0) >= 300)
@@ -3038,9 +3039,11 @@ async function viewReplay(state) {
           c.intended.length}隊への効果は発生しなかった${left}</span>`;
       }
       const parts = [];
-      if (c.damage > 0) parts.push(`損害 ${people(c.damage)}${c.per.length > 1
+      /* 損害は実損害（§7.174）。残兵を超えて当てた分は「超過」として別に出す */
+      if (c.damage > 0 || c.over > 0) parts.push(`損害 ${people(c.damage)}${c.over > 0 ? `（超過 ${people(c.over)}）` : ""}${c.per.length > 1
         ? `（${c.per.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}）` : ""}`);
-      if ((c.spill || []).length) parts.push(`余勢 ${c.spill.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}`);
+      if ((c.spill || []).length) parts.push(`余勢 ${c.spill.map(([n2, v, o]) => `${esc(n2)} ${people(v)}${o > 0 ? `（超過 ${people(o)}）` : ""}`).join("・")}`);
+      if (c.reflected > 0) parts.push(`反射で自隊に ${people(c.reflected)}`);
       if (c.dot) parts.push(`継続損害 毎分${c.dot.per_min}人×${c.dot.mins}分（各隊）・${c.dot.n}隊・実量 ${people(c.dot_actual)}／予定 ${people(c.dot.planned)}`);
       if (c.heal > 0) parts.push(`回復 ${people(c.heal)}`);
       if (c.hot) parts.push(`継続回復 毎分${c.hot.per_min}人×${c.hot.mins}分（各隊）・${c.hot.n}隊・実量 ${people(c.hot_actual)}／予定 ${people(c.hot.planned)}`);

@@ -108,12 +108,23 @@ check("両方とも200で返る", r1.status == 200 and r2.status == 200,
       f"{r1.status} / {r2.status}")
 check("roster側のportraitUrlも版で違う", lb_v1["portraitUrl"] != lb_v2["portraitUrl"],
       str((lb_v1["portraitUrl"], lb_v2["portraitUrl"])))
-# 呂布には既に人物名の実絵（呂布.png）があるので、版専用ファイルを置かない
-# 限りv1/v2は同じ絵にフォールバックするのが正しい（後方互換）。
-check("専用絵が無い間はv1/v2とも同じ絵（人物名の絵へフォールバック）",
-      d1 == d2, "専用絵が無いのに違う内容だった")
 PORTRAITS_DIR = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "sim", "webui", "portraits")
+
+
+def _has_own_portrait(name):
+    return any(os.path.exists(os.path.join(PORTRAITS_DIR, name + ext))
+               for ext in (".png", ".svg", ".jpg", ".webp"))
+
+
+# 呂布には人物名の実絵（呂布.png）がある。版専用ファイルが無い間は v1/v2 とも
+# 同じ絵にフォールバックするのが正しい（後方互換）。§7.171 で版の絵（呂布〔飛将〕・
+# 呂布〔虓虎〕）を置いたので、両方に専用絵があるときは**版ごとに違う絵**が返る。
+if _has_own_portrait(lb_v1["name"]) and _has_own_portrait(lb_v2["name"]):
+    check("版専用の絵があるので v1/v2 で違う絵が返る", d1 != d2, "専用絵があるのに同じ内容だった")
+else:
+    check("専用絵が無い間はv1/v2とも同じ絵（人物名の絵へフォールバック）",
+          d1 == d2, "専用絵が無いのに違う内容だった")
 tmp_portrait = os.path.join(PORTRAITS_DIR, lb_v2["name"] + ".svg")
 try:
     with open(tmp_portrait, "w", encoding="utf-8") as f:

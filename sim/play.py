@@ -1715,6 +1715,7 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         out = []
         for (n, t, d, m, m0, sd, _fa, ff, rf, cs, hl, al,
              tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, ffp, fft,
+             od, ot, fo, sc_, ht, cl,
              wp, cv), where in zip(xs, pos + [""] * len(xs)):
             person = M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t]
             out.append({
@@ -1737,6 +1738,10 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 "ff_pair": [[k2, round(v)] for k2, v in
                             sorted(ffp.items(), key=lambda kv: -kv[1]) if v >= 1.0],
                 "ff_taken": round(fft),
+                # 帳簿の精算（§7.174）: 与ダメ・被ダメは実損害だけ。超過は別に持つ
+                "over": round(od), "over_taken": round(ot), "ff_over": round(fo),
+                "sac_paid": round(sc_), "heal_taken": round(ht),
+                "collapse_lost": round(cl),
                 "heal": round(hl), "lost": round(al),
                 # 合戦詳録（§7.94）
                 "taken": round(tk), "fires": fi,
@@ -1777,9 +1782,11 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 "nullified": c["nullified"], "blocker": c["blocker"],
                 "stance_by": c["stance_by"], "stance_skill": c["stance_skill"],
                 "left": c["left"],
-                "damage": round(c["damage"]),
-                "per": [[n2, round(v)] for n2, v in c["per"]],
-                "spill": [[n2, round(v)] for n2, v in c["spill"]],
+                # 損害は実損害。超過（残兵を超えて当てた分）は別（§7.174）
+                "damage": round(c["damage"]), "over": round(c["over"]),
+                "per": [[n2, round(v), round(o)] for n2, v, o in c["per"]],
+                "spill": [[n2, round(v), round(o)] for n2, v, o in c["spill"]],
+                "reflected": round(c["reflected"]),
                 "kills": list(c["kills"]), "heal": round(c["heal"]),
                 "hot": ({"per_min": round(F.per_min(hot["per_sec"])),
                          "mins": round(F.mins(hot["secs"])),

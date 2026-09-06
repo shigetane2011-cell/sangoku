@@ -1889,6 +1889,7 @@ class Unit:
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
         "null_cap", "null_pool", "glock", "ff_pair", "ff_taken",
+        "over_dealt", "over_taken", "ff_over", "sac_paid", "heal_taken", "collapse_lost",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
@@ -2096,6 +2097,14 @@ class Unit:
         self.glock = False       # ゲージ阻害の窓の中か（§7.171・_recalc_mods が組む）
         self.ff_pair = {}        # 同士討ちで誰へ何人（§7.173・表示専用）
         self.ff_taken = 0.0      # 同士討ちで受けた被害（§7.173・表示専用）
+        # 帳簿の精算（§7.174・表示専用）。与ダメ・被ダメ・矛先・同士討ちは**実損害**
+        # だけを持ち、残兵を超えて当てた分は「超過損害」として別に数える。
+        self.over_dealt = 0.0    # 与えた超過損害（通常・兵法・余勢・反射の合計）
+        self.over_taken = 0.0    # 受けた超過損害（残兵を超えて当てられた分）
+        self.ff_over = 0.0       # 同士討ちの超過（ff_dealt には入れない）
+        self.sac_paid = 0.0      # 代償で実際に失った兵
+        self.heal_taken = 0.0    # 実際に受けた回復（満タンで余った分は入れない）
+        self.collapse_lost = 0.0 # 本陣の崩壊で失った兵（§7.52）
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2811,8 +2820,8 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
                    max(1, u.fired.get(src, 0) if src else 1)),
            "intended": [_who(f) for f in tgts], "hit": [],
            "nullified": False, "blocker": "", "stance_by": "", "stance_skill": "",
-           "left": None, "damage": 0.0, "per": [], "kills": [], "spill": [],
-           "heal": 0.0, "hot": None, "hot_actual": 0.0,
+           "left": None, "damage": 0.0, "over": 0.0, "per": [], "kills": [], "spill": [],
+           "reflected": 0.0, "heal": 0.0, "hot": None, "hot_actual": 0.0,
            "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
            "decisive": False}
     _CASTS.append(rec)
@@ -2907,17 +2916,149 @@ def _chaos_add(f: Unit, amt: float, until: float) -> None:
         _SKILL_FX.append((f, "chaos", (amt, until)))
 
 
+# 帳簿の精算（§7.174）。**盤面の計算には一切触れない。** 同時解決の単位
+# （通常攻撃の1ティックの蓄積器・兵法の1窓）ごとに、対象が**実際に**失った／得た
+# 兵力を、各寄与（防御・軽減を通した後の量）へ比例配分する。先着順にしない —
+# 部隊の処理順を入れ替えても各寄与の実損害が変わらない。残兵を超えて当てた分は
+# 「超過損害」として別に数える（余勢の計算に使う超過＝spill_over とは意味が違う）。
+# 損害と回復が同じ窓にあるときは、開始・終了の差ではなく、下で止まった分を損害の
+# 超過、上（満タン）で止まった分を回復の余りとして切り分ける。
+_SKILL_LEDGER: list = []      # 窓の中の寄与 (種別, 出どころ, 対象, 量, 受け皿)
+_SKILL_PENDING: list = []     # 窓の中の発動（実況の文は精算後に組む）
+
+
 def _open_men_window() -> None:
     """兵法のフェーズを開く。**関数越しにするのは、simulate の中で代入すると
     ローカル変数になって黙って効かなくなるため。**"""
-    global _SKILL_DELTA, _SKILL_FX
+    global _SKILL_DELTA, _SKILL_FX, _SKILL_LEDGER, _SKILL_PENDING
     _SKILL_DELTA = {}
     _SKILL_FX = []
+    _SKILL_LEDGER = []
+    _SKILL_PENDING = []
+
+
+def _cast_acc(rec):
+    """発動1回ぶんの精算の受け皿。記録（rec）が無くても帳簿は付ける。"""
+    return {"rec": rec, "damage": 0.0, "over": 0.0, "heal": 0.0, "sac": 0.0,
+            "reflected": 0.0, "kills": [], "hit_dmg": [], "hit_heal": [], "per": {}}
+
+
+def _ledger(kind: str, src: Unit, tgt: Unit, amount: float, acc=None) -> None:
+    """寄与を1つ帳簿へ積む（§7.174）。kind は skill / spill / refl / sac / heal。
+
+    窓が開いていれば精算（_settle_window）まで預かる。閉じていれば単独の寄与
+    なので即時に切る（実損害＝残兵で頭打ち、実回復＝満タンで頭打ち）。
+    **_men_add より先に呼ぶこと**（即時のときに反映前の兵力で切るため）。
+    """
+    if amount <= 0.0:
+        return
+    if _SKILL_DELTA is not None:
+        _SKILL_LEDGER.append((kind, src, tgt, amount, acc))
+        return
+    if kind == "heal":
+        actual = min(amount, max(0.0, tgt.men0 - tgt.men))
+        _credit(kind, src, tgt, actual, amount - actual, acc, False)
+        return
+    thr = tgt.men0 * ANNIHIL_UNIT
+    actual = min(amount, max(0.0, tgt.men))
+    killed = tgt.men > thr and tgt.men - actual <= thr
+    _credit(kind, src, tgt, actual, amount - actual, acc, killed)
+
+
+def _credit(kind: str, src: Unit, tgt: Unit, actual: float, over: float,
+            acc, killed: bool) -> None:
+    """精算済みの量を帳簿へ書く。与ダメ・被ダメ・矛先・回復・代償・反射・余勢。"""
+    if kind == "heal":
+        src.healed += actual              # 表示専用（§7.88）
+        tgt.heal_taken += actual
+        if acc is not None:
+            acc["heal"] += actual
+            if actual > 0.0 and tgt not in acc["hit_heal"]:
+                acc["hit_heal"].append(tgt)
+        return
+    if kind == "sac":
+        tgt.sac_paid += actual
+        if acc is not None:
+            acc["sac"] += actual
+        return
+    src.dealt += actual
+    src.dealt_skill += actual
+    tgt.taken += actual                   # 表示専用（§7.94）
+    _pair_add(src, tgt, actual)
+    src.over_dealt += over
+    tgt.over_taken += over
+    if kind == "refl":
+        src.refl_back += actual           # 表示専用（§7.88）
+        if acc is not None:
+            acc["reflected"] += actual
+        return
+    if kind == "spill":
+        src.spill_dealt += actual         # 帳簿（表示専用）
+    if acc is not None:
+        acc["damage"] += actual
+        acc["over"] += over
+        key = _who(tgt)
+        p = acc["per"].setdefault(key, [0.0, 0.0, kind])
+        p[0] += actual
+        p[1] += over
+        if actual > 0.0 and kind == "skill" and tgt not in acc["hit_dmg"]:
+            acc["hit_dmg"].append(tgt)
+        if killed and actual > 0.0 and key not in acc["kills"]:
+            # 「討ち取る」は壊滅の行と同じ物差し（残 ANNIHIL_UNIT 割れ）。同じ窓で
+            # 寄与した発動は**全部**討ち取ったことにする（先着順にしない）
+            acc["kills"].append(key)
+
+
+def _settle_window() -> None:
+    """兵法の窓を精算する。対象ごとに実際の増減を寄与へ比例配分（§7.174）。"""
+    global _SKILL_LEDGER
+    if not _SKILL_LEDGER:
+        return
+    dmg: Dict[int, float] = {}
+    heal: Dict[int, float] = {}
+    units: Dict[int, Unit] = {}
+    for kind, src, tgt, amount, acc in _SKILL_LEDGER:
+        k = id(tgt)
+        units[k] = tgt
+        if kind == "heal":
+            heal[k] = heal.get(k, 0.0) + amount
+        else:
+            dmg[k] = dmg.get(k, 0.0) + amount
+    scale = {}
+    for k, tgt in units.items():
+        m = tgt.men
+        delta = _SKILL_DELTA.get(k, (tgt, 0.0))[1] if _SKILL_DELTA is not None else 0.0
+        # D は寄与の合計（防御・軽減後・**頭打ち前**）、H は回復の合計。盤面が実際に
+        # 引いた量 T は窓の増減から逆算する（delta = H − T）。
+        D, H = dmg.get(k, 0.0), heal.get(k, 0.0)
+        T = max(0.0, H - delta)
+        after = max(min(m + delta, tgt.men0), 0.0)
+        if m + delta < 0.0:
+            # 下（0）で止まった: 失えたのは持っていた兵と、同じ窓で受けた回復まで
+            d_act, h_act = m + H, H
+        elif m + delta > tgt.men0:
+            # 上（満タン）で止まった: 余ったのは回復の側
+            d_act, h_act = T, H - (m + delta - tgt.men0)
+        else:
+            d_act, h_act = T, H
+        s_d = min(1.0, max(0.0, d_act / D)) if D > 0.0 else 1.0
+        s_h = min(1.0, max(0.0, h_act / H)) if H > 0.0 else 1.0
+        thr = tgt.men0 * ANNIHIL_UNIT
+        scale[k] = (s_d, s_h, m > thr and after <= thr)
+    led, _SKILL_LEDGER = _SKILL_LEDGER, []
+    for kind, src, tgt, amount, acc in led:
+        s_d, s_h, killed = scale[id(tgt)]
+        sc = s_h if kind == "heal" else s_d
+        _credit(kind, src, tgt, amount * sc, amount * (1.0 - sc), acc, killed)
 
 
 def _flush_men() -> None:
-    """溜めた増減をまとめて反映する。**両側が撃ち終わってから呼ぶ。**"""
-    global _SKILL_DELTA, _SKILL_FX
+    """溜めた増減をまとめて反映する。**両側が撃ち終わってから呼ぶ。**
+
+    反映の前に帳簿を精算し（_settle_window）、反映の後に窓の中の発動の実況を
+    組む（_finish_cast。文に載る損害・回復は精算後の実量）。
+    """
+    global _SKILL_DELTA, _SKILL_FX, _SKILL_PENDING
     if _SKILL_FX is not None:
         for f, kind, v in _SKILL_FX:
             if kind == "eff":
@@ -2930,9 +3071,116 @@ def _flush_men() -> None:
         _SKILL_FX = None
     if _SKILL_DELTA is None:
         return
+    _settle_window()
     for f, d in _SKILL_DELTA.values():
         f.men = max(min(f.men + d, f.men0), 0.0)
     _SKILL_DELTA = None
+    pend, _SKILL_PENDING = _SKILL_PENDING, []
+    for p_ in pend:
+        _finish_cast(p_)
+
+
+def _finish_cast(p) -> None:
+    """発動1回の締め: 記録へ実量を書き、実況の行を組む（§7.173・§7.174）。
+
+    成分のうち損害・回復は精算後の実量に差し替える。語る下限（NARRATE_FLOOR）は
+    ここで実量に対して掛ける。主成分は大きさで選び、残りは「あわせて…」で添える。
+    """
+    acc, rec, u, sk = p["acc"], p["rec"], p["u"], p["sk"]
+    dmg_hit, heal_hit = acc["hit_dmg"], acc["hit_heal"]
+    if rec is not None:
+        rec["damage"] = acc["damage"]
+        rec["over"] = acc["over"]
+        rec["heal"] = acc["heal"]
+        rec["sac"] = acc["sac"]
+        rec["reflected"] = acc["reflected"]
+        rec["kills"] = list(acc["kills"])
+        rec["per"] = [[k, v[0], v[1]] for k, v in acc["per"].items() if v[2] != "spill"]
+        rec["spill"] = [[k, v[0], v[1]] for k, v in acc["per"].items() if v[2] == "spill"]
+        hit = []
+        for f in dmg_hit + heal_hit:
+            if _who(f) not in hit:
+                hit.append(_who(f))
+        for kind, _a, _s, _m, _st, hh in p["comps"]:
+            if kind in ("hot", "dot"):
+                for f in hh:
+                    if _who(f) not in hit:
+                        hit.append(_who(f))
+        if not hit:
+            # 状態効果だけの発動: 効いた相手は成分から
+            for m_ in rec["mods"]:
+                for x in m_[3]:
+                    if x not in hit:
+                        hit.append(x)
+        rec["hit"] = hit
+    ev, name = p["ev"], p["name"]
+    if ev is None or not name:
+        return
+    base = sum(f.men0 for f in p["tgts"]) or 1.0
+    main = None
+    extras = []
+    seen_kind = set()
+    for kind, amount, secs, mag, stat, hit in p["comps"]:
+        if kind == "damage":
+            if "damage" in seen_kind:
+                continue
+            seen_kind.add("damage")
+            amount = mag = acc["damage"]
+            hit = list(dmg_hit)
+        elif kind == "heal":
+            if "heal" in seen_kind:
+                continue
+            seen_kind.add("heal")
+            amount = mag = acc["heal"]
+            hit = list(heal_hit)
+        if kind in ("damage", "heal", "dot", "hot"):
+            # **効かなかったものは語らない。** 「自身が92人を立て直す」のような行が
+            # 出ると、起きた出来事としては正しくても実況としては嘘に近い（読者は
+            # 意味のある量だと受け取る）。対象の兵力に対する割合で足切りする。
+            # ただし**討ち取った発動は量が小さくても語る**（残党を掃った一撃）。
+            total = amount * (secs if kind in ("dot", "hot") else 1.0)
+            if not hit:
+                continue
+            if total / base < NARRATE_FLOOR and not (kind == "damage" and acc["kills"]):
+                continue
+        item = (kind, amount, secs, mag, stat, hit)
+        if main is None or mag > main[3]:
+            if main is not None:
+                extras.append(main)
+            main = item
+        else:
+            extras.append(item)
+    if main is None:
+        return          # 語る成分なし（窓の中で作った空の行は _arrange が落とす）
+    text = _skill_line(u, name, p["tstr"], main[5], main[0], main[1], main[2], main[4])
+    adds = [_skill_extra(x) for x in extras]
+    adds = [x for x in adds if x]
+    if adds:
+        text += "　あわせて" + "、".join(adds) + "。"
+    if acc["sac"] > 0.0:
+        text += "　代償として自隊の兵 {:,.0f} を失う。".format(acc["sac"])
+    for key, amt, secs in sk.self_mods:
+        text += "　反動で自身の{}（{:+.0%}・{:.0f}分）。".format(
+            _stat_down_jp(key), amt, mins(secs))
+    if acc["kills"]:
+        text += "　{}を討ち取る！".format("・".join(acc["kills"]))
+    mag = main[3]
+    e = p["event"]
+    kind_jp, t = p["kind_jp"], p["t"]
+    if e is None:
+        e = Event(t, kind_jp, LINE_PRIO[kind_jp], text, mag, side=_side_of(u),
+                  cast=rec["id"] if rec else 0, must=bool(acc["kills"]))
+        ev.append(e)
+    else:
+        e.text, e.mag, e.must = text, mag, bool(acc["kills"])
+    # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは兵法と同じ
+    # 値を持たせ、強い兵法を撃った武将から喋る。
+    seen = p["seen"]
+    if u.quote and seen is not None and ("声", id(u)) not in seen:
+        seen.add(("声", id(u)))
+        ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
+                        "{}「{}」".format(_who(u), u.quote), mag,
+                        ref=id(e), side=_side_of(u)))
 
 
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
@@ -2957,6 +3205,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 名前を伏せるだけで、発動そのもの・武将名・数値は今まで通り実況する。
         name = "秘策"
     rec = _cast_open(u, name, kind_jp, tstr, tgts, t, src)
+    acc = _cast_acc(rec)        # 帳簿の精算の受け皿（§7.174）
     if kind_jp == "兵法":
         # 兵法打消し（§7.51 機構5）。対象に「構え」持ちの敵が1体でも
         # いれば発動ごと霧散する（ゲージは戻らない・代償も払わない）。
@@ -3021,34 +3270,18 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 敵の戦果ではない。
         if sk.sac > 0.0:
             paid = u.men * sk.sac
+            _ledger("sac", u, u, paid, acc)
             _men_add(u, -paid)
-            if rec is not None:
-                rec["sac"] = paid
     v = SKILL_WITS[sk.kind]
     coef = u.might * (1.0 - v) + u.wits * v
     n = max(len(tgts), 1)
 
-    main = None        # 実況の主成分 (kind, amount, secs, mag, stat, hit)
-    extras = []        # 副次の成分（短く添える）
+    # 実況の成分 (kind, amount, secs, mag, stat, hit)。損害・回復の量は精算後に
+    # 実量で差し替える（_finish_cast）。主成分の選抜と語る下限もそこで掛ける。
+    comps = []
 
     def note(kind, amount, secs=0.0, mag=0.0, stat="", hit=None):
-        """実況の成分を1つ積む。主成分は大きさで選び、残りは添え書きにする。"""
-        nonlocal main
-        # **効かなかったものは語らない。** 「自身が92人を立て直す」のような行が出ると、
-        # 起きた出来事としては正しくても実況としては嘘に近い（読者は意味のある量だと
-        # 受け取る）。対象の兵力に対する割合で足切りする。
-        if kind in ("damage", "heal", "dot", "hot"):
-            base = sum(f.men0 for f in tgts) or 1.0
-            total = amount * (secs if kind in ("dot", "hot") else 1.0)
-            if total / base < NARRATE_FLOOR:
-                return
-        item = (kind, amount, secs, mag, stat, hit if hit is not None else tgts)
-        if main is None or mag > main[3]:
-            if main is not None:
-                extras.append(main)
-            main = item
-        else:
-            extras.append(item)
+        comps.append((kind, amount, secs, mag, stat, hit if hit is not None else tgts))
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
     ally = "味方" in tstr or "自分" in tstr
@@ -3144,12 +3377,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                                               else 1.0),
                       f.men0 - _men_now(f))
             if amt > 0.0:
+                _ledger("heal", u, f, amt, acc)
                 _men_add(f, amt)
-                u.healed += amt          # 表示専用（§7.88）
-                note("heal", amt, 0.0, amt, "", [f])
-                if rec is not None:
-                    rec["heal"] += amt
-                    rec["hit"].append(_who(f))
+                note("heal", 0.0, 0.0, 0.0, "", None)    # 量は精算後（_finish_cast）
     if sk.power > 0.0 or sk.heal > 0.0:
         if sk.heal > 0.0:
             # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
@@ -3168,11 +3398,12 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     done += amt * sk.dur
                     got.append(f)
                 else:
-                    # 満タンぶんは実況でも数えない。**スナップショットに対して測る**
-                    # ので、同じティックで他が撃っていても量が変わらない。
+                    # 満タンぶんは盤面でも数えない。**スナップショットに対して測る**
+                    # ので、同じティックで他が撃っていても量が変わらない。帳簿の
+                    # 実回復は精算で切り直す（同じ窓に回復が重なれば余りが出る）。
                     gain = min(amt, f.men0 - f.men)
+                    _ledger("heal", u, f, gain, acc)
                     _men_add(f, gain)
-                    u.healed += gain          # 表示専用（§7.89）
                     done += gain
                     if gain > 0.0:
                         got.append(f)
@@ -3185,11 +3416,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                         rec["hot"] = {"per_sec": amt, "secs": sk.dur,
                                       "planned": done, "n": len(got)}
                 else:
-                    note("heal", done, 0.0, done, "", got)
-                    if rec is not None:
-                        rec["heal"] += done
-                if rec is not None:
-                    rec["hit"] += [_who(f) for f in got]
+                    note("heal", 0.0, 0.0, 0.0, "", None)    # 量は精算後
         else:
             # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
             p_eff = sk.power
@@ -3230,21 +3457,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     if f.scut_mult < 1.0:          # 表示専用（§7.88）
                         f.cut_saved += min(pre, f.men) - take
                         f.scut_saved += min(pre, f.men) - take   # 兵法ぶんだけの帳簿（§7.126）
-                    before_now = _men_now(f)
+                    # 帳簿へは**頭打ち前**（防御・軽減後）の量を積む（§7.174）。窓の
+                    # 精算で実損害と超過に分かれる。盤面の量（take・反射・余勢）は
+                    # スナップショットのまま
+                    _ledger("skill", u, f, eff, acc)
                     _men_add(f, -take)
-                    u.dealt += take
-                    u.dealt_skill += take
-                    f.taken += take                # 表示専用（§7.94）
-                    _pair_add(u, f, take)
-                    if rec is not None and take > 0.0:
-                        rec["per"].append([_who(f), take])
-                        # 「討ち取る」は壊滅の行と同じ物差し（残 ANNIHIL_UNIT 割れ）。
-                        # 0 になった瞬間で見ると、壊滅を報じた後の残党を掃った発動が
-                        # 討ち取ったことになる（実測: 壊滅の1分後に 220 の損害で
-                        # 「討ち取る」）。
-                        thr = f.men0 * ANNIHIL_UNIT
-                        if before_now > thr and before_now - take <= thr:
-                            rec["kills"].append(_who(f))
                     if take > 0.0:
                         got.append(f)
                     if (TRAMPLE > 0.0 and eff > f.men
@@ -3276,30 +3493,16 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                             if g2.scut_mult < 1.0:     # 表示専用（§7.88・§7.126）
                                 g2.cut_saved += min(pre2, g2.men) - spill
                                 g2.scut_saved += min(pre2, g2.men) - spill
-                            before2 = _men_now(g2)
+                            _ledger("spill", u, g2, eff2, acc)
                             _men_add(g2, -spill)
-                            u.dealt += spill
-                            u.dealt_skill += spill
-                            g2.taken += spill          # 表示専用（§7.94）
-                            _pair_add(u, g2, spill)
-                            u.spill_dealt += spill     # 帳簿（表示専用）
                             u.spill_n += 1
                             done += spill
-                            if rec is not None and spill > 0.0:
-                                rec["spill"].append([_who(g2), spill])
-                                thr2 = g2.men0 * ANNIHIL_UNIT
-                                if before2 > thr2 and before2 - spill <= thr2:
-                                    rec["kills"].append(_who(g2))
                     if f.refl > 0.0:
                         # 反射は撃ち手の防御・反射・カットを通さない素の返り
                         # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
                         back = take * f.refl
+                        _ledger("refl", f, u, back, acc)
                         _men_add(u, -back)
-                        f.dealt += back
-                        f.dealt_skill += back
-                        f.refl_back += back        # 表示専用（§7.88）
-                        u.taken += back            # 表示専用（§7.94）
-                        _pair_add(f, u, back)
                     done += take                    # 防御ぶんを引いた実害を出す
             if done > 0.0:
                 if sk.dur > 0.0:
@@ -3308,46 +3511,24 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                         rec["dot"] = {"per_sec": dmg, "secs": sk.dur,
                                       "planned": done * sk.dur, "n": len(got)}
                 else:
-                    note("damage", done, 0.0, done, "", got)
-                    if rec is not None:
-                        rec["damage"] = done
-                if rec is not None:
-                    rec["hit"] += [_who(f) for f in got]
-    if rec is not None and not rec["hit"]:
-        # 状態効果だけの発動: 効いた相手は成分から
-        seen_h = []
-        for m_ in rec["mods"]:
-            for x in m_[3]:
-                if x not in seen_h:
-                    seen_h.append(x)
-        rec["hit"] = seen_h
-    # ---- 実況は1発1行（§7.173）。主成分＋副次の添え書き＋代償・反動 ----
-    if ev is not None and name and main is not None:
-        text = _skill_line(u, name, tstr, main[5], main[0], main[1], main[2], main[4])
-        adds = [_skill_extra(x) for x in extras]
-        adds = [x for x in adds if x]
-        if adds:
-            text += "　あわせて" + "、".join(adds) + "。"
-        if rec is not None and rec["sac"] > 0.0:
-            text += "　代償として自隊の兵 {:,.0f} を失う。".format(rec["sac"])
-        elif sk.sac > 0.0 and rec is None:
-            text += "　代償として自隊の兵を失う。"
-        for key, amt, secs in sk.self_mods:
-            text += "　反動で自身の{}（{:+.0%}・{:.0f}分）。".format(
-                _stat_down_jp(key), amt, mins(secs))
-        if rec is not None and rec["kills"]:
-            text += "　{}を討ち取る！".format("・".join(rec["kills"]))
-        mag = main[3]
-        ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp], text, mag,
-                        side=_side_of(u), cast=rec["id"] if rec else 0,
-                        must=bool(rec and rec["kills"])))
-        # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは兵法と同じ
-        # 値を持たせ、強い兵法を撃った武将から喋る。
-        if u.quote and seen is not None and ("声", id(u)) not in seen:
-            seen.add(("声", id(u)))
-            ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
-                            "{}「{}」".format(_who(u), u.quote), mag,
-                            ref=id(ev[-1]), side=_side_of(u)))
+                    note("damage", 0.0, 0.0, 0.0, "", None)   # 量は精算後
+    # ---- 締め（§7.173・§7.174）: 記録へ実量・実況は1発1行 ----
+    # 窓が開いていれば精算まで待つ（同じ窓の他の発動と実損害を分け合う）。行の
+    # 器だけ先に積んで積んだ順を保ち、文は精算後に入れる。窓が無ければ今すぐ。
+    if rec is None and ev is None:
+        return
+    pend = {"acc": acc, "rec": rec, "u": u, "name": name, "tstr": tstr, "tgts": tgts,
+            "comps": comps, "sk": sk, "kind_jp": kind_jp, "ev": ev, "seen": seen,
+            "event": None, "t": t}
+    if _SKILL_DELTA is not None:
+        if ev is not None and name:
+            e = Event(t, kind_jp, LINE_PRIO[kind_jp], "", 0.0, side=_side_of(u),
+                      cast=rec["id"] if rec else 0)
+            ev.append(e)
+            pend["event"] = e
+        _SKILL_PENDING.append(pend)
+    else:
+        _finish_cast(pend)
 
 
 # 状態効果の内部キー → 表示語（記録・詳録用・§7.173）
@@ -3471,6 +3652,7 @@ def _overtime(units, t: float, dt: float) -> None:
                 u.men = min(u.men0, u.men + per_sec * dt)
                 if src is not None:
                     src.healed += u.men - before          # 表示専用（§7.89）
+                u.heal_taken += u.men - before            # 実際に受けた回復（§7.174）
                 if rec is not None:
                     rec["hot_actual"] += u.men - before
             else:
@@ -3604,7 +3786,48 @@ def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
     return math.exp(-SIGHT_BLOCK * block)
 
 
-def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
+def _credit_normal(kind: str, src: Unit, tgt: Unit, actual: float, over: float) -> None:
+    """通常攻撃の帳簿（§7.174）。kind は normal / cover / ff。"""
+    if kind == "ff":
+        src.ff_dealt += actual         # 表示専用（§7.88）
+        tgt.taken += actual            # 表示専用（§7.94・同士討ちの被害も被ダメ）
+        tgt.ff_taken += actual         # 被害側の帳簿（§7.173）
+        kx = _who(tgt) if tgt.name else TYPE_JP[tgt.typ]
+        src.ff_pair[kx] = src.ff_pair.get(kx, 0.0) + actual
+        src.ff_over += over
+        tgt.over_taken += over
+        return
+    if kind == "cover":
+        tgt.covered += actual          # 表示専用（§7.144）
+    src.dealt += actual
+    tgt.taken += actual                # 表示専用（§7.94）
+    _pair_add(src, tgt, actual)
+    src.over_dealt += over
+    tgt.over_taken += over
+
+
+def _settle_normal(contrib, units, acc) -> None:
+    """通常攻撃の1ティックの蓄積器を精算する（§7.174）。
+
+    units[k] に acc[k] だけの損害がまとめて載る（反映は max(men-acc, 0)）。対象ごとに
+    実損害 min(acc, 残兵) を、その隊への寄与（敵の攻撃・馬前・味方の同士討ち）へ
+    比例配分し、残りを超過として数える。**盤面の反映（clamp）はここでは触らない。**
+    """
+    if not contrib:
+        return
+    scale = {}
+    for k, f in enumerate(units):
+        d = acc[k]
+        if d > 0.0:
+            scale[id(f)] = min(d, max(f.men, 0.0)) / d
+    for kind, src, tgt, amount in contrib:
+        sc = scale.get(id(tgt), 1.0)
+        a = amount * sc
+        _credit_normal(kind, src, tgt, a, amount - a)
+    contrib.clear()
+
+
+def _friendly_fire(u: Unit, own, acc, amount: float, log=None) -> None:
     """同士討ち。混乱した札の与ダメージの一部が味方へ向く。
 
     向き先は**自分以外の味方へ兵力に比例して配る**。誰を撃つかを乱数で選ぶと
@@ -3625,12 +3848,14 @@ def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
             continue
         hit = (amount * (x.men / tot)
                * (100.0 / (100.0 + x.dfn * x.def_mult)))
+        if log is not None:
+            # 帳簿はティックの精算（_settle_normal）で実損害と超過に分ける（§7.174）
+            log.append(("ff", u, x, hit))
+        else:
+            # 単独の寄与（試験など）: 蓄積器に既に載っている分を除いた残兵で切る
+            a = min(hit, max(0.0, x.men - acc[k]))
+            _credit_normal("ff", u, x, a, hit - a)
         acc[k] += hit
-        u.ff_dealt += hit          # 表示専用（§7.88）
-        x.taken += hit             # 表示専用（§7.94・同士討ちの被害も被ダメ）
-        x.ff_taken += hit          # 被害側の帳簿（§7.173）
-        kx = _who(x) if x.name else TYPE_JP[x.typ]
-        u.ff_pair[kx] = u.ff_pair.get(kx, 0.0) + hit
 
 
 def chaos_ff(u: Unit) -> float:
@@ -4002,6 +4227,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         x.melee += dt
             da = [0.0] * na
             db = [0.0] * nb
+            # 帳簿の精算（§7.174）: このティックの寄与（対象が ua のもの／ub のもの）。
+            # 反映の直前に _settle_normal が実損害と超過へ分ける
+            contrib_a: list = []
+            contrib_b: list = []
             cov_a = _cover_map(ua)      # 馬前（§7.144）: 誰が誰の矢を受けるか
             cov_b = _cover_map(ub)
             for i, u in enumerate(ua):
@@ -4020,7 +4249,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     u.sup_lost += base / max(sup, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
-                    _friendly_fire(u, ua, da, base * ff)
+                    _friendly_fire(u, ua, da, base * ff, log=contrib_a)
                     base *= 1.0 - ff
                 for j, (f, w) in enumerate(zip(ub, ws)):
                     if w <= 0.0:
@@ -4044,11 +4273,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         hit -= share
                         hit_c = share * (100.0 + f.dfn * f.def_mult) \
                             / (100.0 + c.dfn * c.def_mult)
-                        c.covered += hit_c         # 表示専用
-                        c.taken += hit_c           # 表示専用（§7.94）
-                        u.dealt += hit_c
-                        k94c = c.name or TYPE_JP[c.typ]
-                        u.pair[k94c] = u.pair.get(k94c, 0.0) + hit_c
+                        contrib_b.append(("cover", u, c, hit_c))   # 帳簿は精算で（§7.174）
                         if SKILLS_ON and c.men0 > 0 and not u.glock:
                             u.gauge += hit_c / c.men0 * GAUGE_PER_DEAL
                         db[cov_b[j]] += hit_c
@@ -4059,12 +4284,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                                                 0.0, side=_side_of(c)))
                     if SKILLS_ON and f.men0 > 0 and not u.glock:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
-                    u.dealt += hit
-                    f.taken += hit             # 表示専用（§7.94）
-                    k94 = f.name or TYPE_JP[f.typ]
-                    u.pair[k94] = u.pair.get(k94, 0.0) + hit
+                    contrib_b.append(("normal", u, f, hit))   # 帳簿は精算で（§7.174）
                     db[j] += hit
             if SEQUENTIAL_DAMAGE:      # 陽性対照。通常は通らない
+                _settle_normal(contrib_b, ub, db)
                 for u, d in zip(ub, db):
                     u.men = max(u.men - d, 0.0)
                 db = [0.0] * nb
@@ -4085,7 +4308,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     u.sup_lost += base / max(sup, 1e-9) - base
                 ff = chaos_ff(u)
                 if ff > 0.0:
-                    _friendly_fire(u, ub, db, base * ff)
+                    _friendly_fire(u, ub, db, base * ff, log=contrib_b)
                     base *= 1.0 - ff
                 for i, (f, w) in enumerate(zip(ua, ws)):
                     if w <= 0.0:
@@ -4109,11 +4332,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         hit -= share
                         hit_c = share * (100.0 + f.dfn * f.def_mult) \
                             / (100.0 + c.dfn * c.def_mult)
-                        c.covered += hit_c         # 表示専用
-                        c.taken += hit_c           # 表示専用（§7.94）
-                        u.dealt += hit_c
-                        k94c = c.name or TYPE_JP[c.typ]
-                        u.pair[k94c] = u.pair.get(k94c, 0.0) + hit_c
+                        contrib_a.append(("cover", u, c, hit_c))   # 帳簿は精算で（§7.174）
                         if SKILLS_ON and c.men0 > 0 and not u.glock:
                             u.gauge += hit_c / c.men0 * GAUGE_PER_DEAL
                         da[cov_a[i]] += hit_c
@@ -4124,11 +4343,11 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                                                 0.0, side=_side_of(c)))
                     if SKILLS_ON and f.men0 > 0 and not u.glock:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
-                    u.dealt += hit
-                    f.taken += hit             # 表示専用（§7.94）
-                    k94 = f.name or TYPE_JP[f.typ]
-                    u.pair[k94] = u.pair.get(k94, 0.0) + hit
+                    contrib_a.append(("normal", u, f, hit))   # 帳簿は精算で（§7.174）
                     da[i] += hit
+            # 帳簿の精算（§7.174）: 反映の直前に、対象ごとの実損害を寄与へ比例配分
+            _settle_normal(contrib_a, ua, da)
+            _settle_normal(contrib_b, ub, db)
             for u, d in zip(ua, da):
                 u.men = max(u.men - d, 0.0)
             for u, d in zip(ub, db):
@@ -4223,6 +4442,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     hit.append((k, cmds))
             for k, cmds in hit:
                 for u in (ua if k == 0 else ub):
+                    u.collapse_lost += u.men * COMMAND_COLLAPSE   # 帳簿（§7.174）
                     u.men *= 1.0 - COMMAND_COLLAPSE
                 if events is not None:
                     # 宝物で付けた本陣は名指ししない（§7.136）。
@@ -4291,6 +4511,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # **足すのは末尾**（既存の添字を動かすと戦果表と画面が同時に壊れる）
             # 末尾4つは §7.126 の構えの帳簿（打消し数と兵法名・兵法だけの軽減・
             # 構えの空振り「張った/空振り」）
+            # §7.173 で同士討ちの内訳（ff_pair・ff_taken）、§7.174 で帳簿の精算
+            # （超過損害の与・受、同士討ちの超過、代償、受けた回復、本陣崩壊）を
+            # wiped_at・covered の**前**に挿入（末尾の covered は動かさない）
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
@@ -4302,6 +4525,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          list(u.fire_times),
                          (u.spill_over, u.spill_dealt, u.spill_n),
                          dict(u.ff_pair), u.ff_taken,
+                         u.over_dealt, u.over_taken, u.ff_over,
+                         u.sac_paid, u.heal_taken, u.collapse_lost,
                          u.wiped_at, u.covered)
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
@@ -4315,6 +4540,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          list(u.fire_times),
                          (u.spill_over, u.spill_dealt, u.spill_n),
                          dict(u.ff_pair), u.ff_taken,
+                         u.over_dealt, u.over_taken, u.ff_over,
+                         u.sac_paid, u.heal_taken, u.collapse_lost,
                          u.wiped_at, u.covered)
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
@@ -4865,6 +5092,8 @@ def narrate_full(a: Army, b: Army, dt: float = 0.25,
 
 def _arrange(ev: List[Event], casts: list, score: float):
     """出来事の列から実況の行を組む（取捨と並び・§7.173）。盤面には触れない。"""
+    # 窓の中で先に積んだ行の器のうち、語る成分が無くて文が空のままのものは落とす
+    ev = [e for e in ev if e.text]
     seq = {id(e): i for i, e in enumerate(ev)}      # 積んだ順（同じ刻の同順位用）
     by_id = {rec["id"]: rec for rec in casts}
 

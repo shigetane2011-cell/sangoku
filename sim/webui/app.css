@@ -1265,6 +1265,7 @@ button.card:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
 .detail-table.casts tr.decisive td { background: rgba(217, 178, 106, .10); }
 .detail-table.casts .decisive { color: var(--gold); }
 .detail-table td.pos { color: var(--sub); font-size: 10.5px; white-space: nowrap; }
+.detail-table small.over { display: block; color: var(--sub); font-size: 10px; }
 .detail-line { padding: 2px 2px; font-size: 11.5px; line-height: 1.6; }
 .detail-line b { color: #e7d8bd; font-weight: 600; }
 
