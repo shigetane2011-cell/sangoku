@@ -215,7 +215,9 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         # 割合回復（§7.129）。**対象の最大兵力**に対する割合なので、撃ち手の
         # 能力では実数にできない（畏怖と同じで、語彙から漏らすと生の文が
         # そのまま出る）。何に対する割合かを言い切る。
-        parts.append("立て直し 味方1隊の最大兵力の{:g}%".format(sk.heal_pct * 100.0))
+        # 対象が「自分」の割合回復は踏みとどまり（§7.171 不撓）: 自隊を立て直す
+        parts.append("立て直し {}の最大兵力の{:g}%".format(
+            "自隊" if "自分" in (sk_row.get("対象") or "") else "味方1隊", sk.heal_pct * 100.0))
     if sk.heal > 0.0:
         if coef is None:
             parts.append("回復（量は持ち主の武将しだい）")
@@ -251,6 +253,10 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         # 混乱と並ぶと「足止めにも%があるのか」と読まれる（テストプレイの
         # 指摘）。**止まるのは攻撃と移動の両方**だと言い切る。
         parts.append("足止め {:.0f}分間（攻撃も前進も止まる）".format(
+            F.mins(float(m.group(1)))))
+    m = _re.search(r"ゲージ阻害\s*(\d+)秒", raw)
+    if m:
+        parts.append("兵法ゲージ停止 {:.0f}分間（相手の兵法ゲージが一切溜まらない）".format(
             F.mins(float(m.group(1)))))
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:

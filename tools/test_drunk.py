@@ -32,7 +32,7 @@ class DrunkTest(unittest.TestCase):
         c = replace(base, trait=F.TRAIT_SEP.join([base.trait, "t_toko"]), hidden_trait="t_toko")
         v = PL.apply_treasure_card_mods(c)
         self.assertIn("drunk", F.trait_keys(v.trait)); self.assertIn("drunk", F.trait_keys(v.hidden_trait))
-        self.assertIn("t_toko", F.trait_keys(v.trait)); self.assertIn("laststand", F.trait_keys(v.trait))
+        self.assertIn("t_toko", F.trait_keys(v.trait)); self.assertIn("jinchu", F.trait_keys(v.trait))   # 生来の特性（§7.171 で 背水→人中の呂布）も残る
         self.assertGreater(v.stat_cost, base.stat_cost + 0.5, "酒乱の値段（負）が能力値へ返る")
         self.assertGreater(v.might, base.might); self.assertGreater(v.wits, base.wits)
         self.assertEqual(PL.apply_treasure_card_mods(v), v, "冪等")

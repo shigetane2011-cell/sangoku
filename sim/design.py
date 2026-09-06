@@ -288,6 +288,11 @@ EFFECT_PRICE = {
     # なお大技の段では実測ほぼ0（遅く1回では止める意味がない）— 現プールに
     # 大技の阻害は無いが、作るときは段の写しを信じないこと。
     "stun": 0.1548,     # 行動阻害 1秒 × 1体 あたり
+    # ゲージ阻害（§7.171）: 対象の兵法ゲージを止める窓 1秒 × 1体 あたり（対象係数を掛ける）。
+    # 虎嘯（呂布〔虓虎〕・敵後衛・8秒）の「あり／阻害なし」を skill_panel（合成の土台・240組）で
+    # 測った差 2.17−1.85＝0.32 コスト点を、段・兵種・取り分を通した実解で単価に戻した値（仮・±が大きい。
+    # 阻害を持つ札が増えたら測り直す）。
+    "glock": 0.067,
     # scut（兵法防御）は対象係数表が使えない（下の TARGET_SCUT_PRICE）
     "chaos": 0.000282, # 混乱。**攻撃力の下げ幅に直した1% × 1秒 × 1体**あたり
     "spd":    0.0,      # **発動時刻しだい**。下の注記を参照
@@ -939,6 +944,8 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     for key, amt, secs in skill.mods:
         if key == "stun":
             v += EFFECT_PRICE["stun"] * secs * fx
+        elif key == "glock":
+            v += EFFECT_PRICE["glock"] * secs * fx
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
         elif key in ("scut", "refl", "ncut", "null"):
@@ -1128,6 +1135,11 @@ def traits_value(keys) -> float:
 # 酒乱: 呂布は混乱の窓の前に仕事を終えるか倒れる（赤壁40 −0.99・官渡30 −0.77 → −0.88）、
 # 張飛は長く立つ壁で同士討ちが1戦ぶん積む（−1.11・−2.14 → −1.63）。
 TRAIT_PRICE_BY_PERSON = {("drunk", "呂布"): -0.88, ("drunk", "張飛"): -1.63}
+# §7.171 の新設3種（skill_panel --trait・合成の土台・240組・残存点。持ち手は各1枚）:
+#   人中の呂布（呂布〔飛将〕・敵が崩れた時に最少の敵へ150%・3回） 1.00 ±0.45
+#   鬼神（呂布〔虓虎〕・自身の兵が減った時に敵前衛へ畏怖-12% 20秒・1回） 0.23 ±0.10
+#   不撓（文鴦・兵力0で自隊を最大の40%で立て直す・1回） 2.02 ±1.12
+TRAIT_PRICE.update({"jinchu": 1.00, "kishin": 0.23, "futou": 2.02})
 
 
 def trait_value(key: str, person: str = "") -> float:

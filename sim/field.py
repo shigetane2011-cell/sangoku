@@ -1888,7 +1888,7 @@ class Unit:
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
-        "null_cap", "null_pool",
+        "null_cap", "null_pool", "glock",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
@@ -2093,6 +2093,7 @@ class Unit:
         self.spill_dealt = 0.0   # 余勢で第二対象へ通った損害
         self.spill_n = 0         # 余勢が出た回数
         self.foe_offense_n = 0   # 敵の攻め兵法を通算で何発浴びたか（§7.129）
+        self.glock = False       # ゲージ阻害の窓の中か（§7.171・_recalc_mods が組む）
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2380,7 +2381,12 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
                     seen.add(("誘", key, u.side))
                 _apply_skill(u, sk, target, own, foe, t, src=key,
                              ev=ev if show else None, seen=seen, name=jp,
-                             kind_jp="誘発")
+                             kind_jp="誘発", dead_ok=(cond == "self_dead"))
+                if cond == "self_dead" and "自分" in target and ev is not None \
+                        and (sk.heal_pct > 0.0 or sk.heal > 0.0):
+                    ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
+                                    "{}、倒れながらも【{}】で立ち上がった！".format(
+                                        _who(u), jp), 1.0, side=_side_of(u)))
 
 
 def x_rate(u: Unit) -> float:
@@ -2518,6 +2524,12 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     if m:
         # 行動阻害は「攻撃も移動も止まる」。専用の器を作らず、両方を -100% にする。
         out.append(("stun", -1.0, skill_dur(float(m.group(1)))))
+    # ゲージ阻害（§7.171）: 対象の兵法ゲージが N秒のあいだ**一切**溜まらない
+    # （自然増加・与ダメ・被ダメ・味方からの付与すべて）。量ではなく窓なので
+    # 重複規則の丸めは受けない。虎嘯（呂布〔虓虎〕）が初の持ち手。
+    m = re.search(r"ゲージ阻害\s*(\d+)秒", effect)
+    if m:
+        out.append(("glock", 1.0, skill_dur(float(m.group(1)))))
     m = re.search(r"兵法打消し(?:\s*(\d+)発)?（(\d+)秒）", effect)
     if m:
         # 打消しは「窓の秒数のあいだ、その一度で N発まで」（§7.152）。
@@ -2609,7 +2621,7 @@ def _fame_wits(u: "Unit") -> float:
     return u.fame_wits if u.fame_wits > 0.0 else u.wits
 
 
-def _skill_targets(target: str, u, foe, own):
+def _skill_targets(target: str, u, foe, own, dead_ok: bool = False):
     """兵法の対象を返す。味方対象なら own の側から選ぶ。
 
     レーンが無いので「1列」は**盤面上で近い3枚**へ写す（旧実装は兵力の多い順に
@@ -2628,7 +2640,9 @@ def _skill_targets(target: str, u, foe, own):
             me = [u] if u.men > 0.0 else []
             return me + ([near] if near is not None else [])
         if "自分" in target:
-            return [u] if u.men > 0.0 else []
+            # dead_ok は self_dead の特性（§7.171 不撓）だけ。倒れた本人が自分を
+            # 回復して立ち直る口で、それ以外の「自分」は生きている時だけ。
+            return [u] if (u.men > 0.0 or dead_ok) else []
         if "全体" in target:
             return pool
         if "前衛" in target:
@@ -2742,6 +2756,9 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     if kind == "stun":
         return "{}の【{}】！　{}が立ちすくむ！（{:.0f}分）".format(
             who, name, where, mins(secs))
+    if kind == "glock":
+        return "{}の【{}】！　{}の兵法の気が萎え、ゲージが止まった！（{:.0f}分）".format(
+            who, name, where, mins(secs))
     if kind == "chaos":
         return "{}の【{}】！　{}が同士討ちを始めた！（{:.0f}分）".format(
             who, name, where, mins(secs))
@@ -2823,7 +2840,7 @@ def _is_offense(sk: "Skill", tstr: str) -> bool:
     if sk.power > 0.0:
         return True
     for key, amt, _secs in sk.mods:
-        if key in ("stun", "chaos") or amt < 0.0:
+        if key in ("stun", "chaos", "glock") or amt < 0.0:
             return True
     return bool(sk.wits_mods)
 
@@ -2882,12 +2899,13 @@ def _flush_men() -> None:
 
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                  src: str = "", ev=None, seen=None, name: str = "",
-                 kind_jp: str = "兵法", resolved=None) -> None:
+                 kind_jp: str = "兵法", resolved=None,
+                 dead_ok: bool = False) -> None:
     """兵法1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
 
     src は §6.5 の同名判定に使う出どころ（兵法名または特性キー）。
     """
-    tgts = _skill_targets(tstr, u, foe, own)
+    tgts = _skill_targets(tstr, u, foe, own, dead_ok)
     if not tgts:
         return
     if kind_jp == "兵法":
@@ -2994,9 +3012,19 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 if best is None or m > best[3]:
                     best = ("stun", 1.0, secs, m, "")
             continue
+        if key == "glock":      # ゲージ阻害（§7.171）。敵にだけ掛かる
+            hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
+            for f in hit:
+                _fx_add(f, (t + secs, "glock", amt, src))
+            if hit:
+                m = secs * len(hit) * 10.0
+                if best is None or m > best[3]:
+                    best = ("glock", 1.0, secs, m, "")
+            continue
         if key == "gauge":      # 旧表記。段差なので値段を持たない（上の注記）
             for f in (tgts if ally else [u]):
-                f.gauge += f.gauge_cost * amt
+                if not f.glock:
+                    f.gauge += f.gauge_cost * amt
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
@@ -3042,6 +3070,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 後・遅延窓を流す前に撃つので、`men` のままだと「いま討たれた隊」を
         # 拾って蘇生させる。撤退した隊（解決後0）は対象から外す。
         pool = [f for f in own if _men_now(f) > 0.0]
+        if dead_ok and "自分" in tstr:
+            pool = [u]          # 踏みとどまり（§7.171）: 倒れた本人を戻す
         if pool:
             f = min(pool, key=lambda x: _men_now(x) / max(x.men0, 1e-9))
             amt = min(f.men0 * sk.heal_pct * (SKILL_BURST_SCALE if sk.scaled
@@ -3304,9 +3334,13 @@ def _recalc_mods(u: Unit) -> None:
     """
     best: Dict[Tuple[str, str], float] = {}
     stun = False
+    glock = False
     for _, kind, amt, src in u.effects:
         if kind == "stun":
             stun = True
+            continue
+        if kind == "glock":         # ゲージ阻害（§7.171）は窓なので量を持たない
+            glock = True
             continue
         k = (kind, src)
         if abs(amt) > abs(best.get(k, 0.0)):
@@ -3324,6 +3358,7 @@ def _recalc_mods(u: Unit) -> None:
     # あって「効果の重複」ではないから ±50% の丸めにも同名判定にも数えない
     # （陣頭の兵力と同じ扱い）。ここで足し直すので、__init__ の初期値が
     # 再計算で消えることもない。
+    u.glock = glock
     u.atk_mult = 0.0 if stun else 1.0 + tot["atk"] + u.perm_atk
     u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
     u.def_mult = 1.0 + tot["def"] + u.perm_def
@@ -3809,7 +3844,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         u.dealt += hit_c
                         k94c = c.name or TYPE_JP[c.typ]
                         u.pair[k94c] = u.pair.get(k94c, 0.0) + hit_c
-                        if SKILLS_ON and c.men0 > 0:
+                        if SKILLS_ON and c.men0 > 0 and not u.glock:
                             u.gauge += hit_c / c.men0 * GAUGE_PER_DEAL
                         db[cov_b[j]] += hit_c
                         if events is not None and ("庇", id(c)) not in seen:
@@ -3817,7 +3852,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                             events.append(Event(t, "誘発", LINE_PRIO["誘発"],
                                                 "{}、【{}】。{}への矢を身をもって受ける。".format(_who(c), COVER_NAME, _who(f)),
                                                 0.0, side=_side_of(c)))
-                    if SKILLS_ON and f.men0 > 0:
+                    if SKILLS_ON and f.men0 > 0 and not u.glock:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     u.dealt += hit
                     f.taken += hit             # 表示専用（§7.94）
@@ -3874,7 +3909,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         u.dealt += hit_c
                         k94c = c.name or TYPE_JP[c.typ]
                         u.pair[k94c] = u.pair.get(k94c, 0.0) + hit_c
-                        if SKILLS_ON and c.men0 > 0:
+                        if SKILLS_ON and c.men0 > 0 and not u.glock:
                             u.gauge += hit_c / c.men0 * GAUGE_PER_DEAL
                         da[cov_a[i]] += hit_c
                         if events is not None and ("庇", id(c)) not in seen:
@@ -3882,7 +3917,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                             events.append(Event(t, "誘発", LINE_PRIO["誘発"],
                                                 "{}、【{}】。{}への矢を身をもって受ける。".format(_who(c), COVER_NAME, _who(f)),
                                                 0.0, side=_side_of(c)))
-                    if SKILLS_ON and f.men0 > 0:
+                    if SKILLS_ON and f.men0 > 0 and not u.glock:
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     u.dealt += hit
                     f.taken += hit             # 表示専用（§7.94）
@@ -3900,11 +3935,15 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
         offense = set()      # 攻め兵法が解決した札（§7.129・持重が見る）
         if SKILLS_ON:
             for x, taken in ((u, d) for u, d in zip(ua, da)):
+                if x.glock:          # ゲージ阻害（§7.171）: 窓の間は何も溜まらない
+                    continue
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * natural_gauge_mult(
                     x, ua + ub) * dt
                 if x.men0 > 0:
                     x.gauge += taken / x.men0 * GAUGE_PER_TAKE
             for x, taken in ((u, d) for u, d in zip(ub, db)):
+                if x.glock:
+                    continue
                 x.gauge += GAUGE_PER_SEC * x_rate(x) * natural_gauge_mult(
                     x, ua + ub) * dt
                 if x.men0 > 0:
