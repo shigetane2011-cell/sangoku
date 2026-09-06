@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "manifest": {
-    "created_at_utc": "2026-09-06T14:41:44+00:00",
+    "created_at_utc": "2026-09-06T15:13:01+00:00",
     "command": "run",
     "profile": "quick",
     "git": {
-      "commit": "80f6e95bd8638397f2e95a46efa1382029fea42a",
+      "commit": "58a4fe59f4f10d986b17627aa8a6adf218cad58e",
       "branch": "claude/dev-handoff-balance-adjustments-8ezltu",
       "dirty": false
     },
@@ -13,9 +13,9 @@
     "platform": "Linux-6.18.44-fc-v24-x86_64-with-glibc2.39",
     "dt": 0.5,
     "csv_sha256": {
-      "generals.csv": "c67bf8e06aaf46a76a6e249a920240b6693bd9bd97a79e4d6d275163a5f3215b",
-      "skills.csv": "3b4c0c1523ddd77b25adb344a0d839bcb57224e1a503592fe59b3dc4b229ae07",
-      "traits.csv": "3100031ae8f778d188e37314fe92f84e3724bb56763f4fba256b83c9c9019e86"
+      "generals.csv": "7ad2cc1776292c64d43d1717d69dfc7717e9e3aac92d8988a509d887bae0d346",
+      "skills.csv": "f080b74af1ec4f6c62e6f6831c426d457e9352d773aa8c21e9998873d3b4c1ef",
+      "traits.csv": "1497a37608a74fd3d108cd2d974b1fa8cb96c0f55a9fb7f3c2d678f2dcdbdefe"
     },
     "fixture_file": "docs/balance/fixtures-v1.json",
     "fixture_source": {
@@ -152,7 +152,7 @@
         "returncode": 0,
         "accepted_known_exceptions": false,
         "accepted_note": "",
-        "seconds": 0.36,
+        "seconds": 0.39,
         "tail": "  1         14    100.28    100.32    0.9996      0.08\n  2         14     99.89     99.91    0.9998      0.08\n  3         14    104.67    104.69    0.9998      0.05\n  4         14    130.57    130.58    1.0000      0.05\n  5         14    133.24    133.25    0.9999      0.03\n  6         14    142.49    142.50    1.0000      0.03\n  7         14    157.30    157.29    1.0000      0.03\n  8         14    157.51    157.49    1.0001      0.03\n  9         14    151.46    151.45    1.0001      0.03\n  10        13    194.94    194.93    1.0001      0.03\n\n全帯がコスト曲線の上"
       },
       {
@@ -419,7 +419,7 @@
             "cadence": "標準"
           },
           {
-            "name": "張昭〔文淵〕",
+            "name": "張昭〔子布〕",
             "observed": 7,
             "expected": 3.393,
             "lift": 2.063,
@@ -449,7 +449,7 @@
             "cadence": "標準"
           },
           {
-            "name": "魯粛〔塌上策〕",
+            "name": "魯粛〔榻上策〕",
             "observed": 7,
             "expected": 3.393,
             "lift": 2.063,
@@ -1287,7 +1287,7 @@
             "cadence": "大技"
           },
           {
-            "name": "張昭〔文淵〕",
+            "name": "張昭〔子布〕",
             "observed": 2,
             "expected": 0.311,
             "lift": 6.421,

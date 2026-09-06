@@ -1,8 +1,8 @@
 # 三国布陣 バランス計器レポート
 
-- commit: `80f6e95bd863`
+- commit: `58a4fe59f4f1`
 - profile: `quick` / dt `0.5`
-- 実行時刻: 2026-09-06T14:41:44+00:00
+- 実行時刻: 2026-09-06T15:13:01+00:00
 - fixture: `docs/balance/fixtures-v1.json`（元commit `8986fc8`）
 
 ## 仕様・登録検算
