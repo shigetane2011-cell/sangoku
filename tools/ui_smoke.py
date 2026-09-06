@@ -534,6 +534,9 @@ def rout_badges_check(page, rep, datadir):
     report_txt = page.eval_on_selector("#report", "e => e.textContent") or ""
     rep.check("崩" not in report_txt,
               "戦果の一覧カードにも「崩」は出ない（詳報と同じ扱い）")
+    # 単位の二重（「0.3千千」）を見張る。k() が「千」を付けるので呼び手は足さない
+    rep.check("千千" not in report_txt and "千千" not in detail_txt,
+              "軍功帳・詳録に単位の二重（千千）が無い")
     log_txt = page.eval_on_selector("#log", "e => e.textContent") or ""
     rep.check("踏みとどまる" in log_txt,
               "苦戦の実況行は詳報から独立して残っている")
