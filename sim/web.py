@@ -386,7 +386,7 @@ def _treasure_brief(key, row):
         return "武力 +{:.0f}（通常も兵法も出力が少し上がる）".format(
             PL.TREASURE_CARD_MODS[key]["might"])
     if key == "t_hakuusen":
-        return "知力 +{:.0f}（計略の効きと混乱への耐えが上がる）".format(
+        return "知力 +{:.0f}（知略の兵法の効きと混乱への耐えが上がる）".format(
             PL.TREASURE_CARD_MODS[key]["wits"])
     if key == "t_gentetsu":
         return "防御寄せ +0.3 — 鎧が厚くなり、そのぶん兵が薄くなる"

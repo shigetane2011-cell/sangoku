@@ -1256,6 +1256,15 @@ button.card:focus-visible { outline: 3px solid #fff3b0; outline-offset: 2px; }
 .detail-table td.uname, .detail-table th:first-child { text-align: left; }
 .detail-table tr.dead td { color: var(--faint); }
 .detail-table tr.dead td.uname { text-decoration: line-through; }
+/* 兵法の記録（§7.173）: 全発動の表。打ち消された行と決め手の行を目立たせる */
+.detail-table.casts td { text-align: left; white-space: normal; }
+.detail-table.casts td.num { white-space: nowrap; }
+.detail-table.casts td.tgt, .detail-table.casts td.res, .detail-table.casts td.note { min-width: 9em; }
+.detail-table.casts tr.nullified td { color: var(--sub); }
+.detail-table.casts tr.nullified td .null { color: #d9b26a; }
+.detail-table.casts tr.decisive td { background: rgba(217, 178, 106, .10); }
+.detail-table.casts .decisive { color: var(--gold); }
+.detail-table td.pos { color: var(--sub); font-size: 10.5px; white-space: nowrap; }
 .detail-line { padding: 2px 2px; font-size: 11.5px; line-height: 1.6; }
 .detail-line b { color: #e7d8bd; font-weight: 600; }
 

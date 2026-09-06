@@ -1888,7 +1888,7 @@ class Unit:
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
-        "null_cap", "null_pool", "glock",
+        "null_cap", "null_pool", "glock", "ff_pair", "ff_taken",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
@@ -2094,6 +2094,8 @@ class Unit:
         self.spill_n = 0         # 余勢が出た回数
         self.foe_offense_n = 0   # 敵の攻め兵法を通算で何発浴びたか（§7.129）
         self.glock = False       # ゲージ阻害の窓の中か（§7.171・_recalc_mods が組む）
+        self.ff_pair = {}        # 同士討ちで誰へ何人（§7.173・表示専用）
+        self.ff_taken = 0.0      # 同士討ちで受けた被害（§7.173・表示専用）
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -2375,12 +2377,11 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
                 if not hit:
                     continue
                 u.fired[key] = u.fired.get(key, 0) + 1
-                # 同じ特性は1戦に1回だけ実況へ出す（何度も発動するので）
-                show = ev is not None and ("誘", key, u.side) not in seen
-                if show:
-                    seen.add(("誘", key, u.side))
+                # 発動は**毎回**記録して実況へ渡す（§7.173）。以前は同じ特性を
+                # 1戦1回に絞っていたが、決め手になった再発動が実況から消えた。
+                # 間引きは narrate 側（初回を優先し、決め手と打消しは必ず残す）。
                 _apply_skill(u, sk, target, own, foe, t, src=key,
-                             ev=ev if show else None, seen=seen, name=jp,
+                             ev=ev, seen=seen, name=jp,
                              kind_jp="誘発", dead_ok=(cond == "self_dead"))
                 if cond == "self_dead" and "自分" in target and ev is not None \
                         and (sk.heal_pct > 0.0 or sk.heal > 0.0):
@@ -2753,6 +2754,12 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
     if kind == "heal":
         return "{}の【{}】！　{}の兵 {:,.0f} が戦列に復帰！".format(
             who, name, where, amount)
+    if kind == "hot":
+        # 継続回復は**予定**を語る（§7.173）。「兵○人が復帰」と総量で言うと、
+        # 途中で決着したり満タンだったりして入らなかった分まで復帰したように
+        # 読める。実量は記録（hot_actual）に持ち、合戦詳録が出す。
+        return "{}の【{}】！　{}に継続回復。{:.0f}分のあいだ兵力を回復する（毎分{:,.0f}）。".format(
+            who, name, where, mins(secs), per_min(amount))
     if kind == "stun":
         return "{}の【{}】！　{}が立ちすくむ！（{:.0f}分）".format(
             who, name, where, mins(secs))
@@ -2760,7 +2767,9 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         return "{}の【{}】！　{}の兵法の気が萎え、ゲージが止まった！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "chaos":
-        return "{}の【{}】！　{}が同士討ちを始めた！（{:.0f}分）".format(
+        # 付与の時点では「混乱した」とだけ言う（§7.173）。同士討ちの被害は
+        # 実際に出た量を _log_tick が別に報じる（少量なら詳録だけ）。
+        return "{}の【{}】！　{}が混乱した！（{:.0f}分）".format(
             who, name, where, mins(secs))
     if kind == "buff":
         if stat == "null":
@@ -2772,14 +2781,43 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
             return "{}の【{}】発動！　{}が打消しの構えを取った！（{:.0f}分）".format(
                 who, name, where, mins(secs))
         what = {"def": "守り", "spd": "足", "rate": "気勢",
-                "scut": "計略への備え", "refl": "刃返しの構え",
+                "scut": "兵法への備え", "refl": "刃返しの構え",
                 "ncut": "矢弾への備え"}.get(stat, "攻撃")
         up = {"spd": "速まる", "scut": "固まる", "refl": "整う"}.get(stat, "上がる")
         return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・{:.0f}分）".format(
             who, name, where, what, up, amount, mins(secs))
-    what = {"def": "守りが乱れる"}.get(stat, "刃が鈍る")
+    # 弱体は種類で言い分ける（§7.173: 速度や気勢まで「刃が鈍る」と語らない）
     return "{}の【{}】！　{}の{}！（{:+.0%}・{:.0f}分）".format(
-        who, name, where, what, amount, mins(secs))
+        who, name, where, _stat_down_jp(stat), amount, mins(secs))
+
+
+# 兵法の記録（§7.173）。simulate(casts=[...]) を渡したときだけ積む。実況は
+# ここから短く要約し、合戦詳録は省略せず出す。**盤面の計算には一切使わない。**
+_CASTS = None
+_CAST_BY_ID: Dict[int, dict] = {}
+
+
+def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
+               src: str = ""):
+    """発動1回ぶんの記録を開く。None なら記録しない（測定の経路）。
+
+    何回目かは、兵法なら発動回数（fires）、固有特性なら**キー**（src）ごとの
+    発動回数（fired はキーで数える。表示名で引くと常に1回目になる）。"""
+    if _CASTS is None:
+        return None
+    rec = {"id": len(_CASTS) + 1, "t": t, "side": _side_of(u), "who": _who(u),
+           "skill": name, "kind": kind_jp, "target": tstr,
+           "nth": (u.fires if kind_jp == "兵法" else
+                   max(1, u.fired.get(src, 0) if src else 1)),
+           "intended": [_who(f) for f in tgts], "hit": [],
+           "nullified": False, "blocker": "", "stance_by": "", "stance_skill": "",
+           "left": None, "damage": 0.0, "per": [], "kills": [], "spill": [],
+           "heal": 0.0, "hot": None, "hot_actual": 0.0,
+           "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
+           "decisive": False}
+    _CASTS.append(rec)
+    _CAST_BY_ID[rec["id"]] = rec
+    return rec
 
 
 # 兵法のフェーズ中だけ有効な兵力の蓄積器。**None なら即時に反映する。**
@@ -2807,7 +2845,7 @@ def _detour_pct(u: Unit) -> "float | None":
 
 def _pair_add(u: Unit, f: Unit, amount: float) -> None:
     """矛先の帳簿（§7.94・表示専用）。誰が誰へ何を与えたか。"""
-    k = f.name or TYPE_JP[f.typ]
+    k = _who(f) if f.name else TYPE_JP[f.typ]
     u.pair[k] = u.pair.get(k, 0.0) + amount
 
 
@@ -2904,10 +2942,21 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     """兵法1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
 
     src は §6.5 の同名判定に使う出どころ（兵法名または特性キー）。
+
+    §7.173: 発動1回ごとに**記録**（_cast_open）を作り、本来の対象・実際に効いた
+    相手・打消しの成否と範囲・実量・代償を書く。実況は記録から**1行に要約**して
+    最後に1本だけ積む（成分ごとに何本も出さない）。盤面の計算は記録の有無で
+    変わらない。
     """
     tgts = _skill_targets(tstr, u, foe, own, dead_ok)
     if not tgts:
         return
+    name = name or src
+    if kind_jp == "誘発" and src and src in u.hidden_traits:
+        # 宝物で加えたキーは種明かししない（本人以外・対戦相手にも・§7.136）。
+        # 名前を伏せるだけで、発動そのもの・武将名・数値は今まで通り実況する。
+        name = "秘策"
+    rec = _cast_open(u, name, kind_jp, tstr, tgts, t, src)
     if kind_jp == "兵法":
         # 兵法打消し（§7.51 機構5）。対象に「構え」持ちの敵が1体でも
         # いれば発動ごと霧散する（ゲージは戻らない・代償も払わない）。
@@ -2929,22 +2978,39 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             blocker.null_blocked += 1          # 帳簿（§7.126・表示専用）
             # 残り回数を1つ使う（§7.152）。入れ物は対象の隊で共有しているので、
             # 誰が遮っても同じ残りが減る。使い切ったら構えは下りる。
+            rest = None
+            by, stance = "", ""
             if blocker.null_pool is not None:
                 blocker.null_pool[0] -= 1.0
                 blocker.nullify = blocker.null_pool[0] > 0.0
+                rest = int(max(0.0, blocker.null_pool[0]))
+                if len(blocker.null_pool) >= 3:     # 構えを与えた武将と兵法（§7.173）
+                    by, stance = blocker.null_pool[1], blocker.null_pool[2]
+            if not stance:
+                stance = next((e[3] for e in blocker.effects if e[1] == "null"), "")
             if name and name not in blocker.null_names:
                 blocker.null_names.append(name)
+            foes = [f for f in tgts if f.side != u.side]
+            if rec is not None:
+                rec.update({"nullified": True, "blocker": _who(blocker),
+                            "stance_by": by, "stance_skill": stance, "left": rest,
+                            "hit": []})
             if ev is not None and name:
-                left = ""
-                if blocker.null_pool is not None:
-                    rest = int(max(0.0, blocker.null_pool[0]))
-                    left = ("　構えは尽きた！" if rest <= 0
-                            else "　（あと{}発）".format(rest))
+                left = ("" if rest is None else
+                        ("　この構えの残り: 尽きた。" if rest <= 0
+                         else "　この構えの残り: {}発。".format(rest)))
+                # 構えを与えた武将と遮った隊は別のことがある（味方前衛への構え）。
+                # 同じなら「自らの」と書く（名前を2度並べない）。
+                stance_txt = ("自らの【{}】".format(stance) if by and stance and by == _who(blocker)
+                              else "{}の【{}】".format(by, stance) if by and stance
+                              else ("【{}】".format(stance) if stance else "構え"))
                 ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp],
-                                "{}の【{}】！　だが{}の構えに阻まれ、"
-                                "霧散した！{}".format(_who(u), name,
-                                                  _who(blocker), left), 1.0,
-                                side=_side_of(u)))
+                                "{}の【{}】！　だが{}が{}で兵法全体を打ち消した。"
+                                "対象の{}隊への効果は発生しなかった。{}".format(
+                                    _who(u), name, _who(blocker), stance_txt,
+                                    len(foes), left), 1.0,
+                                side=_side_of(u), cast=rec["id"] if rec else 0,
+                                must=True))
             return
         # 攻め兵法が**実際に解決した**ことを記録する（§7.129・持重が見る）。
         # 打消しの分岐より後なので、霧散した兵法はここへ来ない。
@@ -2953,44 +3019,39 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 代償（スーサイド）: 現在兵力の割合を払う。遅延窓（_men_add）を通す
         # ので同時解決は保たれる。誰の与ダメにも数えない — 自傷であって
         # 敵の戦果ではない。
-        _men_add(u, -u.men * sk.sac)
+        if sk.sac > 0.0:
+            paid = u.men * sk.sac
+            _men_add(u, -paid)
+            if rec is not None:
+                rec["sac"] = paid
     v = SKILL_WITS[sk.kind]
     coef = u.might * (1.0 - v) + u.wits * v
     n = max(len(tgts), 1)
-    name = name or src
-    if kind_jp == "誘発" and src and src in u.hidden_traits:
-        # 宝物で加えたキーは種明かししない（本人以外・対戦相手にも・§7.136）。
-        # 名前を伏せるだけで、発動そのもの・武将名・数値は今まで通り実況する。
-        name = "秘策"
 
-    def say(kind, amount, secs=0.0, mag=0.0, jp=None, stat=""):
-        """実況行を1本積む。**効いた量をそのまま持たせる**（行の取捨に使う）。"""
-        if ev is None or not name:
-            return
+    main = None        # 実況の主成分 (kind, amount, secs, mag, stat, hit)
+    extras = []        # 副次の成分（短く添える）
+
+    def note(kind, amount, secs=0.0, mag=0.0, stat="", hit=None):
+        """実況の成分を1つ積む。主成分は大きさで選び、残りは添え書きにする。"""
+        nonlocal main
         # **効かなかったものは語らない。** 「自身が92人を立て直す」のような行が出ると、
         # 起きた出来事としては正しくても実況としては嘘に近い（読者は意味のある量だと
         # 受け取る）。対象の兵力に対する割合で足切りする。
-        if kind in ("damage", "heal", "dot"):
+        if kind in ("damage", "heal", "dot", "hot"):
             base = sum(f.men0 for f in tgts) or 1.0
-            total = amount * (secs if kind == "dot" else 1.0)
+            total = amount * (secs if kind in ("dot", "hot") else 1.0)
             if total / base < NARRATE_FLOOR:
                 return
-        k = jp or kind_jp
-        ev.append(Event(t, k, LINE_PRIO[k],
-                        _skill_line(u, name, tstr, tgts, kind, amount, secs,
-                                    stat),
-                        mag, side=_side_of(u)))
-        # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは兵法と同じ
-        # 値を持たせ、強い兵法を撃った武将から喋る。
-        if u.quote and seen is not None and ("声", id(u)) not in seen:
-            seen.add(("声", id(u)))
-            ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
-                            "{}「{}」".format(_who(u), u.quote), mag,
-                            ref=id(ev[-1]), side=_side_of(u)))
+        item = (kind, amount, secs, mag, stat, hit if hit is not None else tgts)
+        if main is None or mag > main[3]:
+            if main is not None:
+                extras.append(main)
+            main = item
+        else:
+            extras.append(item)
 
     # 状態効果。**符号が向き先を決める**（_skill_mods の注記）。
     ally = "味方" in tstr or "自分" in tstr
-    best = None                 # 1回の発動につき実況は1行。いちばん大きい成分で書く
     for key, amt, secs in sk.mods:
         if key == "chaos":
             # 知力の比で効き目が変わる。**判定は置かず、量が連続に変わる。**
@@ -2999,27 +3060,27 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 r = (u.wits / max(f.wits, 1e-6)) ** CHAOS_WITS
                 _chaos_add(f, amt * r, t + secs)
             if hit:
-                m = amt * secs * len(hit)
-                if best is None or m > best[3]:
-                    best = ("chaos", amt, secs, m, "")
+                note("chaos", amt, secs, amt * secs * len(hit), "", hit)
+                if rec is not None:
+                    rec["mods"].append(["混乱", amt, secs, [_who(f) for f in hit]])
             continue
         if key == "stun":
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
                 _fx_add(f, (t + secs, "stun", amt, src))
             if hit:
-                m = secs * len(hit) * 10.0
-                if best is None or m > best[3]:
-                    best = ("stun", 1.0, secs, m, "")
+                note("stun", 1.0, secs, secs * len(hit) * 10.0, "", hit)
+                if rec is not None:
+                    rec["mods"].append(["行動阻害", 1.0, secs, [_who(f) for f in hit]])
             continue
         if key == "glock":      # ゲージ阻害（§7.171）。敵にだけ掛かる
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
                 _fx_add(f, (t + secs, "glock", amt, src))
             if hit:
-                m = secs * len(hit) * 10.0
-                if best is None or m > best[3]:
-                    best = ("glock", 1.0, secs, m, "")
+                note("glock", 1.0, secs, secs * len(hit) * 10.0, "", hit)
+                if rec is not None:
+                    rec["mods"].append(["ゲージ阻害", 1.0, secs, [_who(f) for f in hit]])
             continue
         if key == "gauge":      # 旧表記。段差なので値段を持たない（上の注記）
             for f in (tgts if ally else [u]):
@@ -3031,7 +3092,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 打消しの残り回数（§7.152）。**この一度の発動につき1つ**の入れ物を作り、
         # 対象になった隊で分け合う（味方前衛なら前衛あわせて N発）。次にこの
         # 兵法を撃てば作り直される＝残りも戻る。inf は旧表記の「何発でも」。
-        pool = None if key != "null" or amt == math.inf else [amt]
+        # 入れ物には**構えを与えた武将と兵法**も添える（§7.173: 誰の構えが
+        # 打ち消したかを実況と詳録で言えるように。数える口は [0] だけ）。
+        pool = (None if key != "null" or amt == math.inf
+                else [amt, _who(u), name])
         for f in hit:
             if key == "null":
                 # 入れ物は**効果と同じ口**（蓄積器）から入れる（§7.165）。ここで直に
@@ -3042,9 +3106,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 _pool_set(f, pool)
             _fx_add(f, (t + secs, key, amt, src))
         if hit:
-            m = abs(amt) * secs * len(hit)
-            if best is None or m > best[3]:
-                best = ("buff" if amt > 0.0 else "debuff", amt, secs, m, key)
+            note("buff" if amt > 0.0 else "debuff", amt, secs,
+                 abs(amt) * secs * len(hit), key, hit)
+            if rec is not None:
+                rec["mods"].append([_MOD_JP_KEY.get(key, key), amt, secs,
+                                    [_who(f) for f in hit]])
     # 知力比の弱体（§7.67）: 表記は知力同格のときの効き目。実際は
     # (撃ち手の知力/受け手の知力)^WITS_MOD 倍 — 混乱と同じで判定は置かない。
     for key, amt, secs in sk.wits_mods:
@@ -3053,15 +3119,15 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             r = (u.wits / max(f.wits, 1e-6)) ** WITS_MOD
             _fx_add(f, (t + secs, key, amt * r, src))
         if hit:
-            m2 = abs(amt) * secs * len(hit)
-            if best is None or m2 > best[3]:
-                best = ("debuff", amt, secs, m2, key)
-    if best is not None:
-        say(best[0], best[1], best[2], best[3],
-            jp="計略" if kind_jp == "兵法" else kind_jp, stat=best[4])
+            note("debuff", amt, secs, abs(amt) * secs * len(hit), key, hit)
+            if rec is not None:
+                rec["mods"].append([_MOD_JP_KEY.get(key, key) + "（知力比）", amt, secs,
+                                    [_who(f) for f in hit]])
     # 反動: 撃った本人への一定時間の弱体（§7.64）
     for key, amt, secs in sk.self_mods:
         _fx_add(u, (t + secs, key, amt, src))
+        if rec is not None:
+            rec["recoil"].append([_MOD_JP_KEY.get(key, key), amt, secs])
     if sk.mods or sk.self_mods or sk.wits_mods:
         _expire(own + foe, t)
 
@@ -3080,126 +3146,249 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if amt > 0.0:
                 _men_add(f, amt)
                 u.healed += amt          # 表示専用（§7.88）
-                say("heal", amt, jp=kind_jp)
-    if sk.power <= 0.0 and sk.heal <= 0.0:
-        return
-    if sk.heal > 0.0:
-        # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
-        # 打ち切りの回復だけ補償を掛ける（継続回復は効果時間側・§7.151）
-        amt = (HEAL_SCALE * sk.heal * coef / n
-               * ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
-                  if sk.scaled else 1.0))
-        done = 0.0
-        for f in tgts:
-            if f.men <= 0.0:
-                continue
-            if sk.dur > 0.0:
-                f.overtime.append((t + sk.dur, "heal", amt, u))
-                done += amt * sk.dur
-            else:
-                # 満タンぶんは実況でも数えない。**スナップショットに対して測る**
-                # ので、同じティックで他が撃っていても量が変わらない。
-                gain = min(amt, f.men0 - f.men)
-                _men_add(f, gain)
-                u.healed += gain          # 表示専用（§7.89）
-                done += gain
-        if done > 0.0:
-            say("heal", done, sk.dur, mag=done)
-        return
-    # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
-    p_eff = sk.power
-    if sk.power_hi > sk.power:
-        # 威力の幅（§7.67）。種は battle_seed 由来なのでリプレイは再現する。
-        # 種の無い測定では中央値 — 零点・dt不変は従来と同一に保たれる。
-        p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
-                 else u.rand.uniform(sk.power, sk.power_hi))
-    # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）。
-    # 固有特性・宝物には掛けない（§7.152。ゲージで撃たないので発動は増えていない）
-    burst = ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
-             if sk.scaled else 1.0)
-    dmg = SKILL_SCALE * burst * p_eff * coef / n
-    if SUPPRESS_SKILL and u.typ == ARC:
-        # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの
-        # 資源であって矢筒ではない。距離だけの連続な形（§13）。弓兵のみ
-        # （槍の突きは密着で衰えない・§7.75）。
-        alive_f = [f2 for f2 in foe if f2.men > 0.0]
-        if alive_f:
-            g = min(box_gap(u, f2) for f2 in alive_f)
-            dmg *= 1.0 - SUPPRESS_MAX * smooth_gate(g, 0.0, SUPPRESS_R)
-    done = 0.0
-    for f in tgts:
-        if sk.dur > 0.0:
-            # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
-            # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
-            # 総量が 1/14 になる。実際に踏んだ。
-            f.overtime.append((t + sk.dur, "dot", dmg, u))
-            done += dmg
+                note("heal", amt, 0.0, amt, "", [f])
+                if rec is not None:
+                    rec["heal"] += amt
+                    rec["hit"].append(_who(f))
+    if sk.power > 0.0 or sk.heal > 0.0:
+        if sk.heal > 0.0:
+            # 回復は防御力を通さない（減った兵を戻すだけで、殴られてはいない）。
+            # 打ち切りの回復だけ補償を掛ける（継続回復は効果時間側・§7.151）
+            amt = (HEAL_SCALE * sk.heal * coef / n
+                   * ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
+                      if sk.scaled else 1.0))
+            done = 0.0
+            got = []
+            for f in tgts:
+                if f.men <= 0.0:
+                    continue
+                if sk.dur > 0.0:
+                    f.overtime.append((t + sk.dur, "heal", amt, u,
+                                       rec["id"] if rec else 0))
+                    done += amt * sk.dur
+                    got.append(f)
+                else:
+                    # 満タンぶんは実況でも数えない。**スナップショットに対して測る**
+                    # ので、同じティックで他が撃っていても量が変わらない。
+                    gain = min(amt, f.men0 - f.men)
+                    _men_add(f, gain)
+                    u.healed += gain          # 表示専用（§7.89）
+                    done += gain
+                    if gain > 0.0:
+                        got.append(f)
+            if done > 0.0:
+                if sk.dur > 0.0:
+                    # 継続回復は**予定**であって実量ではない（途中で決着すれば
+                    # 入らない・満タンなら入らない）。実量は記録の hot_actual。
+                    note("hot", amt, sk.dur, done, "", got)
+                    if rec is not None:
+                        rec["hot"] = {"per_sec": amt, "secs": sk.dur,
+                                      "planned": done, "n": len(got)}
+                else:
+                    note("heal", done, 0.0, done, "", got)
+                    if rec is not None:
+                        rec["heal"] += done
+                if rec is not None:
+                    rec["hit"] += [_who(f) for f in got]
         else:
-            pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
-                   * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0))
-            eff = pre * f.scut_mult
-            take = min(eff, f.men)
-            if f.scut_mult < 1.0:          # 表示専用（§7.88）
-                f.cut_saved += min(pre, f.men) - take
-                f.scut_saved += min(pre, f.men) - take   # 兵法ぶんだけの帳簿（§7.126）
-            _men_add(f, -take)
-            u.dealt += take
-            u.dealt_skill += take
-            f.taken += take                # 表示専用（§7.94）
-            _pair_add(u, f, take)
-            if (TRAMPLE > 0.0 and eff > f.men
-                    and kind_jp == "兵法"
-                    and u.gauge_cost >= TRAMPLE_TIER_COST
-                    and tstr.startswith("敵1体")):
-                # 余勢（§7.76 後記・テストプレイの設計③）: **大技段 ×
-                # 対象指定が敵1体 × その一撃単独で致死**のときだけ、余った
-                # 勢いが最寄りの敵へ抜ける。判定はスナップショット兵力
-                # （遅延窓の f.men）なので、同ティックの2発がそれぞれ単独
-                # 致死ならそれぞれ余勢を出し、合算でのみ致死なら出ない。
-                # 量は**生ダメージの余り**（撃破に要した生ダメを引く）の
-                # TRAMPLE 掛けを第二対象へ渡し、**第二対象自身の防御と
-                # 兵法防御を1回だけ**通す（第一対象の防御は掛け直さない
-                # ＝二重適用なし）。反射は返らず、連鎖もしない。段の判定は
-                # 消費ゲージ（大技=300。sync が段から書くので消費が段の鏡）。
-                # 特性は段を持たないので対象外（kind_jp で絞る）。
-                u.spill_over += eff - f.men          # 帳簿（表示専用）
-                rest = [g2 for g2 in foe
-                        if g2 is not f and g2.men > 0.0]
-                if rest:
-                    # 最寄り。同距離は部隊順（foe の並び）で決める（③(b)）
-                    g2 = min(enumerate(rest), key=lambda p: (_d2(f, p[1]), p[0]))[1]
-                    raw_rest = dmg * (eff - f.men) / eff
-                    pre2 = (raw_rest * TRAMPLE
-                            * (100.0 / (100.0 + g2.dfn * g2.def_mult)))
-                    eff2 = pre2 * g2.scut_mult
-                    spill = min(eff2, g2.men)
-                    if g2.scut_mult < 1.0:     # 表示専用（§7.88・§7.126）
-                        g2.cut_saved += min(pre2, g2.men) - spill
-                        g2.scut_saved += min(pre2, g2.men) - spill
-                    _men_add(g2, -spill)
-                    u.dealt += spill
-                    u.dealt_skill += spill
-                    g2.taken += spill          # 表示専用（§7.94）
-                    _pair_add(u, g2, spill)
-                    u.spill_dealt += spill     # 帳簿（表示専用）
-                    u.spill_n += 1
-                    done += spill
-            if f.refl > 0.0:
-                # 反射は撃ち手の防御・反射・カットを通さない素の返り
-                # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
-                back = take * f.refl
-                _men_add(u, -back)
-                f.dealt += back
-                f.dealt_skill += back
-                f.refl_back += back        # 表示専用（§7.88）
-                u.taken += back            # 表示専用（§7.94）
-                _pair_add(f, u, back)
-            done += take                    # 防御ぶんを引いた実害を出す
-    if done > 0.0:
-        say("dot" if sk.dur > 0.0 else "damage", done, sk.dur,
-            mag=done * (sk.dur or 1.0))
-        return
+            # **兵力に比例しない。** 分母を持たないのが狙い（上の注記）。
+            p_eff = sk.power
+            if sk.power_hi > sk.power:
+                # 威力の幅（§7.67）。種は battle_seed 由来なのでリプレイは再現する。
+                # 種の無い測定では中央値 — 零点・dt不変は従来と同一に保たれる。
+                p_eff = ((sk.power + sk.power_hi) / 2.0 if u.rand is None
+                         else u.rand.uniform(sk.power, sk.power_hi))
+            # 打ち切り（dur=0）だけ補償を掛ける。継続ぶんは効果時間側で調整する（§7.151）。
+            # 固有特性・宝物には掛けない（§7.152。ゲージで撃たないので発動は増えていない）
+            burst = ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
+                     if sk.scaled else 1.0)
+            dmg = SKILL_SCALE * burst * p_eff * coef / n
+            if SUPPRESS_SKILL and u.typ == ARC:
+                # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの
+                # 資源であって矢筒ではない。距離だけの連続な形（§13）。弓兵のみ
+                # （槍の突きは密着で衰えない・§7.75）。
+                alive_f = [f2 for f2 in foe if f2.men > 0.0]
+                if alive_f:
+                    g = min(box_gap(u, f2) for f2 in alive_f)
+                    dmg *= 1.0 - SUPPRESS_MAX * smooth_gate(g, 0.0, SUPPRESS_R)
+            done = 0.0
+            got = []
+            for f in tgts:
+                if sk.dur > 0.0:
+                    # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
+                    # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
+                    # 総量が 1/14 になる。実際に踏んだ。
+                    f.overtime.append((t + sk.dur, "dot", dmg, u,
+                                       rec["id"] if rec else 0))
+                    done += dmg
+                    got.append(f)
+                else:
+                    pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
+                           * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0))
+                    eff = pre * f.scut_mult
+                    take = min(eff, f.men)
+                    if f.scut_mult < 1.0:          # 表示専用（§7.88）
+                        f.cut_saved += min(pre, f.men) - take
+                        f.scut_saved += min(pre, f.men) - take   # 兵法ぶんだけの帳簿（§7.126）
+                    before_now = _men_now(f)
+                    _men_add(f, -take)
+                    u.dealt += take
+                    u.dealt_skill += take
+                    f.taken += take                # 表示専用（§7.94）
+                    _pair_add(u, f, take)
+                    if rec is not None and take > 0.0:
+                        rec["per"].append([_who(f), take])
+                        # 「討ち取る」は壊滅の行と同じ物差し（残 ANNIHIL_UNIT 割れ）。
+                        # 0 になった瞬間で見ると、壊滅を報じた後の残党を掃った発動が
+                        # 討ち取ったことになる（実測: 壊滅の1分後に 220 の損害で
+                        # 「討ち取る」）。
+                        thr = f.men0 * ANNIHIL_UNIT
+                        if before_now > thr and before_now - take <= thr:
+                            rec["kills"].append(_who(f))
+                    if take > 0.0:
+                        got.append(f)
+                    if (TRAMPLE > 0.0 and eff > f.men
+                            and kind_jp == "兵法"
+                            and u.gauge_cost >= TRAMPLE_TIER_COST
+                            and tstr.startswith("敵1体")):
+                        # 余勢（§7.76 後記・テストプレイの設計③）: **大技段 ×
+                        # 対象指定が敵1体 × その一撃単独で致死**のときだけ、余った
+                        # 勢いが最寄りの敵へ抜ける。判定はスナップショット兵力
+                        # （遅延窓の f.men）なので、同ティックの2発がそれぞれ単独
+                        # 致死ならそれぞれ余勢を出し、合算でのみ致死なら出ない。
+                        # 量は**生ダメージの余り**（撃破に要した生ダメを引く）の
+                        # TRAMPLE 掛けを第二対象へ渡し、**第二対象自身の防御と
+                        # 兵法防御を1回だけ**通す（第一対象の防御は掛け直さない
+                        # ＝二重適用なし）。反射は返らず、連鎖もしない。段の判定は
+                        # 消費ゲージ（大技=300。sync が段から書くので消費が段の鏡）。
+                        # 特性は段を持たないので対象外（kind_jp で絞る）。
+                        u.spill_over += eff - f.men          # 帳簿（表示専用）
+                        rest = [g2 for g2 in foe
+                                if g2 is not f and g2.men > 0.0]
+                        if rest:
+                            # 最寄り。同距離は部隊順（foe の並び）で決める（③(b)）
+                            g2 = min(enumerate(rest), key=lambda p: (_d2(f, p[1]), p[0]))[1]
+                            raw_rest = dmg * (eff - f.men) / eff
+                            pre2 = (raw_rest * TRAMPLE
+                                    * (100.0 / (100.0 + g2.dfn * g2.def_mult)))
+                            eff2 = pre2 * g2.scut_mult
+                            spill = min(eff2, g2.men)
+                            if g2.scut_mult < 1.0:     # 表示専用（§7.88・§7.126）
+                                g2.cut_saved += min(pre2, g2.men) - spill
+                                g2.scut_saved += min(pre2, g2.men) - spill
+                            before2 = _men_now(g2)
+                            _men_add(g2, -spill)
+                            u.dealt += spill
+                            u.dealt_skill += spill
+                            g2.taken += spill          # 表示専用（§7.94）
+                            _pair_add(u, g2, spill)
+                            u.spill_dealt += spill     # 帳簿（表示専用）
+                            u.spill_n += 1
+                            done += spill
+                            if rec is not None and spill > 0.0:
+                                rec["spill"].append([_who(g2), spill])
+                                thr2 = g2.men0 * ANNIHIL_UNIT
+                                if before2 > thr2 and before2 - spill <= thr2:
+                                    rec["kills"].append(_who(g2))
+                    if f.refl > 0.0:
+                        # 反射は撃ち手の防御・反射・カットを通さない素の返り
+                        # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
+                        back = take * f.refl
+                        _men_add(u, -back)
+                        f.dealt += back
+                        f.dealt_skill += back
+                        f.refl_back += back        # 表示専用（§7.88）
+                        u.taken += back            # 表示専用（§7.94）
+                        _pair_add(f, u, back)
+                    done += take                    # 防御ぶんを引いた実害を出す
+            if done > 0.0:
+                if sk.dur > 0.0:
+                    note("dot", dmg, sk.dur, done * sk.dur, "", got)
+                    if rec is not None:
+                        rec["dot"] = {"per_sec": dmg, "secs": sk.dur,
+                                      "planned": done * sk.dur, "n": len(got)}
+                else:
+                    note("damage", done, 0.0, done, "", got)
+                    if rec is not None:
+                        rec["damage"] = done
+                if rec is not None:
+                    rec["hit"] += [_who(f) for f in got]
+    if rec is not None and not rec["hit"]:
+        # 状態効果だけの発動: 効いた相手は成分から
+        seen_h = []
+        for m_ in rec["mods"]:
+            for x in m_[3]:
+                if x not in seen_h:
+                    seen_h.append(x)
+        rec["hit"] = seen_h
+    # ---- 実況は1発1行（§7.173）。主成分＋副次の添え書き＋代償・反動 ----
+    if ev is not None and name and main is not None:
+        text = _skill_line(u, name, tstr, main[5], main[0], main[1], main[2], main[4])
+        adds = [_skill_extra(x) for x in extras]
+        adds = [x for x in adds if x]
+        if adds:
+            text += "　あわせて" + "、".join(adds) + "。"
+        if rec is not None and rec["sac"] > 0.0:
+            text += "　代償として自隊の兵 {:,.0f} を失う。".format(rec["sac"])
+        elif sk.sac > 0.0 and rec is None:
+            text += "　代償として自隊の兵を失う。"
+        for key, amt, secs in sk.self_mods:
+            text += "　反動で自身の{}（{:+.0%}・{:.0f}分）。".format(
+                _stat_down_jp(key), amt, mins(secs))
+        if rec is not None and rec["kills"]:
+            text += "　{}を討ち取る！".format("・".join(rec["kills"]))
+        mag = main[3]
+        ev.append(Event(t, kind_jp, LINE_PRIO[kind_jp], text, mag,
+                        side=_side_of(u), cast=rec["id"] if rec else 0,
+                        must=bool(rec and rec["kills"])))
+        # 決めゼリフ（generals.csv「台詞」）。**1人1戦1回。** 大きさは兵法と同じ
+        # 値を持たせ、強い兵法を撃った武将から喋る。
+        if u.quote and seen is not None and ("声", id(u)) not in seen:
+            seen.add(("声", id(u)))
+            ev.append(Event(t, "台詞", LINE_PRIO["台詞"],
+                            "{}「{}」".format(_who(u), u.quote), mag,
+                            ref=id(ev[-1]), side=_side_of(u)))
 
+
+# 状態効果の内部キー → 表示語（記録・詳録用・§7.173）
+_MOD_JP_KEY = {"atk": "攻撃力", "def": "防御力", "spd": "移動速度", "rate": "気勢",
+               "scut": "兵法防御", "refl": "兵法反射", "ncut": "通常攻撃防御",
+               "null": "兵法打消し"}
+
+
+def _stat_down_jp(key: str) -> str:
+    """弱体の言い分け（§7.173: 速度や気勢まで「刃が鈍る」と語らない）。"""
+    return {"def": "守りが乱れる", "spd": "足が鈍る", "rate": "気勢が削がれる",
+            "scut": "兵法への備えが崩れる", "ncut": "矢弾への備えが崩れる"}.get(
+                key, "刃が鈍る")
+
+
+def _skill_extra(item) -> str:
+    """副次の成分の添え書き（§7.173）。主成分の行の後ろに「あわせて…」で続ける。"""
+    kind, amount, secs, _mag, stat, hit = item
+    n = len(hit)
+    where = ("{}隊".format(n) if n > 1 else (_who(hit[0]) if hit else ""))
+    if kind == "damage":
+        return "{}に {:,.0f} の損害".format(where, amount)
+    if kind == "dot":
+        return "{}が炎上（毎分{:,.0f}・{:.0f}分）".format(where, per_min(amount), mins(secs))
+    if kind == "heal":
+        return "{}の兵 {:,.0f} が復帰".format(where, amount)
+    if kind == "hot":
+        return "{}に継続回復（毎分{:,.0f}・{:.0f}分）".format(where, per_min(amount), mins(secs))
+    if kind == "stun":
+        return "{}が立ちすくむ（{:.0f}分）".format(where, mins(secs))
+    if kind == "glock":
+        return "{}の兵法ゲージが止まる（{:.0f}分）".format(where, mins(secs))
+    if kind == "chaos":
+        return "{}が混乱（{:.0f}分）".format(where, mins(secs))
+    if kind == "buff":
+        what = {"def": "守り", "spd": "足", "rate": "気勢", "scut": "兵法への備え",
+                "refl": "刃返しの構え", "ncut": "矢弾への備え", "null": "打消しの構え"}.get(stat, "攻撃")
+        return "{}の{}が上がる（{:+.0%}・{:.0f}分）".format(where, what, amount, mins(secs))
+    if kind == "debuff":
+        return "{}の{}（{:+.0%}・{:.0f}分）".format(where, _stat_down_jp(stat), amount, mins(secs))
+    return ""
 
 GUARD_KINDS = ("scut", "refl", "null")
 
@@ -3242,12 +3431,12 @@ def _fire_skills(own, foe, t: float, ev, seen, guard=None,
                 continue
             if not sk:
                 continue
-            # 同じ兵法は1戦に1回だけ実況へ出す（3回撃つと同じ行が3本並ぶ）
-            show = ev is not None and ("兵法", u.skill, u.side) not in seen
-            if show:
-                seen.add(("兵法", u.skill, u.side))
+            # 発動は**毎回**記録して実況へ渡す（§7.173）。以前は同じ兵法を
+            # 1戦1回に絞っていた（3回撃つと同じ行が3本並ぶ）が、決め手になった
+            # 2回目以降の発動や、再発動時の打消しが実況から消えた。間引きは
+            # narrate 側で行う（初回を優先し、決め手と打消しは必ず残す）。
             _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
-                         src=u.skill, ev=ev if show else None, seen=seen,
+                         src=u.skill, ev=ev, seen=seen,
                          name=u.skill, resolved=resolved)
             if _is_guard(sk):
                 # 構えの帳簿（§7.126・表示専用）。窓が閉じるまでに一度も
@@ -3275,12 +3464,15 @@ def _overtime(units, t: float, dt: float) -> None:
         u.overtime = [e for e in u.overtime if e[0] > t]
         if u.men <= 0.0:
             continue
-        for _, kind, per_sec, src in u.overtime:
+        for _, kind, per_sec, src, *rid in u.overtime:
+            rec = _CAST_BY_ID.get(rid[0]) if rid else None     # 記録（§7.173）
             if kind == "heal":
                 before = u.men
                 u.men = min(u.men0, u.men + per_sec * dt)
                 if src is not None:
                     src.healed += u.men - before          # 表示専用（§7.89）
+                if rec is not None:
+                    rec["hot_actual"] += u.men - before
             else:
                 # 延焼も兵法被害なので scut が効く（§7.51）
                 before = u.men
@@ -3288,6 +3480,8 @@ def _overtime(units, t: float, dt: float) -> None:
                     * (100.0 / (100.0 + u.dfn * u.def_mult))
                 u.men = max(u.men - cut, 0.0)
                 took = before - u.men
+                if rec is not None:
+                    rec["dot_actual"] += took
                 if u.scut_mult < 1.0:
                     u.cut_saved += took / max(u.scut_mult, 1e-9) - took
                     u.scut_saved += took / max(u.scut_mult, 1e-9) - took
@@ -3434,6 +3628,9 @@ def _friendly_fire(u: Unit, own, acc, amount: float) -> None:
         acc[k] += hit
         u.ff_dealt += hit          # 表示専用（§7.88）
         x.taken += hit             # 表示専用（§7.94・同士討ちの被害も被ダメ）
+        x.ff_taken += hit          # 被害側の帳簿（§7.173）
+        kx = _who(x) if x.name else TYPE_JP[x.typ]
+        u.ff_pair[kx] = u.ff_pair.get(kx, 0.0) + hit
 
 
 def chaos_ff(u: Unit) -> float:
@@ -3642,10 +3839,14 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
              repulse: float = 0.0, damage: bool = True,
              events: "List[Event] | None" = None,
              seed: "int | None" = None,
-             series: "list | None" = None) -> Dict:
+             series: "list | None" = None,
+             casts: "list | None" = None) -> Dict:
     """events を渡すと出来事を記録する。**記録は読み取り専用**で、勝敗にも
     測定にも一切影響しない（§9.3。§8.2 の引き分け帯を測定へ持ち込んで計器を
     殺した失敗と同じ形を避けるため）。
+
+    casts を渡すと兵法・固有特性の**発動1回ごとの記録**（§7.173）を積む。実況は
+    ここから要約し、合戦詳録は省略せずに出す。これも読み取り専用。
 
     seed を渡すと乱数が入る（§6.4）。**渡さなければ1つも引かない**ので、
     これまでの測定はそのまま同じ値を出す。種は部隊ごとに (seed, side, 番号) から
@@ -3702,6 +3903,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     _plan_paths(ub, ua, b.form, a.form)
 
     seen = set()
+    # 発動の記録（§7.173）。渡されなければ None＝記録しない（測定の経路は
+    # 一切積まない）。番号→記録の索引は継続回復・継続ダメージの実量の帰属に使う。
+    global _CASTS, _CAST_BY_ID
+    _CASTS, _CAST_BY_ID = casts, {}
     # all/new は**潰走**（残存が TRAIT_TRIGGER を割った隊）。dead_all/dead は
     # **全滅**（兵力が 0 になった隊）で、`self_dead` の誘発だけが読む（§7.113）。
     retired = {"all": set(), "new": set(), "dead_all": set(), "dead": set()}
@@ -4047,6 +4252,25 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     rb = sum(u.men for u in ub) / men0b
     if events is not None:
         _log_close(events, seen, t, reason, ua, ub, ra, rb)
+    if reason == "rout":
+        # 決着とのつながり（§7.173）。総崩れが起きたティックに損害を出した発動を
+        # 「決め手」と印し、その行と、同じ刻の崩れ・壊滅の行は枠に関係なく残す。
+        # 実況の取捨で決め手が消えると、起きたことと別物の物語になる。
+        if casts is not None:
+            dec = set()
+            for rec in casts:
+                if rec["t"] >= t - 1e-9 and (rec["kills"] or rec["damage"] > 0.0):
+                    rec["decisive"] = True
+                    dec.add(rec["id"])
+            if events is not None:
+                for e in events:
+                    if e.cast and e.cast in dec:
+                        e.must = True
+        if events is not None:
+            for e in events:
+                if e.kind in ("壊滅", "苦戦") and e.t >= t - 1e-9:
+                    e.must = True
+    _CASTS, _CAST_BY_ID = None, {}
     diff = ra - rb
     if GROUND_WEIGHT > 0.0 and not (cmd_fell[0] or cmd_fell[1]):
         # 押し込みは通常決着だけ。指揮官戦死の裁定を地歩が覆してはいけない
@@ -4077,6 +4301,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.scut_saved, (u.guard_casts, u.guard_idle),
                          list(u.fire_times),
                          (u.spill_over, u.spill_dealt, u.spill_n),
+                         dict(u.ff_pair), u.ff_taken,
                          u.wiped_at, u.covered)
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
@@ -4089,6 +4314,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          u.scut_saved, (u.guard_casts, u.guard_idle),
                          list(u.fire_times),
                          (u.spill_over, u.spill_dealt, u.spill_n),
+                         dict(u.ff_pair), u.ff_taken,
                          u.wiped_at, u.covered)
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
@@ -4232,13 +4458,22 @@ def _army_name(army: "Army", fallback: str) -> str:
 # 枠をそのまま引き継ぐ。
 LINE_CAPS = {"布陣": 1, "予告": 2, "結果": 2, "接敵": 1, "抑制": 1,
              "兵法": 3, "計略": 3, "誘発": 2, "突撃": 1, "苦戦": 4,
-             "壊滅": 3, "決着": 1, "時刻": 1, "戦況": 4, "台詞": 3}
+             "壊滅": 3, "決着": 1, "時刻": 1, "戦況": 4, "台詞": 3,
+             "同士討ち": 2}
 # 優先順位（小さいほど先に確保する）。**戦況は兵法より先に確保する**（兵数の推移が
 # 実況の背骨。テストプレイの指摘）。台詞は兵法と同じ組で選ばれる（mag が兵法と同値）。
 LINE_PRIO = {"決着": 1, "戦況": 2, "予告": 2, "結果": 2, "兵法": 3, "計略": 3,
              "誘発": 3, "台詞": 3, "壊滅": 3, "突撃": 4, "苦戦": 4, "時刻": 4,
-             "接敵": 5, "抑制": 6, "布陣": 7}
+             "同士討ち": 4, "接敵": 5, "抑制": 6, "布陣": 7}
+# **同じ刻の行の並び**（§7.173）。発動 → 打消し・効果 → 同士討ち・機動 → 崩れ・
+# 壊滅 → 戦況 → 決着 の順に読ませる。以前は同じ秒の出来事を重要度順（決着が
+# 先）に1行へ束ねていたので、決着の後に兵法が飛んだように見えた（因果が逆）。
+# 苦戦・壊滅・戦況はそのティックの損害を反映した後の状態を語るので、発動の後。
+LINE_ORDER = {"兵法": 1, "計略": 1, "誘発": 1, "同士討ち": 2, "結果": 2,
+              "予告": 2, "接敵": 2, "抑制": 2, "突撃": 2, "時刻": 2,
+              "苦戦": 3, "壊滅": 3, "戦況": 4, "決着": 9}
 LINE_BUDGET = 20
+FF_SHOW = 300.0         # 同士討ちを実況の行にする損害の下限（人・表示のみ）
 ROUT_UNIT = 0.15        # 一枚が「苦戦」に陥ったと見なす残存率（表示のみ）
 ANNIHIL_UNIT = 0.005    # 一枚が真に「壊滅」したと見なす残存率（表示のみ）
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
@@ -4337,6 +4572,11 @@ class Event:
     # やり方は、同じ武将が両軍にいると必ず取り違える（§7.92。実測で両軍の
     # 曹仁〔堅守〕の行が2本とも「自軍」になった）。**語りではなく盤面が正。**
     side: str = ""
+    # 兵法の記録（§7.173）の番号。0 なら記録に紐づかない行。
+    cast: int = 0
+    # **枠に関係なく必ず残す**（決着に関わった発動・打ち消された発動）。行の
+    # 取捨で決め手が消えると、実況が起きたことと別物になる（§7.173）。
+    must: bool = False
 
 
 def _side_of(u: Unit) -> str:
@@ -4525,6 +4765,20 @@ def _log_tick(ev, seen, t, ua, ub, gap) -> None:
                 ev.append(Event(t, "抑制", LINE_PRIO["抑制"],
                     "{}、{}に間近まで迫られ、矢継ぎが乱れる（威力{:.0f}%）。".format(
                         _who(u), _who(near), 100 * sup), side=_side_of(u)))
+    # 同士討ち（§7.173）: 混乱した隊の兵が味方へ向けた損害を、**実際に出た量**で
+    # 報じる。付与時の兵法の行は「混乱した」としか言わない。少量は合戦詳録だけに
+    # 残す（FF_SHOW 未満）。加害の隊と、いちばん多く受けた味方を名指しする。
+    for u in list(ua) + list(ub):
+        k = ("同", id(u))
+        if k not in seen and u.ff_dealt >= FF_SHOW and u.ff_pair:
+            seen.add(k)
+            victim, amt = max(u.ff_pair.items(), key=lambda kv: kv[1])
+            others = len(u.ff_pair) - 1
+            ev.append(Event(t, "同士討ち", LINE_PRIO["同士討ち"],
+                "{}の隊、混乱のうちに同士討ち。味方の{}に {:,.0f} 人の損害を出す{}。".format(
+                    _who(u), victim, amt,
+                    "（ほか{}隊にも）".format(others) if others else ""),
+                mag=u.ff_dealt, side=_side_of(u)))
     # 苦戦（ROUT_UNIT=15%。ペナルティなし・隊はそのまま戦い続ける。§7.49後記）
     for u in list(ua) + list(ub):
         k = ("苦", id(u))
@@ -4572,21 +4826,30 @@ def _log_close(ev, seen_bets, t, reason, ua, ub, ra, rb) -> None:
                              _JP["B"], 100 * rb, lost_b, _JP[win])))
 
 
-def narrate(a: Army, b: Army, dt: float = 0.25,
-            seed: "int | None" = None,
-            sides: "List[str] | None" = None) -> List[str]:
-    """1部隊戦の実況行を返す。8〜12行（§9.3）。
+def narrate_full(a: Army, b: Army, dt: float = 0.25,
+                 seed: "int | None" = None,
+                 series: "list | None" = None) -> dict:
+    """1部隊戦を語る（§7.173）。実況の行・行ごとの主体・発動の記録・盤面の結果。
+
+    {"lines": [...], "sides": [...], "casts": [...], "result": simulate() の戻り}
 
     **種は必ず本番と同じものを渡すこと。** 渡さないと乱数の無い戦いを語ることに
     なり、実況が「実際に起きた戦い」と別物になる（§8.4 はリプレイを戦闘イベント
     ログの正とすると決めている）。
 
-    sides を渡すと、行と**同じ長さ・同じ並び**で各行の主体（"A"/"B"/""）を
-    詰める。画面の自軍・敵軍の札はこれを見る。文章から武将名を拾って当てる
-    やり方は、同じ武将が両軍にいると必ず取り違える（§7.92）。
+    行の作り方（§7.173・§9.3）:
+      1. 盤面が出来事（Event）と発動の記録（casts）を積む。発動は毎回積む。
+      2. 取捨: 布陣・決着・**必ず残す印（must＝決め手の発動・打ち消された発動・
+         決着の刻の崩れ）**は枠に関係なく残し、残りを種類ごとの上限と予算で選ぶ。
+         同じ種類の中では**初回の発動を先に**、次に大きい順（再発動は空きがある
+         ときだけ）。
+      3. 並び: 時刻順。同じ刻は LINE_ORDER（発動 → 効果 → 壊滅 → 決着）。
+         **同じ秒でも1出来事1行**で、各行に時刻と主体（自軍／敵軍）を付ける。
+      4. 台詞は紐づく発動の行の**直後**に出す（決着の後へ回らない）。
     """
     ev: List[Event] = []
-    r = simulate(a, b, dt=dt, events=ev, seed=seed)
+    casts: list = []
+    r = simulate(a, b, dt=dt, events=ev, seed=seed, series=series, casts=casts)
 
     # 時刻帯の行を**ここで合成する**。盤面から受け取るのではなく、終わった戦いの
     # 長さだけを見て足す。決着の直前に帯をまたいだ場合は出さない（DAY_BAND_MARGIN）。
@@ -4596,30 +4859,59 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
         tt = (at - start) / MIN_PER_TICK
         if tt > 0.0 and mins(t_end - tt) >= DAY_BAND_MARGIN:
             ev.append(Event(tt, "時刻", LINE_PRIO["時刻"], text, mag=float(at)))
+    lines, sides = _arrange(ev, casts, r["score"])
+    return {"lines": lines, "sides": sides, "casts": casts, "result": r}
 
-    # 種類ごとの上限と全体の予算で絞る。**大きさではなく種類で選ぶ。**
-    # 種類の優先順（§9.3）→ 同じ種類なら大きい順 → 同着なら早い順
-    ev.sort(key=lambda e: (e.prio, -e.mag, e.t))
+
+def _arrange(ev: List[Event], casts: list, score: float):
+    """出来事の列から実況の行を組む（取捨と並び・§7.173）。盤面には触れない。"""
+    seq = {id(e): i for i, e in enumerate(ev)}      # 積んだ順（同じ刻の同順位用）
+    by_id = {rec["id"]: rec for rec in casts}
+
+    def rank(e: Event):
+        # 種類の優先順（§9.3）→ 初回の発動が先（再発動は空きがあるときだけ）
+        # → 同じ種類なら大きい順 → 同着なら早い順
+        rep = 0
+        if e.cast:
+            rec = by_id.get(e.cast)
+            if rec is not None and rec["nth"] > 1:
+                rep = 1
+        return (e.prio, rep, -e.mag, e.t, seq[id(e)])
+
+    kept: List[Event] = []
+    kept_ids = set()
+
+    def keep(e: Event) -> None:
+        kept.append(e)
+        kept_ids.add(id(e))
+
     # 布陣と決着は枠に関係なく必ず出す。**予算で落ちると誰と誰の話か分からなくなる**
-    # （実測で虎牢関の布陣行が消えた）。優先順位が低いのは「先に確保しない」という
-    # 意味であって、「無くてよい」ではない。
-    kept = [e for e in ev if e.kind in ("布陣", "決着")][:2]
-    used = {e.kind: 1 for e in kept}
+    # （実測で虎牢関の布陣行が消えた）。must（決め手・打消し・決着の刻の崩れ）も同じ。
     for e in ev:
-        if e in kept or e.kind == "台詞":
+        if e.kind in ("布陣", "決着") or e.must:
+            keep(e)
+    used: Dict[str, int] = {}
+    for e in kept:
+        used[e.kind] = used.get(e.kind, 0) + 1
+    n_opt = 0
+    for e in sorted(ev, key=rank):
+        if id(e) in kept_ids or e.kind == "台詞":
             continue
         if used.get(e.kind, 0) >= LINE_CAPS.get(e.kind, 1):
             continue
-        if len(kept) >= LINE_BUDGET:
+        if n_opt >= LINE_BUDGET:
             break
         used[e.kind] = used.get(e.kind, 0) + 1
-        kept.append(e)
+        n_opt += 1
+        keep(e)
     # 台詞は本体の行が残ったものだけ、大きい順に枠まで（行予算の外。声は行が
-    # 短いので予算に数えない）。
-    body_ids = {id(e) for e in kept}
-    quotes = sorted((e for e in ev if e.kind == "台詞" and e.ref in body_ids),
+    # 短いので予算に数えない）。**本体の直後に出す**（§7.173。以前は同じ秒の
+    # 全文の後ろへ回していたので、決着の後に発動の台詞が出ることがあった）。
+    quotes = sorted((e for e in ev if e.kind == "台詞" and e.ref in kept_ids),
                     key=lambda e: -e.mag)[:LINE_CAPS["台詞"]]
-    kept += quotes
+    q_by_ref: Dict[int, List[Event]] = {}
+    for q in quotes:
+        q_by_ref.setdefault(q.ref, []).append(q)
 
     # 挿絵を差す場所を決める（§9.3 の三幕）。序＝布陣、破＝いちばん大きい出来事、
     # 急＝決着。**大きさで選ぶのは「破」だけ**で、序と急は位置で決まっている。
@@ -4628,46 +4920,45 @@ def narrate(a: Army, b: Army, dt: float = 0.25,
     if mid:
         art.add(id(max(mid, key=lambda e: e.mag)))
 
-    # 同じ秒の出来事は1行へ合流させる（布陣は t=-1 なので合流しない）。
-    # **台詞は合流させない。** 兵法の行に埋め込むと誰の声か紛れる（§9.4）。
-    kept.sort(key=lambda e: (e.t, e.prio))
-    out, i = [], 0
+    # 時刻順。同じ刻は LINE_ORDER（発動 → 効果 → 壊滅 → 決着）、同順位は積んだ順
+    # （構え → 攻め兵法 → 誘発の順に盤面が積む）。布陣は t=-1 なので必ず先頭。
+    kept.sort(key=lambda e: (e.t, LINE_ORDER.get(e.kind, 2), seq[id(e)]))
+    out: List[str] = []
+    sides: List[str] = []
 
-    def emit(line, side=""):
+    def emit(line: str, side: str = "") -> None:
         out.append(line)
-        if sides is not None:
-            sides.append(side)
-
-    def common(events):
-        """束ねた出来事の主体。**割れていたら「どちらでもない」に倒す。**
-        当てられないときに片側と言い切るのが、そもそもの取り違えの因である。"""
-        ss = {e.side for e in events}
-        return ss.pop() if len(ss) == 1 else ""
+        sides.append(side)
 
     emit("━━ 合戦開始 ━━━━━━━━━━━━━━━━")
-    while i < len(kept):
-        same = [kept[i]]
-        while (i + 1 < len(kept) and kept[i + 1].t >= 0.0
-               and int(kept[i + 1].t) == int(kept[i].t)):
-            i += 1
-            same.append(kept[i])
-        quotes = [e for e in same if e.kind == "台詞"]
-        body = [e for e in same if e.kind != "台詞"]
-        head = "【布陣】" if same[0].t < 0.0 else "【{}】".format(clock(same[0].t))
-        mark = "◆" if any(id(e) in art for e in body) else "　"
-        if body:
-            emit(mark + head + " " + " ".join(e.text for e in body),
-                 common(body))
-        for q in quotes:
+    for e in kept:
+        head = "【布陣】" if e.t < 0.0 else "【{}】".format(clock(e.t))
+        mark = "◆" if id(e) in art else "　"
+        emit(mark + head + " " + e.text, e.side)
+        for q in q_by_ref.get(id(e), []):
             emit("　　　　　　" + q.text, q.side)
-        i += 1
-    if r["score"] > 0.5:
+    if score > 0.5:
         emit("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["A"]))
-    elif r["score"] < 0.5:
+    elif score < 0.5:
         emit("━━ {}軍の勝利 ━━━━━━━━━━━━━━━".format(_JP["B"]))
     else:
         emit("━━ 引き分け ━━━━━━━━━━━━━━━━")
-    return out
+    return out, sides
+
+
+def narrate(a: Army, b: Army, dt: float = 0.25,
+            seed: "int | None" = None,
+            sides: "List[str] | None" = None) -> List[str]:
+    """1部隊戦の実況行を返す（narrate_full の行だけ）。
+
+    sides を渡すと、行と**同じ長さ・同じ並び**で各行の主体（"A"/"B"/""）を
+    詰める。画面の自軍・敵軍の札はこれを見る。文章から武将名を拾って当てる
+    やり方は、同じ武将が両軍にいると必ず取り違える（§7.92）。
+    """
+    d = narrate_full(a, b, dt=dt, seed=seed)
+    if sides is not None:
+        sides.extend(d["sides"])
+    return d["lines"]
 
 
 # ============================================================================

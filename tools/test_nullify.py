@@ -170,8 +170,11 @@ class Words(unittest.TestCase):
         ev = []
         for _ in range(2):
             _shoot(ua, ub, tgt, ev=ev)
-        self.assertIn("あと1発", ev[0].text)
-        self.assertIn("構えは尽きた", ev[1].text)
+        # §7.173: 打消しの行は「兵法全体を打ち消した・対象の N 隊への効果は
+        # 発生しなかった・この構えの残り」の形
+        self.assertIn("兵法全体を打ち消した", ev[0].text)
+        self.assertIn("残り: 1発", ev[0].text)
+        self.assertIn("尽きた", ev[1].text)
 
 
 if __name__ == "__main__":

@@ -537,6 +537,21 @@ def rout_badges_check(page, rep, datadir):
     log_txt = page.eval_on_selector("#log", "e => e.textContent") or ""
     rep.check("踏みとどまる" in log_txt,
               "苦戦の実況行は詳報から独立して残っている")
+    # §7.173: 兵法の記録（全発動）の表が詳録に出て、行数が API の記録の数と一致する。
+    # 決着の理由は盤面から（実況文の推測ではない）。表に配置の列がある。
+    rep_json = page.evaluate("async () => (await fetch('/api/replay?id={}')).json()".format(mid))
+    game0 = (rep_json.get("games") or [{}])[0]
+    n_casts = len(game0.get("casts") or [])
+    rows_n = page.eval_on_selector_all(".detail-table.casts tbody tr", "es => es.length")
+    rep.check(n_casts > 0 and rows_n == n_casts,
+              "詳録の「兵法の記録」が全発動ぶん出る（API {}件 / 表 {}行）".format(n_casts, rows_n))
+    rep.check(game0.get("end_reason") in ("rout", "time") and bool(game0.get("end_clock")),
+              "決着の理由と時刻が盤面から渡る（{}・{}）".format(
+                  game0.get("end_reason"), game0.get("end_clock")))
+    rep.check("配置" in detail_txt, "詳録の表に配置の列がある")
+    summary_txt = page.eval_on_selector("#battle-summary", "e => e.textContent") or ""
+    rep.check(("潰走による決着" in summary_txt) == (game0.get("end_reason") == "rout"),
+              "結果の見出しの決着理由が盤面の理由と一致する")
 
 
 # ── リプレイの陣営札（同じ武将が両軍にいる場合）───────────

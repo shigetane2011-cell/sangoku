@@ -2552,14 +2552,18 @@ function replayOutcome(g, d, isParticipant) {
     return men0 ? Math.round(men / men0 * 100) : 0;
   };
   const mineRemain = remain(g.mine), foeRemain = remain(g.foe);
+  // 決着の時刻と理由は**盤面から**受け取る（§7.173）。実況文から推測すると、
+  // 行の取捨や文言の変更で外れる。古いリプレイ（記録なし）だけ文から拾う。
   const clocks = (g.lines || []).map((ln) => ln.match(/【(\d+:\d+)】/))
     .filter(Boolean).map((m) => m[1]);
-  const endClock = clocks[clocks.length - 1] || "終戦";
+  const endClock = g.end_clock || clocks[clocks.length - 1] || "終戦";
   const ending = (g.lines || []).slice(-3).join(" ");
   const cls = g.verdict === "勝ち" ? "win" : (g.verdict === "負け" ? "lose" : "draw");
   const verdict = g.verdict === "勝ち" ? "勝利" : (g.verdict === "負け" ? "敗北" : "引き分け");
-  const reason = /日没|日が暮れ/.test(ending) ? "日没時の判定"
-    : (/総崩れ|本陣/.test(ending) ? "潰走による決着" : "戦闘終了");
+  const reason = g.end_reason === "time" ? "日没時の判定"
+    : g.end_reason === "rout" ? "潰走による決着"
+    : (/日没|日が暮れ/.test(ending) ? "日没時の判定"
+       : (/総崩れ|本陣/.test(ending) ? "潰走による決着" : "戦闘終了"));
   const subject = isParticipant ? "自軍" : esc(d.mine_name);
   const tip = (cls === "lose" && isParticipant)
     ? `<div class="battle-tip"><b>軍中の心得</b>　${esc(
@@ -2950,14 +2954,18 @@ async function viewReplay(state) {
     const box = $("#detail");
     if (!g.mine || !g.mine.length) { box.innerHTML = ""; return; }
     const k = (v) => (v / 1000).toFixed(1);
+    // 人数の書き方: 千人単位は小数1桁、それ未満は人数で（少量の同士討ちも出す・§7.173）
+    const people = (v) => (v >= 1000 ? k(v) + "千" : Math.round(v) + "人");
     const table = (label, us) => `
       <div class="side-label">${label}</div>
       <div class="detail-scroll"><table class="detail-table num">
-        <thead><tr><th>武将</th><th>与ダメ</th><th>うち兵法</th><th>被ダメ</th>
+        <thead><tr><th>武将</th><th title="前衛／後衛と左右（同名武将の見分け用）">配置</th>
+          <th>与ダメ</th><th>うち兵法</th><th>被ダメ</th>
           <th>軽減</th><th>癒し</th><th>発動</th><th>阻害</th>
           <th title="・壊＝真に壊滅した時刻（残0.5%割れ）。表示のみ">残存</th></tr></thead>
         <tbody>${us.map((u) => `<tr class="${u.men / u.men0 <= 0.005 ? "dead" : ""}">
           <td class="uname">${esc(u.name)}</td>
+          <td class="pos">${esc(u.pos || "")}</td>
           <td>${k(u.dealt)}千</td><td>${k(u.skill_dealt)}千</td>
           <td>${k(u.taken)}千</td>
           <td>${u.cut >= 50 ? k(u.cut) + "千" : "—"}</td>
@@ -2982,8 +2990,12 @@ async function viewReplay(state) {
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　敵陣の外へ迂回（道のりの${u.detour}%まで）</div>`);
       if ((u.sup || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　接敵抑制で矢 ${k(u.sup)}千ぶんを失う</div>`);
-      if ((u.ff || 0) >= 300)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　混乱し、味方へ ${k(u.ff)}千の流れ矢</div>`);
+      /* 同士討ち（§7.173）: 兵種を問わず「同士討ち」と言い、少量でも出し、誰に
+         どれだけかを添える（実況は FF_SHOW 以上だけ・詳録は省略しない） */
+      if ((u.ff || 0) >= 1)
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　混乱し、同士討ちで味方に ${people(u.ff)}の損害${
+          (u.ff_pair || []).length
+            ? `（${u.ff_pair.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}）` : ""}</div>`);
       if ((u.refl || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　兵法を跳ね返し ${k(u.refl)}千</div>`);
       if ((u.lost || 0) >= 300)
@@ -2993,20 +3005,84 @@ async function viewReplay(state) {
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えで敵の兵法を ${u.null_blocked}回 打ち消す（${(u.null_names || []).map(esc).join("・")}）</div>`);
       if ((u.scut_saved || 0) >= 300)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　兵法防御で ${k(u.scut_saved)}千を軽減</div>`);
+      /* 空振りの理由は断定しない（§7.173）。記録がゼロなのは「敵の兵法が来なかった」
+         とは限らない（対象外・構えの終了後・打ち消せない兵法もある）。実績だけ言う */
       if ((u.guard_idle || 0) > 0)
-        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回張ったが、${u.guard_idle}回は敵の兵法が来なかった</div>`);
+        out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　構えを${u.guard_casts}回展開。うち${u.guard_idle}回は打消し・軽減・反射の実績なし</div>`);
       /* 余勢の帳簿（§7.76 後記）: 討ち取りの余りが隣へ抜けた分 */
       if ((u.spill_n || 0) > 0)
         out.push(`<div class="detail-line"><b>${esc(u.name)}</b>　余勢 ${k(u.spill_dealt)}千（${u.spill_n}回・超過 ${k(u.spill_over)}千）</div>`);
       return out;
     }).join("");
+    /* 兵法の記録（§7.173）: 発動を**1回も省かず**出す。実況はここから要約した
+       もの。列は 時刻・軍・武将・兵法（何回目）・対象→実際・結果・備考（打消し・
+       代償・反動・撃破・決め手）。 */
+    const pct = (v) => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
+    const modText = ([name, amt, mins, who]) => {
+      let q = "";
+      if (name === "行動阻害" || name === "ゲージ阻害") q = "";
+      else if (name === "混乱") q = " " + Math.round(amt * 100) + "%";
+      else if (name.startsWith("兵法打消し")) q = amt === null ? " 何発でも" : ` ${Math.round(amt)}発`;
+      else q = " " + pct(amt);
+      return `${esc(name)}${q}（${mins}分・${who.map(esc).join("・")}）`;
+    };
+    const castResult = (c) => {
+      if (c.nullified) {
+        const stance = c.stance_by && c.stance_skill
+          ? (c.stance_by === c.blocker ? `自らの【${esc(c.stance_skill)}】`
+             : `${esc(c.stance_by)}の【${esc(c.stance_skill)}】`)
+          : (c.stance_skill ? `【${esc(c.stance_skill)}】` : "構え");
+        const left = c.left === null || c.left === undefined ? ""
+          : (c.left <= 0 ? "。構えの残り: 尽きた" : `。構えの残り: ${c.left}発`);
+        return `<span class="null">${esc(c.blocker)}が${stance}で兵法全体を打ち消した。対象の${
+          c.intended.length}隊への効果は発生しなかった${left}</span>`;
+      }
+      const parts = [];
+      if (c.damage > 0) parts.push(`損害 ${people(c.damage)}${c.per.length > 1
+        ? `（${c.per.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}）` : ""}`);
+      if ((c.spill || []).length) parts.push(`余勢 ${c.spill.map(([n2, v]) => `${esc(n2)} ${people(v)}`).join("・")}`);
+      if (c.dot) parts.push(`継続損害 毎分${c.dot.per_min}人×${c.dot.mins}分（各隊）・${c.dot.n}隊・実量 ${people(c.dot_actual)}／予定 ${people(c.dot.planned)}`);
+      if (c.heal > 0) parts.push(`回復 ${people(c.heal)}`);
+      if (c.hot) parts.push(`継続回復 毎分${c.hot.per_min}人×${c.hot.mins}分（各隊）・${c.hot.n}隊・実量 ${people(c.hot_actual)}／予定 ${people(c.hot.planned)}`);
+      for (const m of (c.mods || [])) parts.push(modText(m));
+      return parts.join("　") || "効果なし";
+    };
+    const castNote = (c) => {
+      const parts = [];
+      if (c.sac > 0) parts.push(`代償 自隊の兵 ${people(c.sac)}`);
+      for (const [name, amt, mins] of (c.recoil || [])) parts.push(`反動 ${esc(name)} ${pct(amt)}（${mins}分）`);
+      if ((c.kills || []).length) parts.push(`<b>撃破 ${c.kills.map(esc).join("・")}</b>`);
+      if (c.decisive) parts.push(`<b class="decisive">決め手</b>`);
+      return parts.join("　");
+    };
+    const sideName = (sd) => (sd === "mine" ? "自軍" : (sd === "foe" ? "敵軍" : "—"));
+    const targetsOf = (c) => {
+      const to = (c.intended || []).map(esc).join("・") || esc(c.target || "");
+      const same = JSON.stringify(c.intended) === JSON.stringify(c.hit);
+      if (c.nullified || same || !(c.hit || []).length) return to;
+      return `${to} → 実際 ${c.hit.map(esc).join("・")}`;
+    };
+    const casts = (g.casts || []).length ? `
+      <div class="side-label">─ 兵法の記録（全${g.casts.length}発動・省略なし） ─</div>
+      <div class="detail-scroll"><table class="detail-table casts">
+        <thead><tr><th>時刻</th><th>軍</th><th>武将</th><th>兵法</th><th>対象</th><th>結果</th><th>備考</th></tr></thead>
+        <tbody>${g.casts.map((c) => `<tr class="${c.side || ""}${c.nullified ? " nullified" : ""}${c.decisive ? " decisive" : ""}">
+          <td class="num">${esc(c.clock)}</td><td>${sideName(c.side)}</td>
+          <td class="uname">${esc(c.who)}</td>
+          <td class="uname">【${esc(c.skill)}】${c.nth}回目${c.kind === "誘発" ? "<small>（固有）</small>" : ""}</td>
+          <td class="tgt">${targetsOf(c)}</td>
+          <td class="res">${castResult(c)}</td>
+          <td class="note">${castNote(c)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : "";
     box.innerHTML = `<details class="battle-detail">
-      <summary>合戦詳録を開く<small class="muted">　数字で振り返る（矛先・被害・機動）</small></summary>
+      <summary>合戦詳録を開く<small class="muted">　数字で振り返る（矛先・被害・機動・兵法の記録）</small></summary>
       ${table("自軍（" + esc(d.mine_name) + "）", g.mine)}
       ${table("敵軍（" + esc(d.foe_name) + "）", g.foe)}
       <div class="side-label">─ 矛先（誰が誰を削ったか・上位3） ─</div>
       ${spears(g.mine)}${spears(g.foe)}
       ${moves ? `<div class="side-label">─ 機動と乱れ ─</div>${moves}` : ""}
+      ${casts}
     </details>`;
   }
 }

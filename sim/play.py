@@ -1695,21 +1695,32 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     実況行・形勢の時系列・戦果表・勝敗。CLI の replay_one と同じ素材から作る
     （同じ量の定義を2箇所に持たない: 行は narrate、数字は simulate の診断出力）。
     """
-    line_sides = []
-    lines = F.narrate(ua, ub, dt, seed=seed, sides=line_sides)
     series = []
-    r = F.simulate(ua, ub, dt, seed=seed, series=series)
+    # 実況・行ごとの主体・発動の記録・盤面の結果を**1回の戦い**から取る（§7.173。
+    # 以前は narrate と simulate を別々に走らせていた — 同じ種なので結果は同じだが、
+    # 発動の記録は実況と同じ戦いから出すのが筋）。
+    nf = F.narrate_full(ua, ub, dt, seed=seed, series=series)
+    lines, line_sides, r = nf["lines"], nf["sides"], nf["result"]
     step = max(1, len(series) // 240)
     mine, foe = (r["dealt_a"], r["dealt_b"]) if me_first else (r["dealt_b"], r["dealt_a"])
-    def rows(xs):
+    # 配置（前衛／後衛・左右）。同名武将を詳録で見分けるため（§7.173）。build は
+    # 盤面と同じ並びで隊を作るので、診断の組と添字で対応する。
+    def positions(army, side):
+        return [("前衛" if u.is_front else "後衛") + "・" + F._wing(u)
+                for u in F.build(army, side)]
+    pos_a, pos_b = positions(ua, 1), positions(ub, -1)
+    pos_mine, pos_foe = (pos_a, pos_b) if me_first else (pos_b, pos_a)
+    def rows(xs, pos):
         # §7.88 の「見えにくい効き」＋ §7.94 の合戦詳録。列は末尾に足す
         out = []
         for (n, t, d, m, m0, sd, _fa, ff, rf, cs, hl, al,
-             tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, wp,
-             cv) in xs:
+             tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, ffp, fft,
+             wp, cv), where in zip(xs, pos + [""] * len(xs)):
             person = M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t]
             out.append({
                 "name": person,
+                # 札の正式名（版つき）と配置（§7.173: 同名武将の区別）
+                "card": n or F.TYPE_JP[t], "pos": where,
                 # 武将版（§7.135）。合戦詳録・戦果表は人物名だけ出すが、対戦
                 # 当時どの版を使ったかはここで追える（名前=n は不変のキー）。
                 "person": person, "version": R.version_of(n) if n else 1,
@@ -1722,6 +1733,10 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 # 庇護（§7.144）: 隣の前衛の矢を代わりに受けた量
                 "covered": round(cv),
                 "ff": round(ff), "refl": round(rf), "cut": round(cs),
+                # 同士討ちの内訳（§7.173）: 誰に何人（加害側）と、味方から受けた量
+                "ff_pair": [[k2, round(v)] for k2, v in
+                            sorted(ffp.items(), key=lambda kv: -kv[1]) if v >= 1.0],
+                "ff_taken": round(fft),
                 "heal": round(hl), "lost": round(al),
                 # 合戦詳録（§7.94）
                 "taken": round(tk), "fires": fi,
@@ -1748,16 +1763,54 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
     # 行ごとの主体を**自軍/敵軍に翻訳して**渡す（§7.92）。画面が文章から
     # 名前を拾って当てる必要をなくす — 同じ武将が両軍にいると必ず外す。
     mine_key = "A" if me_first else "B"
+    def side_of(x):
+        return "mine" if x == mine_key else ("foe" if x else "")
+    def cast_rows(recs):
+        # 兵法の記録（§7.173）。時刻は戦場の時計、持続は戦場の分（実況と同じ物差し）
+        out = []
+        for c in recs:
+            hot = c["hot"]; dot = c["dot"]
+            out.append({
+                "id": c["id"], "clock": F.clock(c["t"]), "side": side_of(c["side"]),
+                "who": c["who"], "skill": c["skill"], "kind": c["kind"], "nth": c["nth"],
+                "target": c["target"], "intended": list(c["intended"]), "hit": list(c["hit"]),
+                "nullified": c["nullified"], "blocker": c["blocker"],
+                "stance_by": c["stance_by"], "stance_skill": c["stance_skill"],
+                "left": c["left"],
+                "damage": round(c["damage"]),
+                "per": [[n2, round(v)] for n2, v in c["per"]],
+                "spill": [[n2, round(v)] for n2, v in c["spill"]],
+                "kills": list(c["kills"]), "heal": round(c["heal"]),
+                "hot": ({"per_min": round(F.per_min(hot["per_sec"])),
+                         "mins": round(F.mins(hot["secs"])),
+                         "planned": round(hot["planned"]), "n": hot["n"]} if hot else None),
+                "hot_actual": round(c["hot_actual"]),
+                "dot": ({"per_min": round(F.per_min(dot["per_sec"])),
+                         "mins": round(F.mins(dot["secs"])),
+                         "planned": round(dot["planned"]), "n": dot["n"]} if dot else None),
+                "dot_actual": round(c["dot_actual"]),
+                # 打消しの「何発でも」は inf。JSON に inf は載らない（画面側が
+                # 読めない）ので None にする（画面は None を「何発でも」と読む）
+                "mods": [[m[0], (None if m[1] == float("inf") else round(m[1], 3)),
+                          round(F.mins(m[2])), list(m[3])]
+                         for m in c["mods"]],
+                "sac": round(c["sac"]),
+                "recoil": [[m[0], round(m[1], 3), round(F.mins(m[2]))] for m in c["recoil"]],
+                "decisive": c["decisive"],
+            })
+        return out
     return {"lines": lines,
-            "line_sides": ["mine" if x == mine_key else ("foe" if x else "")
-                           for x in line_sides],
+            "line_sides": [side_of(x) for x in line_sides],
+            # 決着の理由と時刻は**盤面から**（§7.173。画面が実況文から推測しない）
+            "end_reason": r["reason"], "end_clock": F.clock(r["t"]),
+            "casts": cast_rows(nf["casts"]),
             "notes": battle_notes(ua, ub, r, series, me_first),
             "mine_names": [u.name for u in (ua if me_first else ub).cards if u.name],
             "foe_names": [u.name for u in (ub if me_first else ua).cards if u.name],
             "series": [[round(F.mins(t), 1),
                         round((ra - rb) if me_first else (rb - ra), 4)]
                        for t, ra, rb in series[::step]],
-            "mine": rows(mine), "foe": rows(foe),
+            "mine": rows(mine, pos_mine), "foe": rows(foe, pos_foe),
             "verdict": "勝ち" if sc > 0.5 else ("負け" if sc < 0.5 else "引き分け")}
 
 
