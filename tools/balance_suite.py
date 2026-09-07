@@ -150,8 +150,11 @@ def spec_report(data: Mapping, cards: Sequence[F.Card],
     blind = data["pools"]["final_blind"]
     if not blind["entries"]:
         warnings.append("final_blind は空。release判定前に別担当が封印データを追加する")
-    if data["pools"]["special48"]["status"] != "retired_validation":
-        errors.append("special48 の状態は retired_validation でなければならない")
+    # §7.195 で中身を今の名簿から組み直したので、破陣の最終選定で汚れていた
+    # retired_validation は解けた。ただし基線が毎回当てるので盲検ではない
+    # （盲検は final_blind だけ）。
+    if data["pools"]["special48"]["status"] != "validation":
+        errors.append("special48 の状態は validation でなければならない")
 
     modules = []
     if run_modules:
@@ -352,7 +355,7 @@ def battle_report(data: Mapping, cards: Sequence[F.Card], profile: Mapping,
         "pools": {key: _run_pool(key, candidate, opponents, seeds, jobs_n)
                   for key, (opponents, seeds) in pools.items()},
         "note": ("本番の BO3（sim.match.play）を各マッチシードで左右両側。宝物なし。"
-                 "special48 は retired_validation で盲検ではない"),
+                 "special48 は validation で盲検ではない"),
     }
 
 
@@ -722,7 +725,10 @@ def render_markdown(report: Mapping) -> str:
                 p["bo3_wins"], p.get("bo3_losses", "?"), p.get("bo3_draws", "?"),
                 _pct(p["bo3_wins"], p["bo3_games"]),
                 "{:.1f}%".format(100 * p["bo3_point_rate"]) if "bo3_point_rate" in p else "-"))
-        lines += ["", "`special48` は最終調整に使用済みのため、現在は盲検ではありません。", ""]
+        lines += ["", "`special48` は基線が毎回当てるので盲検ではありません（盲検は `final_blind` だけ）。",
+                  "**在野の2集合は §7.195 で今の名簿から組み直しました。過去の勝率とは比べないこと。**",
+                  "そして**この2つは釣り合いの指標ではありません** — 生成器で組む在野は、探索で作った"
+                  "18人登録に構造的に勝てません（赤チーム #1 に official24 100%・special48 97.9%）。", ""]
 
     dist = report.get("distribution")
     if dist:

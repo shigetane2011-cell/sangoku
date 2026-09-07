@@ -26,8 +26,10 @@ class BalanceSuiteTest(unittest.TestCase):
     def test_fixed_pool_sizes_and_status(self):
         self.assertEqual(len(self.data["pools"]["official24"]["entries"]), 24)
         self.assertEqual(len(self.data["pools"]["special48"]["entries"]), 48)
-        self.assertEqual(self.data["pools"]["special48"]["status"],
-                         "retired_validation")
+        # §7.195 で中身を今の名簿から組み直したので、破陣の最終選定で汚れていた
+        # retired_validation は解けた。ただし基線が毎回当てるので**盲検ではない**
+        # （盲検は final_blind だけ）。
+        self.assertEqual(self.data["pools"]["special48"]["status"], "validation")
         self.assertEqual(self.data["pools"]["final_blind"]["entries"], [])
 
     def test_every_frozen_entry_is_currently_legal(self):
@@ -42,7 +44,7 @@ class BalanceSuiteTest(unittest.TestCase):
         special = report["pools"]["special48"]
         self.assertEqual(special["entries"], 48)
         self.assertEqual(special["slots"], 864)
-        self.assertEqual(special["coverage"], 120)
+        self.assertEqual(special["coverage"], 136)   # §7.195 の組み直しで 120 → 136
         self.assertGreater(special["effective_cards"], 80)
         # 手数の段の枚数（名簿の形の見張り）。§7.155 で 顔良〔河北の驍〕 を大技から
         # 手数へ移して 8 → 9、§7.171 で 呂布〔飛将〕（轅門射戟）が手数へ 9 → 10。
