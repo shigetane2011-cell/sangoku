@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "manifest": {
-    "created_at_utc": "2026-09-07T10:13:55+00:00",
+    "created_at_utc": "2026-09-07T10:49:01+00:00",
     "command": "run",
     "profile": "quick",
     "git": {
-      "commit": "4cb33b78f664208ed0dde19a2a4b2001f1d41f46",
+      "commit": "42436152245ffc6d5071e4a9a142ba6aa99fdc93",
       "branch": "claude/dev-handoff-balance-adjustments-8ezltu",
       "dirty": true
     },
@@ -13,9 +13,9 @@
     "platform": "Linux-6.18.44-fc-v24-x86_64-with-glibc2.39",
     "dt": 0.5,
     "csv_sha256": {
-      "generals.csv": "f90762e4c6b4f4b8bb815fcb6807bc97522792cdf5abd5d86579f9f5dbb74dbf",
+      "generals.csv": "fa355e89b43edce0a5e2ba7a11d1e2f842e6bdcaad70627cc608c7ef6c726d06",
       "skills.csv": "8e98290dc70b45f48429913240662731fc4b08130b98dbf151fe4ee0f7e62e55",
-      "traits.csv": "e730b62ab98eb168c207261e96c8784867b65696398c306f0ad37b442d7d9c62"
+      "traits.csv": "cbf0fa390e3f600767dd2d4aa7f021ea96ef05a893d78af37d591abd19b7bad5"
     },
     "fixture_file": "docs/balance/fixtures-v1.json",
     "fixture_source": {
@@ -153,8 +153,8 @@
         "returncode": 0,
         "accepted_known_exceptions": false,
         "accepted_note": "",
-        "seconds": 0.31,
-        "tail": "  1         14     81.78     81.80    0.9998      0.07\n  2         14     84.24     84.26    0.9997      0.08\n  3         14     91.39     91.41    0.9998      0.05\n  4         14    107.03    107.04    0.9999      0.05\n  5         14    112.95    112.96    0.9999      0.02\n  6         14    121.92    121.93    1.0000      0.03\n  7         14    130.60    130.60    0.9999      0.02\n  8         14    135.04    135.03    1.0001      0.03\n  9         15    139.58    139.57    1.0001      0.03\n  10        12    156.42    156.40    1.0001      0.02\n\n全帯がコスト曲線の上"
+        "seconds": 0.29,
+        "tail": "  1         14     81.60     81.63    0.9997      0.07\n  2         14     83.97     84.00    0.9997      0.08\n  3         14     91.28     91.29    0.9998      0.05\n  4         14    107.03    107.04    0.9999      0.05\n  5         14    112.95    112.96    0.9999      0.02\n  6         14    121.39    121.40    1.0000      0.03\n  7         14    130.42    130.43    1.0000      0.02\n  8         14    135.04    135.03    1.0001      0.03\n  9         15    139.58    139.57    1.0001      0.03\n  10        12    156.21    156.19    1.0001      0.02\n\n全帯がコスト曲線の上"
       },
       {
         "module": "sim.design",
@@ -162,7 +162,7 @@
         "returncode": 0,
         "accepted_known_exceptions": false,
         "accepted_note": "",
-        "seconds": 0.05,
+        "seconds": 0.04,
         "tail": "   → 総合値が全行で一致すれば OK（寄せの行も含む）\n\n[4] 効果予算は能力値から引かれているか\n   効果予算          能力値コスト        兵力        武力         総合値\n   0.0             5.00     10000     100.0    114.2366\n   0.5             4.50      9585      95.9    109.5013\n   1.0             4.00      9171      91.7    104.7660\n   2.0             3.00      8342      83.4     95.2955\n   3.0             2.75      8135      81.3     92.9278\n   → 兵力も武力も下がっていれば OK（片方だけなら stat_cost の配線漏れ）\n\n検算 OK"
       }
     ]
@@ -1418,8 +1418,8 @@
           "A",
           "B"
         ],
-        "single_wins": 6,
-        "single_losses": 42,
+        "single_wins": 5,
+        "single_losses": 43,
         "single_draws": 0,
         "single_games": 48,
         "bo3_wins": 0,
@@ -1428,7 +1428,7 @@
         "bo3_games": 16,
         "bo3_win_rate": 0.0,
         "bo3_point_rate": 0.0,
-        "mean_match_diff": -0.200337,
+        "mean_match_diff": -0.18715,
         "by_regulation": [
           {
             "regulation": "汜水関",
@@ -1438,23 +1438,23 @@
             "games": 16,
             "win_rate": 0.25,
             "point_rate": 0.25,
-            "mean_diff": -0.021622,
-            "min_diff": -0.118871,
-            "max_diff": 0.112273,
-            "mean_remain_diff": -0.021622
+            "mean_diff": -0.007274,
+            "min_diff": -0.102101,
+            "max_diff": 0.149933,
+            "mean_remain_diff": -0.007274
           },
           {
             "regulation": "官渡",
-            "wins": 1,
-            "losses": 15,
+            "wins": 0,
+            "losses": 16,
             "draws": 0,
             "games": 16,
-            "win_rate": 0.0625,
-            "point_rate": 0.0625,
-            "mean_diff": -0.06412,
-            "min_diff": -0.132323,
-            "max_diff": 0.016198,
-            "mean_remain_diff": -0.06412
+            "win_rate": 0.0,
+            "point_rate": 0.0,
+            "mean_diff": -0.06528,
+            "min_diff": -0.135045,
+            "max_diff": -0.001145,
+            "mean_remain_diff": -0.06528
           },
           {
             "regulation": "赤壁",
@@ -1473,8 +1473,8 @@
         "worst_opponents": [
           {
             "name": "赤チーム 20260906 #1（quick seed 20260912・§7.171 後）",
-            "single_win_rate": 0.125,
-            "mean_diff": -0.200337,
+            "single_win_rate": 0.1042,
+            "mean_diff": -0.18715,
             "bo3_wins": 0,
             "bo3_losses": 16,
             "bo3_draws": 0,
@@ -1494,30 +1494,30 @@
           "A",
           "B"
         ],
-        "single_wins": 87,
-        "single_losses": 57,
+        "single_wins": 86,
+        "single_losses": 58,
         "single_draws": 0,
         "single_games": 144,
-        "bo3_wins": 29,
-        "bo3_losses": 19,
+        "bo3_wins": 28,
+        "bo3_losses": 20,
         "bo3_draws": 0,
         "bo3_games": 48,
-        "bo3_win_rate": 0.6042,
-        "bo3_point_rate": 0.6042,
-        "mean_match_diff": 0.246629,
+        "bo3_win_rate": 0.5833,
+        "bo3_point_rate": 0.5833,
+        "mean_match_diff": 0.231348,
         "by_regulation": [
           {
             "regulation": "汜水関",
-            "wins": 43,
-            "losses": 5,
+            "wins": 42,
+            "losses": 6,
             "draws": 0,
             "games": 48,
-            "win_rate": 0.8958,
-            "point_rate": 0.8958,
-            "mean_diff": 0.190385,
-            "min_diff": -0.142274,
-            "max_diff": 0.380564,
-            "mean_remain_diff": 0.190385
+            "win_rate": 0.875,
+            "point_rate": 0.875,
+            "mean_diff": 0.177482,
+            "min_diff": -0.14857,
+            "max_diff": 0.371685,
+            "mean_remain_diff": 0.177482
           },
           {
             "regulation": "官渡",
@@ -1527,10 +1527,10 @@
             "games": 48,
             "win_rate": 0.4167,
             "point_rate": 0.4167,
-            "mean_diff": 0.01734,
-            "min_diff": -0.242506,
-            "max_diff": 0.531589,
-            "mean_remain_diff": 0.01734
+            "mean_diff": 0.01337,
+            "min_diff": -0.243456,
+            "max_diff": 0.529385,
+            "mean_remain_diff": 0.01337
           },
           {
             "regulation": "赤壁",
@@ -1540,17 +1540,17 @@
             "games": 48,
             "win_rate": 0.5,
             "point_rate": 0.5,
-            "mean_diff": 0.038904,
-            "min_diff": -0.22637,
+            "mean_diff": 0.040496,
+            "min_diff": -0.214215,
             "max_diff": 0.358451,
-            "mean_remain_diff": 0.038904
+            "mean_remain_diff": 0.040496
           }
         ],
         "worst_opponents": [
           {
             "name": "強弓01",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.141355,
+            "mean_diff": -0.163746,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1559,8 +1559,8 @@
           },
           {
             "name": "鉄壁02",
-            "single_win_rate": 0.3333,
-            "mean_diff": -0.101724,
+            "single_win_rate": 0.1667,
+            "mean_diff": -0.15139,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1570,7 +1570,7 @@
           {
             "name": "猛攻03",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.059483,
+            "mean_diff": -0.070203,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1580,7 +1580,7 @@
           {
             "name": "均衡03",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.018272,
+            "mean_diff": -0.070198,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1590,7 +1590,7 @@
           {
             "name": "強弓03",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.011051,
+            "mean_diff": -0.014562,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1600,7 +1600,7 @@
           {
             "name": "鉄壁03",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.039544,
+            "mean_diff": 0.039503,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1610,7 +1610,7 @@
           {
             "name": "重装03",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.1453,
+            "mean_diff": 0.12499,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1620,7 +1620,7 @@
           {
             "name": "重装02",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.273426,
+            "mean_diff": 0.255858,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1628,9 +1628,19 @@
             "bo3_win_rate": 0.0
           },
           {
+            "name": "軍師01",
+            "single_win_rate": 0.5,
+            "mean_diff": -0.001808,
+            "bo3_wins": 1,
+            "bo3_losses": 1,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.5
+          },
+          {
             "name": "軍師03",
             "single_win_rate": 0.5,
-            "mean_diff": 0.092516,
+            "mean_diff": 0.108866,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
@@ -1640,7 +1650,7 @@
           {
             "name": "猛攻01",
             "single_win_rate": 0.5,
-            "mean_diff": 0.188917,
+            "mean_diff": 0.147578,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
@@ -1650,22 +1660,12 @@
           {
             "name": "重装01",
             "single_win_rate": 0.5,
-            "mean_diff": 0.267323,
+            "mean_diff": 0.259901,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
             "bo3_games": 2,
             "bo3_win_rate": 0.5
-          },
-          {
-            "name": "軍師01",
-            "single_win_rate": 0.6667,
-            "mean_diff": 0.078248,
-            "bo3_wins": 2,
-            "bo3_losses": 0,
-            "bo3_draws": 0,
-            "bo3_games": 2,
-            "bo3_win_rate": 1.0
           }
         ]
       },
@@ -1680,43 +1680,43 @@
           "A",
           "B"
         ],
-        "single_wins": 196,
-        "single_losses": 92,
+        "single_wins": 194,
+        "single_losses": 94,
         "single_draws": 0,
         "single_games": 288,
-        "bo3_wins": 72,
-        "bo3_losses": 24,
+        "bo3_wins": 70,
+        "bo3_losses": 26,
         "bo3_draws": 0,
         "bo3_games": 96,
-        "bo3_win_rate": 0.75,
-        "bo3_point_rate": 0.75,
-        "mean_match_diff": 0.307597,
+        "bo3_win_rate": 0.7292,
+        "bo3_point_rate": 0.7292,
+        "mean_match_diff": 0.301058,
         "by_regulation": [
           {
             "regulation": "汜水関",
-            "wins": 87,
-            "losses": 9,
+            "wins": 86,
+            "losses": 10,
             "draws": 0,
             "games": 96,
-            "win_rate": 0.9062,
-            "point_rate": 0.9062,
-            "mean_diff": 0.21079,
-            "min_diff": -0.250307,
-            "max_diff": 0.485378,
-            "mean_remain_diff": 0.21079
+            "win_rate": 0.8958,
+            "point_rate": 0.8958,
+            "mean_diff": 0.203352,
+            "min_diff": -0.268422,
+            "max_diff": 0.480403,
+            "mean_remain_diff": 0.203352
           },
           {
             "regulation": "官渡",
-            "wins": 48,
-            "losses": 48,
+            "wins": 47,
+            "losses": 49,
             "draws": 0,
             "games": 96,
-            "win_rate": 0.5,
-            "point_rate": 0.5,
-            "mean_diff": 0.020253,
-            "min_diff": -0.282832,
-            "max_diff": 0.311049,
-            "mean_remain_diff": 0.020253
+            "win_rate": 0.4896,
+            "point_rate": 0.4896,
+            "mean_diff": 0.019855,
+            "min_diff": -0.283711,
+            "max_diff": 0.306524,
+            "mean_remain_diff": 0.019855
           },
           {
             "regulation": "赤壁",
@@ -1726,17 +1726,27 @@
             "games": 96,
             "win_rate": 0.6354,
             "point_rate": 0.6354,
-            "mean_diff": 0.076553,
+            "mean_diff": 0.077851,
             "min_diff": -0.298851,
             "max_diff": 0.533094,
-            "mean_remain_diff": 0.076553
+            "mean_remain_diff": 0.077851
           }
         ],
         "worst_opponents": [
           {
+            "name": "新槍陣02",
+            "single_win_rate": 0.1667,
+            "mean_diff": -0.143014,
+            "bo3_wins": 0,
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
+          },
+          {
             "name": "別鉄壁12",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.130213,
+            "mean_diff": -0.084188,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1746,7 +1756,7 @@
           {
             "name": "別鉄壁11",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.053553,
+            "mean_diff": -0.067937,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1756,7 +1766,7 @@
           {
             "name": "試精鋭03",
             "single_win_rate": 0.3333,
-            "mean_diff": -0.051335,
+            "mean_diff": -0.052722,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1766,7 +1776,7 @@
           {
             "name": "別鉄壁13",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.029485,
+            "mean_diff": -0.017904,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1776,7 +1786,7 @@
           {
             "name": "別強弓11",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.081604,
+            "mean_diff": 0.041471,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1786,7 +1796,7 @@
           {
             "name": "別重装11",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.105914,
+            "mean_diff": 0.110569,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1796,7 +1806,17 @@
           {
             "name": "新槍陣03",
             "single_win_rate": 0.3333,
-            "mean_diff": 0.156954,
+            "mean_diff": 0.126454,
+            "bo3_wins": 0,
+            "bo3_losses": 2,
+            "bo3_draws": 0,
+            "bo3_games": 2,
+            "bo3_win_rate": 0.0
+          },
+          {
+            "name": "別斉射12",
+            "single_win_rate": 0.3333,
+            "mean_diff": 0.217109,
             "bo3_wins": 0,
             "bo3_losses": 2,
             "bo3_draws": 0,
@@ -1806,7 +1826,7 @@
           {
             "name": "新先手03",
             "single_win_rate": 0.5,
-            "mean_diff": -0.111968,
+            "mean_diff": -0.116697,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
@@ -1816,17 +1836,7 @@
           {
             "name": "別強弓12",
             "single_win_rate": 0.5,
-            "mean_diff": -0.093739,
-            "bo3_wins": 1,
-            "bo3_losses": 1,
-            "bo3_draws": 0,
-            "bo3_games": 2,
-            "bo3_win_rate": 0.5
-          },
-          {
-            "name": "新槍陣02",
-            "single_win_rate": 0.5,
-            "mean_diff": -0.089734,
+            "mean_diff": -0.105669,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
@@ -1836,17 +1846,7 @@
           {
             "name": "別疾風11",
             "single_win_rate": 0.5,
-            "mean_diff": 0.030613,
-            "bo3_wins": 1,
-            "bo3_losses": 1,
-            "bo3_draws": 0,
-            "bo3_games": 2,
-            "bo3_win_rate": 0.5
-          },
-          {
-            "name": "試精鋭02",
-            "single_win_rate": 0.5,
-            "mean_diff": 0.057294,
+            "mean_diff": 0.020356,
             "bo3_wins": 1,
             "bo3_losses": 1,
             "bo3_draws": 0,
@@ -1976,8 +1976,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.028428
+        "win_rate": 0.25,
+        "mean_diff": -0.03731
       },
       "汜水関|鶴翼|1": {
         "regulation": "汜水関",
@@ -1987,7 +1987,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.308782
+        "mean_diff": -0.308332
       },
       "汜水関|鶴翼|2": {
         "regulation": "汜水関",
@@ -1997,7 +1997,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.152217
+        "mean_diff": -0.151622
       },
       "汜水関|鶴翼|3": {
         "regulation": "汜水関",
@@ -2007,7 +2007,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.206297
+        "mean_diff": -0.207568
       },
       "汜水関|鶴翼|4": {
         "regulation": "汜水関",
@@ -2017,7 +2017,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.75,
-        "mean_diff": 0.02464
+        "mean_diff": 0.041084
       },
       "汜水関|鶴翼|5": {
         "regulation": "汜水関",
@@ -2026,8 +2026,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.75,
-        "mean_diff": 0.087559
+        "win_rate": 1.0,
+        "mean_diff": 0.099728
       },
       "汜水関|鶴翼|6": {
         "regulation": "汜水関",
@@ -2037,7 +2037,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.121034
+        "mean_diff": 0.127105
       },
       "汜水関|魚鱗|0": {
         "regulation": "汜水関",
@@ -2047,7 +2047,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.361271
+        "mean_diff": 0.344424
       },
       "汜水関|魚鱗|1": {
         "regulation": "汜水関",
@@ -2057,7 +2057,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.090549
+        "mean_diff": -0.081597
       },
       "汜水関|魚鱗|2": {
         "regulation": "汜水関",
@@ -2067,7 +2067,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": 0.010511
+        "mean_diff": 0.012216
       },
       "汜水関|魚鱗|3": {
         "regulation": "汜水関",
@@ -2077,7 +2077,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.001154
+        "mean_diff": -0.005331
       },
       "汜水関|魚鱗|4": {
         "regulation": "汜水関",
@@ -2087,7 +2087,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.173749
+        "mean_diff": -0.152611
       },
       "汜水関|魚鱗|5": {
         "regulation": "汜水関",
@@ -2097,7 +2097,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": 0.078634
+        "mean_diff": 0.088901
       },
       "汜水関|魚鱗|6": {
         "regulation": "汜水関",
@@ -2107,7 +2107,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.314237
+        "mean_diff": 0.319975
       },
       "汜水関|雁行|0": {
         "regulation": "汜水関",
@@ -2137,7 +2137,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": 0.107014
+        "mean_diff": 0.060618
       },
       "汜水関|雁行|3": {
         "regulation": "汜水関",
@@ -2157,7 +2157,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.195022
+        "mean_diff": 0.196316
       },
       "汜水関|雁行|5": {
         "regulation": "汜水関",
@@ -2187,7 +2187,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.22513
+        "mean_diff": 0.221471
       },
       "官渡|鶴翼|2": {
         "regulation": "官渡",
@@ -2247,7 +2247,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.01343
+        "mean_diff": 0.018261
       },
       "官渡|魚鱗|1": {
         "regulation": "官渡",
@@ -2256,8 +2256,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.072126
+        "win_rate": 0.25,
+        "mean_diff": -0.043606
       },
       "官渡|魚鱗|2": {
         "regulation": "官渡",
@@ -2266,8 +2266,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.072091
+        "win_rate": 0.25,
+        "mean_diff": -0.103229
       },
       "官渡|魚鱗|3": {
         "regulation": "官渡",
@@ -2277,7 +2277,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.005287
+        "mean_diff": 0.007465
       },
       "官渡|魚鱗|4": {
         "regulation": "官渡",
@@ -2287,7 +2287,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.118984
+        "mean_diff": -0.103781
       },
       "官渡|魚鱗|5": {
         "regulation": "官渡",
@@ -2297,7 +2297,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.011405
+        "mean_diff": -0.010325
       },
       "官渡|魚鱗|6": {
         "regulation": "官渡",
@@ -2306,8 +2306,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.0,
-        "mean_diff": -0.098888
+        "win_rate": 0.5,
+        "mean_diff": -0.023293
       },
       "官渡|雁行|0": {
         "regulation": "官渡",
@@ -2317,7 +2317,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.185902
+        "mean_diff": -0.168357
       },
       "官渡|雁行|1": {
         "regulation": "官渡",
@@ -2327,7 +2327,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.204564
+        "mean_diff": -0.204443
       },
       "官渡|雁行|2": {
         "regulation": "官渡",
@@ -2337,7 +2337,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.193959
+        "mean_diff": -0.184981
       },
       "官渡|雁行|3": {
         "regulation": "官渡",
@@ -2347,7 +2347,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.272154
+        "mean_diff": -0.26948
       },
       "官渡|雁行|4": {
         "regulation": "官渡",
@@ -2357,7 +2357,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.094431
+        "mean_diff": -0.078501
       },
       "官渡|雁行|5": {
         "regulation": "官渡",
@@ -2367,7 +2367,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.272809
+        "mean_diff": 0.269751
       },
       "赤壁|鶴翼|0": {
         "regulation": "赤壁",
@@ -2377,7 +2377,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.221011
+        "mean_diff": 0.229626
       },
       "赤壁|鶴翼|1": {
         "regulation": "赤壁",
@@ -2387,7 +2387,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.291076
+        "mean_diff": -0.275649
       },
       "赤壁|鶴翼|2": {
         "regulation": "赤壁",
@@ -2396,8 +2396,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": 0.009914
+        "win_rate": 0.75,
+        "mean_diff": 0.051308
       },
       "赤壁|鶴翼|3": {
         "regulation": "赤壁",
@@ -2407,7 +2407,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.25052
+        "mean_diff": 0.261379
       },
       "赤壁|鶴翼|4": {
         "regulation": "赤壁",
@@ -2417,7 +2417,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.304522
+        "mean_diff": -0.272423
       },
       "赤壁|鶴翼|5": {
         "regulation": "赤壁",
@@ -2427,7 +2427,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.5,
-        "mean_diff": -0.058171
+        "mean_diff": -0.033456
       },
       "赤壁|魚鱗|0": {
         "regulation": "赤壁",
@@ -2456,8 +2456,8 @@
         "candidate_armies": 1,
         "benchmark_armies": 2,
         "games": 4,
-        "win_rate": 0.5,
-        "mean_diff": -0.028703
+        "win_rate": 0.0,
+        "mean_diff": -0.127816
       },
       "赤壁|魚鱗|3": {
         "regulation": "赤壁",
@@ -2497,7 +2497,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.103892
+        "mean_diff": 0.109991
       },
       "赤壁|雁行|1": {
         "regulation": "赤壁",
@@ -2507,7 +2507,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.14606
+        "mean_diff": -0.061511
       },
       "赤壁|雁行|2": {
         "regulation": "赤壁",
@@ -2517,7 +2517,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.0,
-        "mean_diff": -0.065245
+        "mean_diff": -0.062019
       },
       "赤壁|雁行|3": {
         "regulation": "赤壁",
@@ -2527,7 +2527,7 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 1.0,
-        "mean_diff": 0.339965
+        "mean_diff": 0.349935
       },
       "赤壁|雁行|4": {
         "regulation": "赤壁",
@@ -2537,58 +2537,58 @@
         "benchmark_armies": 2,
         "games": 4,
         "win_rate": 0.75,
-        "mean_diff": 0.093725
+        "mean_diff": 0.097019
       }
     },
     "aggregate": {
       "0": {
         "strata": 9,
-        "mean_win_rate": 0.7222,
-        "mean_diff": 0.090355
+        "mean_win_rate": 0.6944,
+        "mean_diff": 0.094602
       },
       "1": {
         "strata": 9,
-        "mean_win_rate": 0.25,
-        "mean_diff": -0.101039
+        "mean_win_rate": 0.2778,
+        "mean_diff": -0.08611
       },
       "2": {
         "strata": 9,
-        "mean_win_rate": 0.3889,
-        "mean_diff": -0.019994
+        "mean_win_rate": 0.3333,
+        "mean_diff": -0.03341
       },
       "3": {
         "strata": 9,
         "mean_win_rate": 0.5556,
-        "mean_diff": 0.037774
+        "mean_diff": 0.041197
       },
       "4": {
         "strata": 9,
         "mean_win_rate": 0.5556,
-        "mean_diff": -0.002629
+        "mean_diff": 0.009083
       },
       "5": {
         "strata": 8,
-        "mean_win_rate": 0.5938,
-        "mean_diff": 0.053937
+        "mean_win_rate": 0.625,
+        "mean_diff": 0.059583
       },
       "6": {
         "strata": 4,
-        "mean_win_rate": 0.5625,
-        "mean_diff": 0.068811
+        "mean_win_rate": 0.6875,
+        "mean_diff": 0.090662
       }
     },
     "marginal": {
       "1": {
         "comparable_strata": 9,
-        "mean_delta_points": -47.22
+        "mean_delta_points": -41.67
       },
       "2": {
         "comparable_strata": 9,
-        "mean_delta_points": 13.89
+        "mean_delta_points": 5.56
       },
       "3": {
         "comparable_strata": 9,
-        "mean_delta_points": 16.67
+        "mean_delta_points": 22.22
       },
       "4": {
         "comparable_strata": 9,
@@ -2596,11 +2596,11 @@
       },
       "5": {
         "comparable_strata": 8,
-        "mean_delta_points": 6.25
+        "mean_delta_points": 9.38
       },
       "6": {
         "comparable_strata": 4,
-        "mean_delta_points": 12.5
+        "mean_delta_points": 18.75
       }
     },
     "warnings": [

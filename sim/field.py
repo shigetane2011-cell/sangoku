@@ -3450,9 +3450,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             pool = [u]          # 踏みとどまり（§7.171）: 倒れた本人を戻す
         if pool:
             f = min(pool, key=lambda x: _men_now(x) / max(x.men0, 1e-9))
-            amt = min(f.men0 * sk.heal_pct * (SKILL_BURST_SCALE if sk.scaled
-                                              else 1.0),
-                      f.men0 - _men_now(f))
+            amt = f.men0 * sk.heal_pct * (SKILL_BURST_SCALE if sk.scaled else 1.0)
+            if not HEAL_OVERFLOW:       # §7.190: 援軍なら上限を超えて積める
+                amt = min(amt, f.men0 - _men_now(f))
             if amt > 0.0:
                 _ledger("heal", u, f, amt, acc)
                 _men_add(f, amt)
