@@ -151,11 +151,11 @@ class PerformanceUnchanged(unittest.TestCase):
         # §7.188 は単価も引き直しているので、兵法の中身しだいで札ごとに動き方が違う
         self.assertEqual((g["魯粛〔榻上策〕"]["コスト"], g["魯粛〔榻上策〕"]["兵力"], g["魯粛〔榻上策〕"]["武力"],
                           g["魯粛〔榻上策〕"]["知力"], g["魯粛〔榻上策〕"]["消費ゲージ%"]),
-                         ("7", "11651", "266.2", "325.7", "150"))
+                         ("7", "11711", "267.5", "327.4", "150"))
         self.assertEqual((g["凌統〔公績〕"]["兵力"], g["凌統〔公績〕"]["武力"], g["凌統〔公績〕"]["固有特性"]),
                          ("7529", "153.6", "avenge"))
         self.assertEqual((g["張昭〔子布〕"]["兵力"], g["張昭〔子布〕"]["知力"], g["張昭〔子布〕"]["固有特性"]),
-                         ("7510", "239.8", "relief"))
+                         ("7548", "241.0", "relief"))
 
     def test_trait_display_rename_keeps_key_and_effect(self):
         cond, target, cap, sk, jp = F.TRAITS["disrupt"]
