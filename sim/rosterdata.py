@@ -1108,11 +1108,30 @@ def load_treasures_into_field() -> int:
 
 
 def load_skills_into_field() -> int:
-    """兵法の威力・種別・対象を field.py へ読み込む。"""
+    """兵法の威力・種別・対象を field.py へ読み込む。
+
+    **効果文の数字は整数で書くこと。** 読み手（`field._parse_skill`）の正規表現は
+    整数しか拾わないので、`行動阻害 1.5秒`・`威力370.5%`・`攻撃力 +5%（12.5秒）` は
+    **その節が丸ごと落ちて効果ゼロになる**（例外は出ない）。設計式も同じ読み手を
+    通るので請求も 0 になり、**検算まで揃って通ってしまう**。ここで大声で死ぬ。
+    """
+    import re as _re
     from . import field as F
     n = 0
     for sk in skills():
-        F.SKILL_INFO[sk["兵法名"]] = F._parse_skill(sk["効果"], sk["対象"])
+        eff = sk["効果"] or ""
+        if _re.search(r"\d+\.\d", eff):
+            raise SystemExit(
+                "skills.csv: 効果文に小数が入っている（読み手は整数しか拾わないので"
+                "その節が消える）: {} … {}".format(sk["兵法名"], eff))
+        parsed = F._parse_skill(eff, sk["対象"])
+        if eff.strip() and not (parsed.power or parsed.heal or parsed.mods
+                                or getattr(parsed, "wits_mods", ())
+                                or getattr(parsed, "sac", 0.0)):
+            raise SystemExit(
+                "skills.csv: 効果文が1つも読めていない（書式ちがい）: {} … {}"
+                .format(sk["兵法名"], eff))
+        F.SKILL_INFO[sk["兵法名"]] = parsed
         F.SKILL_TARGET[sk["兵法名"]] = sk["対象"]
         n += 1
     return n
