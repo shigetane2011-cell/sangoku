@@ -4,6 +4,7 @@
     python3 tools/type_edges.py --tag now --members 8 --seeds 2            # いまの盤面
     python3 tools/type_edges.py --tag t1 --members 8 --seeds 2 --full      # 7型全部の総当たり
     python3 tools/type_edges.py --tag t2 --const "SUPPRESS_MAX=0.8;FOCUS=1.5" --act "cav=1.4;arc=0.45"
+    python3 tools/type_edges.py --tag shots9 --const "AMMO_MODE=shots;AMMO_SHOTS=9"   # 文字の定数も通る（§7.186）
 
 7つの型（ladder_top.COMBOS）を実デッキの器で組み、騎型{③⑤}・弓型{②⑥}・歩型{④⑦}の
 3辺（騎→弓・弓→歩・歩→騎）の勝率差と、型ごとの勝率を出す。
@@ -23,10 +24,16 @@ HERE = os.environ.get("TYPE_EDGES_OUT", os.path.join(REPO, "docs", "balance", "e
 KIND = {"③鶴騎4弓2": "騎", "⑤鶴騎3歩1": "騎", "②雁2弓4": "弓", "⑥雁2弓3槍": "弓", "④鶴歩4弓2": "歩", "⑦魚3弓2槍": "歩", "①魚3弓3": "均"}
 EDGES = (("騎", "弓"), ("弓", "歩"), ("歩", "騎"))
 def parse_kv(s, conv=float):
+    """"a=1;b=2" → {"a":1.0,"b":2.0}。数に読めない値は**文字列のまま**通す
+    （`--const "AMMO_MODE=shots;AMMO_SHOTS=9"` のような文字の定数のため・§7.186）。"""
     out = {}
     for part in (s or "").split(";"):
         if part.strip():
-            k, v = part.split("="); out[k.strip()] = conv(v)
+            k, v = part.split("=")
+            try:
+                out[k.strip()] = conv(v)
+            except (TypeError, ValueError):
+                out[k.strip()] = v.strip()
     return out
 def apply_knobs(F, opt):
     for k, v in opt.get("const", {}).items():

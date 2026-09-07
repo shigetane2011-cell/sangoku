@@ -1167,11 +1167,38 @@ SCREEN_SUPPRESS = 0.5
 # なっておらず（矢の消費を敵の損耗に紐づけたのに、射撃量は自分の兵力に比例していた）、
 # 2度目は**別条件で測った古い系列で内挿**して「効かない」と誤判定した。基準線は必ず
 # 同一実行内で取り直すこと。
-AMMO_MODE = "attrition"   # "time" | "attrition" | "volley"
+AMMO_MODE = "attrition"   # "time" | "attrition" | "volley" | "shots"
 AMMO_SPAN = 0.25          # 敵をこの割合まで削るぶんの矢を持つ
 AMMO_TAIL_P = 0.12        # 尽きたあとの減衰（消耗割合の単位）
 AMMO_TIME = 40.0
 AMMO_TAIL = 20.0        # 尽きたあとの減衰の時定数（秒）
+
+# 【4つ目の数え方 "shots"】**矢は各部隊が自分で持ち、通常射撃をした量だけ減る**
+# （§7.186・テストプレイの案）。**既定は "attrition" のままなので挙動は不変。**
+#
+# "attrition" の穴（§7.185）: 矢の残りを「敵がどれだけ削れたか」で数えるので、
+# カウンターが**軍で共有**であり、その部隊の大きさとも撃った量とも無関係だった。
+# 結果、**弓を大きくしても撃てる総量が増えない**（身体 +6点 で与損害が
+# 弓 +22〜27%・歩騎 +36〜61%）。"volley" は部隊ごとだが時計で減るので、
+# 射程外を歩いている間も、密着されて撃てない間も満額で減る。
+#
+# "shots" の規則:
+#   ・矢は部隊ごと（軍で共有しない）
+#   ・**通常射撃をしたティックだけ**減る。的がいない・射程外・射線が通らない
+#     ティックは射撃の場に来ないので、移動・待機では減らない
+#   ・命中・回避・敵の防御は無関係（**放った量**で数える）
+#   ・**兵法は矢を使わない**（兵法の打撃は _suppress を通らない・_apply_skill の
+#     抑制は SUPPRESS_MAX だけを見る）
+#   消費の単位は「満身の部隊が遮られずに撃つ1秒」＝1.0:
+#       shot += (men/men0) × 接敵抑制の残り × 出力 × dt
+#   接敵抑制で撃てていないぶんは減らないので、**取り付かれた弓は矢を温存する**。
+AMMO_SHOTS = 40.0       # "shots" のときの持ち矢（満身で撃ち続けられる秒数）
+# 矢切れのあとの減衰。**単位は AMMO_SHOTS と同じ「満身で撃つ秒」**で、消耗方式の
+# AMMO_TAIL_P（消耗割合の単位）と対になる。AMMO_TAIL（20秒・時計の単位）を流用すると
+# 尾が長すぎ、持ち矢を 0.2 まで絞っても通常射撃の総量が 8割残った（実測）。
+# **テストプレイの案「矢切れ後の出力は武将個々で設定する」の受け皿**でもある
+# （いまは全員この値。札ごとに持たせるなら値札が要る・§7.5）。
+AMMO_SHOTS_TAIL = 8.0
 
 # 弓の殺傷効率の低さ（史実）。massed archery の主目的は殺すことより隊列を崩すこと。
 # 弓のダメージのうち ARC_LETHAL だけが兵力を減らし、残りは相手の攻撃力を一時的に
@@ -3993,8 +4020,13 @@ def _cover_map(units: List["Unit"]) -> List["int | None"]:
 
 def _suppress(u: Unit, gaps: List[float],
               foes: "List[Unit] | None" = None,
-              own: "List[Unit] | None" = None) -> float:
+              own: "List[Unit] | None" = None,
+              parts: bool = False):
     """接敵抑制。射程を持つ札は、敵に近づかれるほど出力が落ちる。
+
+    `parts=True` なら **(抑制×矢切れ, 接敵抑制だけ)** の組を返す（§7.186）。
+    後ろが「いま実際に放てている割合」で、矢の消費はこちらで数える — 矢切れで
+    落ちたぶんまで矢を減らすと二重に罰することになる。
 
     これがないと弓は密着されても撃ち続け、騎兵が突っ込む意味がなくなる。実測では
     騎兵→弓兵が 0.0%（＝弓兵が騎兵に必ず勝つ）から動かなかった。
@@ -4007,7 +4039,7 @@ def _suppress(u: Unit, gaps: List[float],
     # 槍（§7.57・射程あり）まで密着で出力を失っていた — 槍は近いほど強い
     # はずなのに逆で、回り込みへの迎撃が立たない原因だった。
     if u.typ != ARC or not gaps:
-        return 1.0
+        return (1.0, 1.0) if parts else 1.0
     if (SCREEN_MELEE > 0.0 and SCREEN_SUPPRESS > 0.0
             and foes is not None and own is not None):
         blk = SCREEN_SUPPRESS * SCREEN_MELEE * _screen_frac(
@@ -4022,13 +4054,17 @@ def _suppress(u: Unit, gaps: List[float],
                 press = g
     else:
         press = smooth_gate(min(gaps), 0.0, SUPPRESS_R)
-    sup = 1.0 - SUPPRESS_MAX * press
+    fire = 1.0 - SUPPRESS_MAX * press      # いま実際に放てている割合
+    sup = fire
     if AMMO_MODE == "attrition":
         if AMMO_SPAN > 0.0 and u.shot > AMMO_SPAN:
             sup *= math.exp(-(u.shot - AMMO_SPAN) / AMMO_TAIL_P)
+    elif AMMO_MODE == "shots":
+        if AMMO_SHOTS > 0.0 and u.shot > AMMO_SHOTS:
+            sup *= math.exp(-(u.shot - AMMO_SHOTS) / AMMO_SHOTS_TAIL)
     elif AMMO_TIME > 0.0 and u.shot > AMMO_TIME:
         sup *= math.exp(-(u.shot - AMMO_TIME) / AMMO_TAIL)
-    return sup
+    return (sup, fire) if parts else sup
 
 
 def _spear_reach(u: Unit, d: float) -> float:
@@ -4222,6 +4258,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                     x.shot = max(x.shot, wa)
                 for x in ub:
                     x.shot = max(x.shot, wb)
+            elif AMMO_MODE == "shots":
+                pass            # 消費は射撃の場で数える（§7.186）
             else:
                 for x in ua + ub:
                     if AMMO_TIME > 0.0 and x.rng > 0.0 and x.men > 0.0:
@@ -4259,7 +4297,11 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                sup = _suppress(u, gap[i], ub, ua)
+                sup, fire = _suppress(u, gap[i], ub, ua, parts=True)
+                if AMMO_MODE == "shots" and u.typ == ARC and u.men0 > 0.0:
+                    # 放った量だけ矢が減る（§7.186）。的がいない・射程外の
+                    # ティックは tot<=0 で continue 済みなのでここへ来ない。
+                    u.shot += (u.men / u.men0) * fire * _output(u) * dt
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * sup * _output(u) * fa * ramp * ta)
@@ -4318,7 +4360,11 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 if tot <= 1e-12:
                     continue
                 gate = max(ws)
-                sup = _suppress(u, col, ua, ub)
+                sup, fire = _suppress(u, col, ua, ub, parts=True)
+                if AMMO_MODE == "shots" and u.typ == ARC and u.men0 > 0.0:
+                    # 放った量だけ矢が減る（§7.186）。的がいない・射程外の
+                    # ティックは tot<=0 で continue 済みなのでここへ来ない。
+                    u.shot += (u.men / u.men0) * fire * _output(u) * dt
                 base = (u.men * LETHALITY * (u.atk * u.atk_mult / BASE_ATK)
                         / u.interval * gate / tot * dt
                         * sup * _output(u) * fb * ramp * tb)
