@@ -940,7 +940,10 @@ def rebalance_big() -> int:
                 mods += D.EFFECT_PRICE[k] * abs(a) * 100.0 * sec * nt
         want = target * D.CARD_COST_RATE / max(fr, 1e-9) - mods
         if sk.dur > 0.0:            # 継続。威力は毎秒の量
-            power = want / D.EFFECT_PRICE["dot"] / sk.dur / max(tc, 1e-6)
+            # §7.180: 継続は「同じ総量の1発」として払うので、打ち切りと同じ式で
+            # 等価な1発の威力を解いてから毎秒へ戻す（`design.dot_equiv_power` の逆）
+            equiv = want / D.EFFECT_PRICE["damage"] / max(tc, 1e-6)
+            power = equiv * F.SKILL_BURST_SCALE / max(F.SKILL_MAG_SCALE * sk.dur, 1e-9)
         else:                       # 打ち切りは威力に線形
             power = want / D.EFFECT_PRICE["damage"] / max(tc, 1e-6)
         # 下限。**継続と打ち切りで桁が違う**（継続の威力は毎秒の量なので、

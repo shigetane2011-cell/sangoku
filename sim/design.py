@@ -277,6 +277,8 @@ DAMAGE_EXP = 0.9512    # 威力に対する冪。1.0 だと低威力を2割高�
 
 EFFECT_PRICE = {
     "damage": 0.6115,   # 打ち切り 威力100% あたり
+    # 【退役・§7.180】継続は「同じ総量の1発」として damage_price で払う
+    # （dot_equiv_power）。effect_value からは参照されない（履歴として残す）。
     "dot": 0.5616,   # 継続の総威力100% あたり
     # 回復: 2026-08-22 の対計測で×1.7の安売りと出た（味方1列/全体・標準/
     # 大技の4点で 1.60〜1.78 と一貫）。0.494315 → 0.840 へ引き上げ。
@@ -375,6 +377,18 @@ def damage_price(power: float) -> float:
 # 威力掃引）は表の 1/4〜1/7 を返すが、あの計器は環境（詰め物のコスト）で
 # 読みが4倍動き、割増の絶対値を測れない。対称監査（price_audit）では割増を
 # 大きく払う非騎兵9枚が残差の中位に収まっており、表と矛盾しない。
+def dot_equiv_power(skill) -> float:
+    """継続ダメージを「同じ総量の1発」の威力へ直す（§7.180）。
+
+    盤面の総量は  打ち切り = SKILL_SCALE × SKILL_BURST_SCALE × 威力
+                  継続     = SKILL_SCALE × SKILL_MAG_SCALE × 毎秒の威力 × 秒数
+    なので、等価な1発の威力は 毎秒 × 秒数 × MAG ÷ BURST。**縮尺の定数を直に読む**ので、
+    `field` 側の縮尺（§7.151）を動かしても値段の土俵がずれない。
+    """
+    return (skill.power * skill.dur
+            * F.SKILL_MAG_SCALE / max(F.SKILL_BURST_SCALE, 1e-9))
+
+
 # **掃引の小さい読みを根拠にこの表を下げないこと。**
 # 【§7.157 で外した（倍率 0）】単価を実勢（×3.7）へ上げると、割増は大技を二重に取る
 # （馬超 2.83 対 実測 1.27・曹彰 1.83 対 1.34・王双 1.38 対 0.29）。割増が「合って」いたのは
@@ -941,8 +955,13 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
         skill = skill.__class__(**{**skill.__dict__,
                                    "power": (skill.power + power_hi) / 2.0})
     if skill.dur > 0.0 and skill.power > 0.0:
-        v += EFFECT_PRICE["dot"] * skill.power * skill.dur * tc \
-             * target_dmg_f(target)
+        # 継続ダメージ（§7.180）: **同じ総量の1発として払う**。§7.179 で測ったとおり
+        # 盤面へ入る量は同じ総量の1発と変わらず（固定の的では与ダメが完全に一致）、
+        # 違うのは入る時刻だけ（同総量で 13秒 −0.0008／65秒 −0.0089 コスト点相当）。
+        # 旧 `EFFECT_PRICE["dot"]` は**縮尺後の秒数**に単価を掛けるので、同じ総量の
+        # 1発の **2.0倍** を請求していた（縮尺 ×1.5 が片側だけ値段に入るうえ、
+        # §7.147 の「実デッキ未測なので控えめ」の ×1.3 が乗っていた）。
+        v += damage_price(dot_equiv_power(skill) * tc) * target_dmg_f(target)
     elif skill.power > 0.0:
         v += damage_price(skill.power * tc) * target_dmg_f(target)
     v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target) \
