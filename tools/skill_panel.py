@@ -10,6 +10,7 @@
     python3 tools/skill_panel.py --quick ...                          # 4性格×20種
     python3 tools/skill_panel.py --real-base 李典〔慎重〕                # 土台を実カードの性格デッキに
     python3 tools/skill_panel.py --yard 3 諸葛亮〔臥龍〕                  # 物差しを3コスト点削りで測る（弓の1点が軽い件・§7.181）
+    python3 tools/skill_panel.py --yard 3 --common-yard 諸葛亮〔臥龍〕    # 共通の物差しでも並べる（札ごとの1点は5.3倍ちがう・§7.184）
 
 土台: その札 ＋ 合成の詰め物5枚（総コスト30・詰め物は同コスト・弓は後衛、
 歩騎は前衛）。相手は実カードの性格パネル（12性格 × N種・官渡30）。
@@ -55,6 +56,28 @@ from sim import design as DS        # noqa: E402
 
 DT = 0.25
 RATE = 4.86          # 旧物差し（--filler-slope）だけが使う
+# 共通の物差し（§7.184）。**1コスト点あたりの残存差**。
+#
+# 既定の物差しは「その札自身の1コスト点」（§7.156）で、札の中の釣り合いを見るには
+# 正しい。ところが**その1点の値打ちが札ごとに 5.3倍ちがう**（23枚の実測で 0.0053
+# 〜0.0280）ので、出てくる「残存点」は札ごとに別の単位のコスト点になる。単価表が
+# 引く「請求」は名簿ぜんたいで共通のコスト点なので、引き算（釣り合い）が単位ちがいに
+# なる。--common-yard はこの値で割り、比べられる点に直す。
+#
+# 値: 本番 BO3 で身体を実際に動かして裁定した3枚（tools/skill_value.py・諸葛亮 4.95／
+# 陸遜 4.07／荀攸 2.84）から「段差 ÷ 裁定」の中央値として当てた（§7.147 の規則
+# 「実測で単価を掛け直す」と同じ流儀）。参考: 23枚の 1点Δ残 を直に測った中央値
+# （土台勝率 35〜65% の15枚）は 0.0144 で、そちらだと 18〜45% 低めに出る。
+#
+# **暫定値（裁定が3枚しかなく、3枚とも継続ダメージの大技持ち）。** この物差しで
+# 割った数は 諸葛亮 4.94／陸遜 4.19／荀攸 1.96 で、裁定に対し −0.2%／+3%／−31%。
+# 札自身の1点で割ると 9.84／5.72／1.42（+99%／+41%／−50%）と符号ごと暴れるので、
+# ふるいとしてはこちらがずっとまし。**それでもこれはふるいの数**であって裁定では
+# ない。裁定が増えたら当て直すこと。
+COMMON_YARD = 0.0114
+# 土台勝率がこの外だと読みが不安定になりやすい（§7.184）。本番 BO3 では、勝率
+# 87.5% の登録で身体1点が 0.004 しか動かさなかった（5割近くの登録は 0.013）。
+SAFE_WIN = (0.35, 0.65)
 TOTAL = 30.0
 DELTA = 2.0
 _S = {}
@@ -235,7 +258,7 @@ def main():
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
     width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2,
-             "--bases": 1, "--cap": 1, "--yard": 1}
+             "--bases": 1, "--cap": 1, "--yard": 1, "--yard-ref": 1}
     for i, a in enumerate(sys.argv):        # 同じ旗が複数回出ても全部の引数を除く
         if a in width:
             skip.update(range(i + 1, i + 1 + width[a]))
@@ -279,6 +302,10 @@ def main():
     print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局（1組1局・組み合わせ {} 通り）".format(
         len(names), what, npers, seeds, npers * seeds, npers * seeds), flush=True)
     yard = float(sys.argv[sys.argv.index("--yard") + 1]) if "--yard" in sys.argv else 1.0
+    # 共通の物差し（§7.184）。値を替えるときは --yard-ref（旗と値を分けるのは、
+    # 値なしの旗の直後に札名が来ても食わないようにするため）。
+    common = (float(sys.argv[sys.argv.index("--yard-ref") + 1]) if "--yard-ref" in sys.argv
+              else COMMON_YARD) if "--common-yard" in sys.argv else None
     ymode = "m{:g}".format(yard)
     variants = [("on", 0.0), ("off", 0.0), (ymode, 0.0)]
     if filler:
@@ -301,6 +328,8 @@ def main():
     print()
     hdr = "{:<14}{:>6}{:>8}{:>8}{:>7}{:>9}{:>9}{:>7}{:>7}{:>7}{:>7}".format(
         "武将", "土台勝率", "Δ勝率", "1点Δ勝", "勝率点", "Δ残存差", "1点Δ残", "残存点", "±", "請求", "釣り合い")
+    if common:
+        hdr += "{:>8}{:>9}".format("共通点", "共通釣合")
     if filler:
         hdr += "{:>8}{:>8}".format("旧勝率", "旧残存")
     print(hdr)
@@ -331,18 +360,31 @@ def main():
         line = "{:<14}{:>7.1%}{:>+8.2%}{:>+8.2%}{:>+7.2f}{:>+9.4f}{:>+9.4f}{:>+7.2f}{:>7.2f}{:>7.2f}{:>+7.2f}".format(
             n, statistics.mean(won), mw, ms, v_win, md, msd, v_diff,
             abs(v_diff * rel) if rel == rel else float("nan"), charged, v_diff - charged)
+        if common:
+            line += "{:>+8.2f}{:>+9.2f}".format(md / common, md / common - charged)
         if filler:
             _, dhi = got[key("on", DELTA)]
             _, dlo = got[key("on", -DELTA)]
             slope = (statistics.mean(dhi) - statistics.mean(dlo)) / (2.0 * DELTA)
             line += "{:>+8.2f}{:>+8.2f}".format(mw * 100.0 / RATE,
                                                 md / slope if abs(slope) > 1e-9 else float("nan"))
+        base_win = statistics.mean(won)
+        if base_win > SAFE_WIN[1]:
+            line += "  天"            # 天井: 残存差が詰まって物差しが潰れる
+        elif base_win < SAFE_WIN[0]:
+            line += "  床"
         print(line, flush=True)
     print()
     print("  1点Δ勝・1点Δ残 = 同じ札の能力値を{:g}コスト点ぶん削った差 ÷{:g}（物差し・--yard）。".format(yard, yard))
     print("  勝率点・残存点 = 兵法の差 ÷ 物差し（＝コスト点）。± は残存点の誤差（95%）。")
     print("  請求 = 名簿がその札から引いている額（{}のぶん）。釣り合い = 残存点 − 請求。"
           "マイナスが払い過ぎ".format(what))
+    if common:
+        print("  共通点 = 段差 ÷ 共通の物差し {:.4f}（§7.184）。**請求と引き算できるのはこちら**"
+              "（残存点はその札自身の1点で割った数なので、札ごとに単位がちがう）。".format(common))
+    print("  行末の「天」「床」= 土台勝率が {:.0%}〜{:.0%} の外。物差しが潰れて比が暴れやすい"
+          "帯なので、その行の点は裁定に使わないこと（§7.184）。".format(*SAFE_WIN))
+    print("  絶対量の裁定は tools/skill_value.py（本番 BO3 の登録の中で身体を実際に動かす）。")
     print("  控え: {}".format(store))
     print("PANEL DONE")
 
