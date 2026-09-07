@@ -43,10 +43,16 @@ def run(**consts):
 
 
 class AmmoShotsTest(unittest.TestCase):
-    def test_default_mode_unchanged(self):
-        """既定は "attrition" のまま。ここが変わったら値札が丸ごと動く（§7.185）。"""
-        self.assertEqual(F.AMMO_MODE, "attrition")
-        self.assertAlmostEqual(F.AMMO_SPAN, 0.25)
+    def test_adopted_settings(self):
+        """採用した3つの値の見張り（§7.187）。ここが動いたら弓の値札が丸ごと動く。
+
+        矢の数え方・持ち矢・弓の兵種係数は**組で意味を持つ**。持ち矢は決着秒
+        （111.5秒）で、係数は兵種の3辺（騎→弓 +12.6・弓→歩 +4.6・歩→騎 +5.1）で
+        当てた値なので、片方だけ動かすと両方が壊れる。
+        """
+        self.assertEqual(F.AMMO_MODE, "shots")
+        self.assertAlmostEqual(F.AMMO_SHOTS, 9.0)
+        self.assertAlmostEqual(F.ACT_COEF[F.ARC], 0.61)
 
     def test_parts_matches_plain(self):
         """parts=True の1つ目は parts なしと同じ。2つ目は接敵抑制だけ（矢切れを含まない）。"""

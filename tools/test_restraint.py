@@ -23,8 +23,10 @@ class RestraintTest(unittest.TestCase):
             "夏侯淵〔神速〕", "趙雲〔長坂坡〕", "関平〔麒麟児〕",
             "韓当〔老弓〕", "馬謖〔幼常〕", "諸葛恪〔元遜〕")), F.FORM_STANDARD)
         # 長い対戦（§7.151）。節制の効き所は2発目以降なので、決着が速い相手だと
-        # 何も測れない。同じ守り寄りの編成どうしで 171ティックまで続く。
-        cls.slugfest = F.Army(cls.defense.cards, F.FORM_STANDARD)
+        # 何も測れない。**同じ札・同じ陣形どうし**（§7.187 で 60.5秒／発動5回まで
+        # 縮んだので、陣形も揃えて 376秒／発動22回の土俵へ移した）。陣形が食い違うと
+        # 片方が一方的に崩れて短く終わる（鶴翼 対 標準 は 60.5秒、鶴翼どうしは 376秒）。
+        cls.slugfest = F.Army(cls.defense.cards, cls.defense.form)
 
     def test_first_cast_then_reduces_later_casts(self):
         """節制は**2発目以降**を抑えるので、土俵が短いと何も測れない。
