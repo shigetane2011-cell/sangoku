@@ -1051,7 +1051,7 @@ def load_traits_into_field() -> int:
 
 
 # 誘発の発動条件（field._fire_traits が読む語彙）。treasures.csv の検算用。
-_TREASURE_CONDS = {"self_low_hp", "ally_retreat", "enemy_retreat",
+_TREASURE_CONDS = {"self_low_hp", "ally_low_hp", "ally_retreat", "enemy_retreat",
                    "ally_skill", "foe_skill", "self_dead"}
 
 

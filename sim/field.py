@@ -1008,7 +1008,18 @@ def skill_mag(v: float) -> float:
 # 実測の帯は 0.80〜0.97（兵種・潰走閾値・消費ゲージ・時間刻みを振った）。
 # ダメージ比 0.54〜0.65 はゲージ供給を2.2倍にしても動かなかったので、比のほうが
 # 素性である。SKILL_SCALE × 0.60 を採る。
-HEAL_SCALE = 0.89
+# 【§7.190・テストプレイの案】0.89 → SKILL_SCALE と同じ 1.482。あわせて
+# **回復は最大兵力を超えられる**（`HEAL_OVERFLOW`）。理由はテストプレイの読み:
+#   ・同じ量なら「削る」ほうが「戻す」より強い（削りは相手の出力を永久に奪って
+#     複利に乗り、しかも**倒しきる可能性**がある）。実測でも回復の値打ちは同じ%の
+#     打撃の 1/4 しかなかった（§7.190 の測定）。
+#   ・だから回復は**同じ%で少し多め**でないと釣り合わない。打撃と同じ係数にすると、
+#     回復は防御力を通らないぶん盤面へ入る量が打撃の 1.5倍 になる。
+#   ・上限（`men0`）で切ると、量を増やすほど溢れて頭打ちになる。**援軍として
+#     上限を超えて積める**ようにすれば、打撃と同じく「量がそのまま入る」器になる。
+HEAL_SCALE = 1.482
+# 回復が最大兵力を超えられるか（§7.190）。False なら従来どおり満タンで切る。
+HEAL_OVERFLOW = True
 # §6.5「1つの能力に対する補正合計は -50% 〜 +50% に丸める」。
 MOD_CAP = 0.50
 USE_TYPE_DEF = True
@@ -1423,7 +1434,8 @@ TRAIT_FOE_SKILL_WARMUP = 0
 #
 #   キー: (発動条件, 対象文, 1戦の回数上限, Skill, 表示名)
 #
-# 発動条件は6つ。ally_retreat / enemy_retreat / self_low_hp / ally_skill /
+# 発動条件は7つ。ally_retreat / ally_low_hp（§7.190・味方が LOW_HP を割った）/
+# enemy_retreat / self_low_hp / ally_skill /
 # foe_skill（§7.129。**敵の攻め兵法が解決した**ティック。強化・回復・構えには
 # 反応せず、打ち消された兵法も数えない）/ self_dead（§7.113。**自分が全滅したそのティック**に1回だけ撃つ。潰走
 # （TRAIT_TRIGGER 割れ）ではなく兵力 0 で、self_low_hp とは別の瞬間である）。
@@ -2412,6 +2424,13 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
                             and any(x is not u for x in newly_own))
                            or (cond == "enemy_retreat" and bool(newly_foe))
                            or (cond == "self_low_hp" and u.ratio() < LOW_HP)
+                           # 味方が瀕死（§7.190）。`ally_retreat`（味方が**潰走した後**）
+                           # では救護が間に合わない — 倒れてから戻しても、その隊の
+                           # 出力はもう返らない。閾値は self_low_hp と同じ LOW_HP で、
+                           # 「接敵」の意味を1つにするのと同じ流儀。
+                           or (cond == "ally_low_hp"
+                               and any(x is not u and x.men > 0.0
+                                       and x.ratio() < LOW_HP for x in own))
                            or (cond == "ally_skill"
                                and any(x in fired_skill
                                        for x in own if x is not u))
@@ -3459,7 +3478,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     # 満タンぶんは盤面でも数えない。**スナップショットに対して測る**
                     # ので、同じティックで他が撃っていても量が変わらない。帳簿の
                     # 実回復は精算で切り直す（同じ窓に回復が重なれば余りが出る）。
-                    gain = min(amt, f.men0 - f.men)
+                    # 援軍（§7.190）: 上限を超えて積める。切ると量を増やすほど
+                    # 溢れて頭打ちになり、「多めに戻して釣り合わせる」が効かない。
+                    gain = amt if HEAL_OVERFLOW else min(amt, f.men0 - f.men)
                     _ledger("heal", u, f, gain, acc)
                     _men_add(f, gain)
                     done += gain
