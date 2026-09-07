@@ -9,6 +9,7 @@
     python3 tools/skill_panel.py --trait --trait-effect hakuba "移動速度 +30%（20秒）|enemy_retreat で発動 / 対象 自分 / 1戦3回まで" 公孫瓚〔白馬義従〕
     python3 tools/skill_panel.py --quick ...                          # 4性格×20種
     python3 tools/skill_panel.py --real-base 李典〔慎重〕                # 土台を実カードの性格デッキに
+    python3 tools/skill_panel.py --yard 3 諸葛亮〔臥龍〕                  # 物差しを3コスト点削りで測る（弓の1点が軽い件・§7.181）
 
 土台: その札 ＋ 合成の詰め物5枚（総コスト30・詰め物は同コスト・弓は後衛、
 歩騎は前衛）。相手は実カードの性格パネル（12性格 × N種・官渡30）。
@@ -59,8 +60,12 @@ DELTA = 2.0
 _S = {}
 
 
-def _minus_one(card, g):
-    """同じ札から能力値をちょうど1コスト点ぶん削った札（物差し用）。
+def _minus_one(card, g, points: float = 1.0):
+    """同じ札から能力値をちょうど `points` コスト点ぶん削った札（物差し用）。
+
+    **削り幅は選べる（§7.181・`--yard N`）。** 1点だと高コストの弓は差が
+    0.005 前後しか出ず、割ると残存点も ± も膨らむ（§7.158 ①）。3点なら同じ
+    ばらつきで差が3倍になり、割り戻した1点あたりの傾きが安定する。
 
     盤面は 兵力 を stat_cost から、攻撃力 を 武力・知力 から作るので、
     stat_cost を 1 下げ、武力・知力 は「効果に1点多く払った設計」から引き直す。
@@ -69,14 +74,14 @@ def _minus_one(card, g):
     上限を効かせると能力値が1点ぶん減らない。"""
     d = R.to_design(g)
     paid = d.cost - card.stat_cost          # 名簿がその札の効果に払っている額
-    d2 = DS.Design(**{**d.__dict__, "effect": paid + 1.0})
+    d2 = DS.Design(**{**d.__dict__, "effect": paid + points})
     cap = DS.EFFECT_CAP
     DS.EFFECT_CAP = 99.0
     try:
         v = DS.derive(d2)
     finally:
         DS.EFFECT_CAP = cap
-    return replace(card, stat_cost=card.stat_cost - 1.0,
+    return replace(card, stat_cost=card.stat_cost - points,
                    might=round(v["武力"], 1), wits=round(v["知力"], 1))
 
 
@@ -175,8 +180,8 @@ def _one(job):
         c = replace(c, gauge_cost=gc, gauge_init=gi)
     if mode == "off":
         c = replace(c, skill="") if not _S.get("trait") else replace(c, trait="")
-    elif mode == "m1":                   # 物差し: 能力値を1コスト点ぶん削った同じ札
-        c = _minus_one(c, _S["rows"][name])
+    elif mode.startswith("m"):           # 物差し: 能力値を N コスト点ぶん削った同じ札
+        c = _minus_one(c, _S["rows"][name], float(mode[1:]))
     w, d = [], []
     bases = _S.get("bases")
     if bases:                            # 実カードの土台: 土台ごとに相手を分ける
@@ -230,7 +235,7 @@ def main():
     # とき両方消えて「0枚」になる（一度踏んだ）。
     skip = set()
     width = {"--seeds": 1, "--effect": 2, "--trait-effect": 2, "--const": 1, "--gauge": 2,
-             "--bases": 1, "--cap": 1}
+             "--bases": 1, "--cap": 1, "--yard": 1}
     for i, a in enumerate(sys.argv):        # 同じ旗が複数回出ても全部の引数を除く
         if a in width:
             skip.update(range(i + 1, i + 1 + width[a]))
@@ -273,7 +278,9 @@ def main():
             fp.get(g["名前"], ""), g["コスト"], g["能力値コスト"], g["武力"], g["知力"])
     print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局（1組1局・組み合わせ {} 通り）".format(
         len(names), what, npers, seeds, npers * seeds, npers * seeds), flush=True)
-    variants = [("on", 0.0), ("off", 0.0), ("m1", 0.0)]
+    yard = float(sys.argv[sys.argv.index("--yard") + 1]) if "--yard" in sys.argv else 1.0
+    ymode = "m{:g}".format(yard)
+    variants = [("on", 0.0), ("off", 0.0), (ymode, 0.0)]
     if filler:
         variants += [("on", DELTA), ("on", -DELTA)]
     jobs = []
@@ -301,11 +308,12 @@ def main():
         key = lambda mode, bump: "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
         won, don = got[key("on", 0.0)]
         woff, doff = got[key("off", 0.0)]
-        wm1, dm1 = got[key("m1", 0.0)]
+        wm1, dm1 = got[key(ymode, 0.0)]
         dw = [a - b for a, b in zip(won, woff)]       # 兵法の差（勝率）
-        sw = [a - b for a, b in zip(won, wm1)]        # 1コスト点の差（勝率）
+        # 物差しは **1コスト点あたり**へ割り戻す（--yard N なら N 点削って ÷N）
+        sw = [(a - b) / yard for a, b in zip(won, wm1)]   # 1コスト点の差（勝率）
         dd = [a - b for a, b in zip(don, doff)]       # 兵法の差（残存差）
-        sd = [a - b for a, b in zip(don, dm1)]        # 1コスト点の差（残存差）
+        sd = [(a - b) / yard for a, b in zip(don, dm1)]   # 1コスト点の差（残存差）
         n_ = len(dw)
         mw, ms = statistics.mean(dw), statistics.mean(sw)
         md, msd = statistics.mean(dd), statistics.mean(sd)
@@ -331,7 +339,7 @@ def main():
                                                 md / slope if abs(slope) > 1e-9 else float("nan"))
         print(line, flush=True)
     print()
-    print("  1点Δ勝・1点Δ残 = 同じ札の能力値を1コスト点ぶん削ったときの差（物差し）。")
+    print("  1点Δ勝・1点Δ残 = 同じ札の能力値を{:g}コスト点ぶん削った差 ÷{:g}（物差し・--yard）。".format(yard, yard))
     print("  勝率点・残存点 = 兵法の差 ÷ 物差し（＝コスト点）。± は残存点の誤差（95%）。")
     print("  請求 = 名簿がその札から引いている額（{}のぶん）。釣り合い = 残存点 − 請求。"
           "マイナスが払い過ぎ".format(what))
