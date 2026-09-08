@@ -23,6 +23,7 @@ dgo＝呉・dgunyu＝群雄）。宝物は「同じデッキの宝物あり／�
 scratchpad の tp_lib.py / tp_run.py / tp_report.py を1本にまとめたもの。
 """
 import dataclasses
+import io
 import json
 import os
 import statistics
@@ -57,7 +58,11 @@ DECKS = {
     # 群雄は §7.151 の盤面で魏前衛＋群雄後衛が 6〜26% にしかならず（後衛をどう
     # 入れ替えても・田豊を入れても）、上限22まで下げてやっと五分。前衛ごと群雄に
     # 組み替えて上限23で 48.6%（2026-09-04）。玉璽の条件（群雄3人以上）は自明に成立。
-    "dgunyu": ["公孫瓚〔白馬義従〕", "華雄〔汜水関〕", "紀霊〔三尖刀〕",
+    # 【2026-09-08】紀霊〔三尖刀〕が 3→2 コストへ動いて合計が 29 になっていた
+    # （名簿の手入れで土台が腐る例）。同じ兵種・同じ勢力のコスト3（袁術〔仲家〕）へ
+    # 差し替えて 30 へ戻した。**玉璽の功 17 は差し替え前の土台で測った値**なので、
+    # 次に玉璽を測り直すときはこの土台で取り直すこと。
+    "dgunyu": ["公孫瓚〔白馬義従〕", "華雄〔汜水関〕", "袁術〔仲家〕",
                "貂蝉〔傾国〕", "陳宮〔公台〕", "王允〔連環計〕"],
 }
 # 条件 = (デッキ, 宝物キー, 持ち主)
@@ -76,7 +81,12 @@ CONDS = {
     "d0_seino":       ("d0", "t_seino",     "曹仁〔堅守〕"),
     "d0_mokgyu":      ("d0", "t_mokgyu",    "満寵〔剛毅〕"),   # 後衛のみの札
     "d0_toko":        ("d0", "t_toko",      "文聘〔江夏〕"),   # 演出＝零点対照
+    # 相性を捻じる3つ（§7.202）。**その相性が実際に起きる枠**へ持たせる —
+    # 大楯は矢を浴びる壁、馬鎧は唯一の騎兵、短弓は主砲の弓。
+    "d0_daijun":      ("d0", "t_daijun",    "曹仁〔堅守〕"),   # 前衛の壁（歩兵）
+    "d0_tankyu":      ("d0", "t_tankyu",    "李典〔慎重〕"),   # 主砲の弓
     "dcav_sekitoba":  ("dcav", "t_sekitoba", "曹洪〔救主〕"),
+    "dcav_bagai":     ("dcav", "t_bagai",   "曹洪〔救主〕"),   # 唯一の騎兵
     "dshu_shokkin":   ("dshu", "t_shokkin", "黄忠〔定軍山〕"),
     "dgo_sonshi":     ("dgo", "t_sonshi",   "孫尚香〔弓腰姫〕"),
     "dgunyu_gyokuji": ("dgunyu", "t_gyokuji", "貂蝉〔傾国〕"),
@@ -92,9 +102,16 @@ def _init():
     F.TRAITS_ON = True
     _S["all"] = {c.name: c for c in M._roster_cards()}
     _S["cards"] = M._roster_cards()
-    for name, deck in DECKS.items():
-        tot = sum(_S["all"][n].cost for n in deck)
-        assert tot == 30.0, (name, tot)
+    # 土台は**全部ぴったり30点**（あり/なしの差を同じ土俵で取るため）。
+    # 名簿の手入れで札のコストが動くと静かに腐るので、**ずれを全部並べて**死ぬ。
+    bad = ["{}={:g}".format(n, sum(_S["all"][x].cost for x in d))
+           for n, d in DECKS.items()
+           if sum(_S["all"][x].cost for x in d) != 30.0]
+    if bad:
+        raise SystemExit(
+            "土台デッキの合計が30点でない: {}\n"
+            "  名簿の手入れで札のコストが動いた可能性がある。"
+            "同じ兵種・同じ勢力の札へ差し替えて30へ戻すこと。".format("、".join(bad)))
 
 
 def _equip(names, key, holder):
@@ -124,8 +141,33 @@ def _one(job):
     return rows
 
 
+_FP = {}
+
+
+def board_fingerprint() -> str:
+    """いまの盤面の指紋（名簿4枚 ＋ field の数値定数ぜんぶ）。
+
+    【落とし穴50】控えの鍵に**盤面が入っていなかった**。名簿を手入れしたあと
+    宝物だけ測り直すと、**4日前の土台と今日の宝物を突き合わせて**平然と数字が出る
+    （2026-09-08: 大楯 −7.00% と出たが、土台も測り直したら +6.0%。**符号が逆**だった）。
+    「土台は宝物に依らないから使い回せる」は正しいが、**名簿と盤面には依る**。
+    指紋が変われば別のファイルになるので、古い控えはもう混ざらない。
+    """
+    if not _FP:
+        import hashlib
+        h = hashlib.sha1()
+        for f in ("generals.csv", "skills.csv", "traits.csv", "treasures.csv"):
+            h.update(io.open(os.path.join(R.DATA, f), "rb").read())
+        h.update(repr(sorted(
+            (k, getattr(F, k)) for k in dir(F)
+            if k.isupper() and isinstance(getattr(F, k), (int, float)))).encode())
+        _FP["v"] = h.hexdigest()[:8]
+    return _FP["v"]
+
+
 def _path(name, n, cap):
-    return os.path.join(OUT, "{}_{}_{:g}.json".format(name, n, cap))
+    return os.path.join(OUT, "{}_{}_{:g}_{}.json".format(
+        name, n, cap, board_fingerprint()))
 
 
 def _paired(a, b):

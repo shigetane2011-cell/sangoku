@@ -1092,7 +1092,7 @@ def load_treasures_into_field() -> int:
         if t["帯"] not in pools:
             raise SystemExit("treasures.csv: 帯が不正: {} ({})".format(t["帯"], key))
         pools[t["帯"]] += 1
-        if t["装備制限"] not in ("", "騎兵", "弓兵"):
+        if t["装備制限"] not in ("", "歩兵", "騎兵", "弓兵"):
             raise SystemExit("treasures.csv: 装備制限が不正: " + key)
         if t["勢力"] not in ("", "魏", "蜀", "呉", "群雄"):
             raise SystemExit("treasures.csv: 勢力が不正: " + key)
@@ -1100,7 +1100,7 @@ def load_treasures_into_field() -> int:
             raise SystemExit("treasures.csv: 功は非負整数: " + key)
         if t["型"] not in ("誘発", "常在", "演出"):
             raise SystemExit("treasures.csv: 型が不正: " + key)
-    if pools != {"大": 7, "中": 6, "小": 5}:
+    if pools != {"大": 7, "中": 9, "小": 5}:      # 中は §7.202 で 6→9
         raise SystemExit("treasures.csv: 帯の枚数が設計と違う: " + str(pools))
     n = 0
     for t in rows:

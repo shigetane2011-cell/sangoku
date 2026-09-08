@@ -759,14 +759,27 @@ def sync_type_atk() -> None:
 
 
 def type_atk(u: "Unit", f: "Unit", d: float) -> float:
-    """攻め手 u から的 f への被害倍率（1.0 が補正なし）。"""
+    """攻め手 u から的 f への被害倍率（1.0 が補正なし）。
+
+    【§7.202】6マスの表は**盤面ぜんたいで1つ**だが、宝物は「この隊だけ相性を
+    ずらす」ことができる。攻める向き（`edge_deal`）と受ける向き（`edge_take`）を
+    **ここで両方掛ける** — 通常攻撃の2か所とも同じ関数を通るので、書き漏らしが
+    起きない。**足し算ではなく掛け算**にしてあるのは、三すくみを較正し直して
+    マスの値が動いても「この向きの被害を N% 変える」という意味が保たれるため。
+    """
     k = (u.typ, f.typ)
     v = TYPE_ATK.get(k, 0.0)
     if TYPE_ATK_NEAR:
         n = TYPE_ATK_NEAR.get(k, 0.0)
         if n:
             v += n * smooth_gate(d, 0.0, SUPPRESS_R)
-    return 1.0 + v
+    v = 1.0 + v
+    if TRAITS_ON:
+        if u.edge_deal:
+            v *= 1.0 + u.edge_deal.get(f.typ, 0.0)
+        if f.edge_take:
+            v *= 1.0 + f.edge_take.get(u.typ, 0.0)
+    return v
 
 
 # 三すくみ（§5.3）。有利側にのみボーナス。
@@ -1531,6 +1544,24 @@ TREASURE_SEKITOBA_MEN = 0.02   # 赤兎馬: 兵力+2%（速度寄せ+0.3は play
 TREASURE_MOTOKU_SCUT = 0.15    # 孟徳新書: 兵法防御+15%（敵の手を書物で見抜く）
 TREASURE_RENDO_ATK = 0.08      # 諸葛連弩: 通常攻撃+8%（弓兵限定はセット時検証）
 TREASURE_MOKGYU_DEF = 0.08     # 木牛流馬: 後衛に置いた時だけ守り+8%（輜重の余裕）
+
+# ── 相性を1枚だけ捻じる3つ（§7.202・テストプレイの案・**数値は全部仮**）──
+#
+# 「得意な相手への強みを削って、苦手な相手への弱みを埋める」。三すくみの向きは
+# 変えず、**その1枚だけ**差を縮める。同じ宝物は1人1個なので、1つのデッキで
+# この手当てを受けられるのは各兵種1枚ずつ。盤ぜんたいの三すくみは壊れない。
+#
+# 値は**その向きの被害倍率に対する割合**（`type_atk` が掛ける）。マスの絶対値
+# （CAV_VS_ARC など）ではなく割合で持つので、三すくみを較正し直しても
+# 「弓からの被害 −15%」という意味が動かない。
+TREASURE_DAIJUN_TAKE_ARC = -0.15   # 大楯（歩兵）: 弓から受ける被害
+TREASURE_DAIJUN_DEAL_CAV = -0.18   # 大楯: 騎へ与える被害（迎え撃つ強みが薄れる）
+TREASURE_BAGAI_TAKE_INF = -0.18    # 馬鎧（騎兵）: 歩から受ける被害
+TREASURE_BAGAI_DEAL_ARC = -0.16    # 馬鎧: 弓へ与える被害（強みが薄れる）
+# 短弓（弓兵）は相性表ではなく**距離**の話なので別の口。接敵抑制の上限を
+# 隊ごとに下げ（＝密着しても撃てる）、そのぶん通常攻撃を素で削る。
+TREASURE_TANKYU_SUPPRESS = 0.60    # 接敵時に失う割合（既定 SUPPRESS_MAX 0.85）
+TREASURE_TANKYU_ATK = -0.15        # 通常攻撃 −15%（兵法の威力には掛からない）
 # 勢力の宝（大・利用条件つき）: 同じ部隊にその勢力の武将が TREASURE_FACTION_NEED
 # 人以上（持ち主含む）いるときだけ全軍へ効く。条件は**戦闘時に数えるだけ**
 # （陣頭の is_front と同型・セット時検証なし）。キー → (勢力, 器, 量)。
@@ -1993,7 +2024,7 @@ class Unit:
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
         "perm_atk", "perm_def", "perm_rate", "perm_scut",
-        "later", "stunned", "amp",
+        "later", "stunned", "amp", "edge_deal", "edge_take", "sup_max",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -2066,6 +2097,11 @@ class Unit:
         self.perm_def = 0.0
         self.perm_rate = 0.0
         self.perm_scut = 0.0
+        # 【§7.202】相性の上乗せ（相手の兵種 → 割合）。攻める向きと受ける向きを
+        # 別に持つ。恒久項と同じで、時限効果の山には数えない。
+        self.edge_deal: Dict[str, float] = {}
+        self.edge_take: Dict[str, float] = {}
+        self.sup_max = SUPPRESS_MAX      # 接敵で失う割合（短弓だけ下げる）
         if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
             self.men = self.men0
@@ -2081,6 +2117,17 @@ class Unit:
                 self.perm_atk += TREASURE_RENDO_ATK
             if "t_mokgyu" in self.traits and not is_front:
                 self.perm_def += TREASURE_MOKGYU_DEF   # 木牛流馬: 後衛のみ
+            # 相性を1枚だけ捻じる3つ（§7.202）。兵種の制限はセット時に弾いて
+            # あるが、ここでも兵種を見る — 陣容の復元は制限を通らないため。
+            if "t_daijun" in self.traits and card.typ == INF:      # 大楯
+                self.edge_take[ARC] = TREASURE_DAIJUN_TAKE_ARC
+                self.edge_deal[CAV] = TREASURE_DAIJUN_DEAL_CAV
+            if "t_bagai" in self.traits and card.typ == CAV:       # 馬鎧
+                self.edge_take[INF] = TREASURE_BAGAI_TAKE_INF
+                self.edge_deal[ARC] = TREASURE_BAGAI_DEAL_ARC
+            if "t_tankyu" in self.traits and card.typ == ARC:      # 短弓
+                self.sup_max = TREASURE_TANKYU_SUPPRESS
+                self.perm_atk += TREASURE_TANKYU_ATK
         # 周回スケーリング（§7.60）。atk 算出（上の f）より後に掛けること —
         # 先に掛けると per-man の atk が薄まって出力が上がらない。
         if card.boost != 1.0:
@@ -3657,7 +3704,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 alive_f = [f2 for f2 in foe if f2.men > 0.0]
                 if alive_f:
                     g = min(box_gap(u, f2) for f2 in alive_f)
-                    dmg *= 1.0 - SUPPRESS_MAX * smooth_gate(g, 0.0, SUPPRESS_R)
+                    dmg *= 1.0 - u.sup_max * smooth_gate(g, 0.0, SUPPRESS_R)
             done = 0.0
             got = []
             for f in tgts:
@@ -4242,7 +4289,8 @@ def _suppress(u: Unit, gaps: List[float],
                 press = g
     else:
         press = smooth_gate(min(gaps), 0.0, SUPPRESS_R)
-    fire = 1.0 - SUPPRESS_MAX * press      # いま実際に放てている割合
+    # 【§7.202】上限は**隊ごと**（短弓だけ下げる）。既定は SUPPRESS_MAX。
+    fire = 1.0 - u.sup_max * press         # いま実際に放てている割合
     sup = fire
     if AMMO_MODE == "attrition":
         if AMMO_SPAN > 0.0 and u.shot > AMMO_SPAN:

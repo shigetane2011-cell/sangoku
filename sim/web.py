@@ -426,6 +426,21 @@ def _treasure_brief(key, row):
         return "防御寄せ -0.3 — 鎧を軽くして兵を厚くする"
     if key == "t_shichisei":
         return "この武将の兵法は打消しの構えに阻まれない"
+    # 相性を1枚だけ捻じる3つ（§7.202）。**どちらの向きかを必ず書く** —
+    # 「弓に強い」だけだと、撃たれ強いのか撃ち返せるのかが読めない。
+    if key == "t_daijun":
+        return ("弓兵から受ける被害 {:.0%}、代わりに騎兵へ与える被害も {:.0%}"
+                "（歩兵のみ）").format(F.TREASURE_DAIJUN_TAKE_ARC,
+                                   F.TREASURE_DAIJUN_DEAL_CAV)
+    if key == "t_bagai":
+        return ("歩兵から受ける被害 {:.0%}、代わりに弓兵へ与える被害も {:.0%}"
+                "（騎兵のみ）").format(F.TREASURE_BAGAI_TAKE_INF,
+                                   F.TREASURE_BAGAI_DEAL_ARC)
+    if key == "t_tankyu":
+        return ("接敵されても射撃の {:.0%} を保つ（ふだんは {:.0%}）、"
+                "代わりに通常攻撃 {:.0%}（弓兵のみ）").format(
+                    1.0 - F.TREASURE_TANKYU_SUPPRESS, 1.0 - F.SUPPRESS_MAX,
+                    F.TREASURE_TANKYU_ATK)
     if key == "t_mokgyu":
         return "後衛に置いた時だけ守り +{:.0%}（輜重の余裕）".format(
             F.TREASURE_MOKGYU_DEF)

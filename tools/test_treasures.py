@@ -93,6 +93,72 @@ class TreasureEngineTest(unittest.TestCase):
         c = PL.apply_treasure_card_mods(_synth_with("t_sekitoba"))
         self.assertAlmostEqual(c.spd_lean, 0.3)
 
+    # 4b. 相性を1枚だけ捻じる3つ（§7.202）
+    def _pair(self, ta, tb, key_a="", key_b=""):
+        """兵種 ta の1枚と tb の1枚を作り、a→b の相性倍率を返す。"""
+        a = F.build(_army([dataclasses.replace(F._synth(4.0, ta), trait=key_a)]
+                          + _filler(5)), 1)[0]
+        b = F.build(_army([dataclasses.replace(F._synth(4.0, tb), trait=key_b)]
+                          + _filler(5)), -1)[0]
+        return F.type_atk(a, b, 999.0), a, b
+
+    def test_daijun_shifts_both_ways(self):
+        """大楯: 弓から受ける被害が減り、騎へ与える被害も減る（歩兵のみ）。"""
+        base, _, _ = self._pair(F.ARC, F.INF)
+        got, _, _ = self._pair(F.ARC, F.INF, key_b="t_daijun")
+        self.assertAlmostEqual(got / base, 1.0 + F.TREASURE_DAIJUN_TAKE_ARC)
+        base, _, _ = self._pair(F.INF, F.CAV)
+        got, _, _ = self._pair(F.INF, F.CAV, key_a="t_daijun")
+        self.assertAlmostEqual(got / base, 1.0 + F.TREASURE_DAIJUN_DEAL_CAV)
+        # 関係のない向きは動かない（歩→弓・弓→騎）
+        for ta, tb in ((F.INF, F.ARC), (F.ARC, F.CAV)):
+            b0, _, _ = self._pair(ta, tb)
+            g0, _, _ = self._pair(ta, tb, key_a="t_daijun", key_b="t_daijun")
+            self.assertAlmostEqual(g0, b0)
+
+    def test_bagai_shifts_both_ways(self):
+        base, _, _ = self._pair(F.INF, F.CAV)
+        got, _, _ = self._pair(F.INF, F.CAV, key_b="t_bagai")
+        self.assertAlmostEqual(got / base, 1.0 + F.TREASURE_BAGAI_TAKE_INF)
+        base, _, _ = self._pair(F.CAV, F.ARC)
+        got, _, _ = self._pair(F.CAV, F.ARC, key_a="t_bagai")
+        self.assertAlmostEqual(got / base, 1.0 + F.TREASURE_BAGAI_DEAL_ARC)
+
+    def test_edge_treasures_need_the_right_type(self):
+        """兵種が違えば効かない（陣容の復元はセット時の制限を通らない）。"""
+        base, _, _ = self._pair(F.ARC, F.CAV)
+        got, _, _ = self._pair(F.ARC, F.CAV, key_b="t_daijun")   # 大楯を騎兵が持つ
+        self.assertAlmostEqual(got, base)
+        u = F.build(_army([dataclasses.replace(F._synth(4.0, F.INF),
+                                               trait="t_tankyu")] + _filler(5)), 1)[0]
+        self.assertAlmostEqual(u.sup_max, F.SUPPRESS_MAX, msg="短弓が歩兵に効いている")
+
+    def test_tankyu_keeps_firing_when_engaged(self):
+        """短弓: 密着でも射撃を保つ代わりに、素の通常攻撃が下がる。"""
+        plain = F.build(_army([F._synth(4.0, F.ARC)] + _filler(5)), 1)[0]
+        short = F.build(_army([dataclasses.replace(F._synth(4.0, F.ARC),
+                                                   trait="t_tankyu")] + _filler(5)), 1)[0]
+        self.assertAlmostEqual(short.sup_max, F.TREASURE_TANKYU_SUPPRESS)
+        self.assertAlmostEqual(short.atk_mult, 1.0 + F.TREASURE_TANKYU_ATK)
+        near = [0.0]                       # 密着
+        far = [F.SUPPRESS_R * 5.0]         # 射程の外まで離れている
+        p_near = F._suppress(plain, near, parts=True)[1]
+        s_near = F._suppress(short, near, parts=True)[1]
+        self.assertGreater(s_near, p_near, "密着で撃てる割合が増えていない")
+        self.assertAlmostEqual(s_near, 1.0 - F.TREASURE_TANKYU_SUPPRESS)
+        self.assertAlmostEqual(F._suppress(plain, far, parts=True)[1],
+                               F._suppress(short, far, parts=True)[1],
+                               msg="遠くでは抑制に差が出ないはず")
+
+    def test_edges_are_off_without_traits(self):
+        F.TRAITS_ON = False
+        try:
+            base, _, _ = self._pair(F.ARC, F.INF)
+            got, _, _ = self._pair(F.ARC, F.INF, key_b="t_daijun")
+            self.assertAlmostEqual(got, base)
+        finally:
+            F.TRAITS_ON = True
+
     # 5〜6. 勢力の宝: 3人で立ち、2人では立たない
     def _shu3(self, holder_key=""):
         shu = [c for c in M._roster_cards() if c.faction == "蜀"][:3]
@@ -311,7 +377,9 @@ def http_checks() -> bool:
     print("[17] dev door 全獲得 → 日替わりは店じまい")
     req("POST", "/api/dev_treasure", cookie=sid, body={})
     D = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
-    check("18種すべて所持", len(D["treasures"]) == 18, len(D["treasures"]))
+    # 台帳の枚数は増える（§7.202 で 18→21）ので決め打ちにしない
+    check("台帳の全種を所持", len(D["treasures"]) == len(PL.treasure_rows()),
+          "{} / {}".format(len(D["treasures"]), len(PL.treasure_rows())))
     st3 = json.loads(req("GET", "/api/state", cookie=sid)[1])
     check("choices が消える（全所持）", not st3.get("treasure"))
 
