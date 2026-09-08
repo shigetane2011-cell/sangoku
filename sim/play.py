@@ -163,7 +163,7 @@ TREASURE_CARD_MODS: Dict[str, Dict[str, float]] = {
     "t_hakuusen": {"wits": 30.0},       # 白羽扇: 知力+30
     "t_gentetsu": {"def_lean": 0.6},    # 玄鉄の鎧（堅陣の書の後継）
     # 軽騎の鞍は §7.203 で馬上回避へ移した（寄せは片方向にしか値打ちが無い）
-    "t_sekitoba": {"spd_lean": 0.3, "might": 10.0},   # 赤兎馬（兵力+4%は盤面側）
+    "t_sekitoba": {"spd_lean": 0.3, "might": 5.0},    # 赤兎馬（兵力+2%は盤面側）
 }
 
 

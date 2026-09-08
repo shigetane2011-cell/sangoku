@@ -89,9 +89,10 @@ class TreasureEngineTest(unittest.TestCase):
         plain = F.build(_army(_filler(3) + [F._synth(4.0, F.ARC)] + _filler(2)), 1)[3]
         self.assertAlmostEqual(got.ammo, F.AMMO_SHOTS * (1.0 + F.TREASURE_MOKGYU_AMMO))
         self.assertAlmostEqual(plain.ammo, F.AMMO_SHOTS)
-        # 素の持ち矢を撃ち切った時点で、素は減っていて木牛は減っていない
+        # 素と木牛の持ち矢の**あいだ**まで撃った時点で、素は減っていて木牛は減っていない。
+        # 「+2秒」のような決め打ちにすると、量を絞ったとたん両方尽きて落ちる（実際に踏んだ）。
         far = [F.SUPPRESS_R * 5.0]
-        got.shot = plain.shot = F.AMMO_SHOTS + 2.0
+        got.shot = plain.shot = (F.AMMO_SHOTS + got.ammo) / 2.0
         self.assertLess(F._suppress(plain, far), F._suppress(got, far))
         self.assertAlmostEqual(F._suppress(got, far), 1.0, msg="まだ尽きていないはず")
 
