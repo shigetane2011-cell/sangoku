@@ -45,7 +45,10 @@ RATE = 4.86
 # 取るので値付けには影響しない。--caps 30,33,36 で走らせて 50% に近い上限を選ぶ。
 # 2026-09-04（§7.151 の盤面・12性格×12種）: d0 34→50.7% ／ dcav 32→57.6% ／
 # dshu 34→47.9% ／ dgo 40→52.1%。上限30ではそれぞれ 69／62／76／84% で為替が効かない。
-DECK_CAP = {"d0": 34.0, "dcav": 32.0, "dshu": 34.0, "dgo": 40.0, "dgunyu": 23.0}
+# 【2026-09-08】盤面が動いて群雄が上限23で 74.2% まで戻ってしまった（五分帯の外＝
+# 為替が効かない）。掃引し直して **23 → 27**（47.2%）。他の4つは帯の中に残っていた
+# （d0 45.1／dcav 54.3／dgo 56.5／dshu 51.9）。
+DECK_CAP = {"d0": 34.0, "dcav": 32.0, "dshu": 34.0, "dgo": 40.0, "dgunyu": 27.0}
 OUT = os.environ.get("TREASURE_STORE", os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".treasure_price_cache"))
 
@@ -158,9 +161,23 @@ def board_fingerprint() -> str:
         h = hashlib.sha1()
         for f in ("generals.csv", "skills.csv", "traits.csv", "treasures.csv"):
             h.update(io.open(os.path.join(R.DATA, f), "rb").read())
-        h.update(repr(sorted(
-            (k, getattr(F, k)) for k in dir(F)
-            if k.isupper() and isinstance(getattr(F, k), (int, float)))).encode())
+        # **数値だけでは足りない。** 勢力の宝（TREASURE_FACTION）や相性表（TYPE_ATK）は
+        # 辞書で持っているので、数値だけ拾うと「玉璽の気勢を +8%→+2% にした」が
+        # 指紋に出ず、古い控えを掴む。並べられるものは全部入れる。
+        vals = []
+        for k in dir(F):
+            if not k.isupper():
+                continue
+            v = getattr(F, k)
+            if isinstance(v, (int, float, str, bool)) or (
+                    isinstance(v, (dict, tuple, list, frozenset, set))):
+                try:
+                    vals.append((k, repr(sorted(v.items()) if isinstance(v, dict)
+                                         else sorted(v) if isinstance(v, (set, frozenset))
+                                         else v)))
+                except TypeError:
+                    vals.append((k, repr(v)))
+        h.update(repr(sorted(vals)).encode())
         _FP["v"] = h.hexdigest()[:8]
     return _FP["v"]
 
