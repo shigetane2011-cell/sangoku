@@ -37,7 +37,10 @@ class BalanceSuiteTest(unittest.TestCase):
         for _where, _name, entry in C.all_fixture_entries(self.data, self.index):
             self.assertEqual(M.validate(entry), [])
             seen += 1
-        self.assertEqual(seen, 80)  # eight named sets (chappy, counter, chappy_prev_20260905, red2_20260906, cav_20260905, chappy_prev_20260907, red2_20260907, chappy_7194) + 24 + 48（§7.196）
+        # 名前つきの登録 9本 + official24 + special48。9本目は testplay_20260908
+        # ＝**テストプレイ本人が画面で組んだ登録**（§7.204。探索の産物ではないので
+        # 盤面が動いても取り直さない）。
+        self.assertEqual(seen, 81)
 
     def test_distribution_reproduces_saved_sample_shape(self):
         report = B.distribution_report(self.data, self.cards)
