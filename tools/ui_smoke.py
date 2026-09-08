@@ -272,6 +272,45 @@ def deck_ui_check(page, rep, label, width):
                       tag("装備できない宝物は理由が出る"))
             page.click("#tr-back"); page.wait_for_timeout(400)
 
+def drunk_display_check(page, rep):
+    """宝物が持ち主にだけ付ける特性が武将詳細に出るか（§7.201）。
+
+    杜康の酒 × 呂布・張飛 は札そのものが「酒乱の組」へ変わる（§7.146）が、
+    武将詳細は名簿の札を出すので**サーバが差分を渡さないと出ない** — 実際に
+    出ていなかった。呂布・張飛は初期の登用に入っていないので `dev_senki` で
+    配り直すが、**あれは戦記も全クリア扱いにする**ので、戦記まわりの検査より
+    後で1回だけ回す（順番を戻すと「戦前」の敵盤面が出なくなって落ちる）。
+    新しいDBでは最初の /api/state が登用を一度消すことにも注意（落とし穴49）。
+    """
+    def tag(msg):
+        return "[酒乱の表示] " + msg
+
+    _open_deck(page)
+    _grant_treasures(page)
+    page.evaluate("() => fetch('/api/dev_senki',{method:'POST',"
+                  "headers:{'content-type':'application/json'},body:'{}'})")
+    page.wait_for_timeout(600)
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#slots .fb-piece", timeout=60000)
+    who = page.evaluate(
+        "() => (D && D.roster || []).filter(c => c.person === '呂布'"
+        " || c.person === '張飛').map(c => c.name)[0] || ''")
+    if not rep.check(bool(who), tag("酒乱の持ち手が名簿にいる")):
+        return
+    page.evaluate(
+        "(n) => fetch('/api/treasure',{method:'POST',"
+        "headers:{'content-type':'application/json'},"
+        "body: JSON.stringify({key:'t_toko', general:n, replace:true})})", who)
+    page.wait_for_timeout(600)
+    page.evaluate("async () => { D = await api('/api/deckdata'); drawAll(); }")
+    page.wait_for_timeout(400)
+    page.evaluate("(n) => showCardInfo(n)", who)
+    page.wait_for_timeout(300)
+    txt = page.text_content("#cardinfo-treasure") or ""
+    rep.check("杜康の酒" in txt, tag("詳細に宝物の名前が出る"))
+    rep.check("酒乱" in txt, tag("宝物が付ける特性（酒乱）が持ち主に見える"))
+    rep.check("混乱" in txt, tag("その特性の中身も出る"))
+
 
 # ── 触りかたの検査（幅ごとに同じことをする）─────────────────
 def exercise(page, rep, label, touch):
@@ -836,6 +875,8 @@ def run():
                     if not mob:
                         readonly_checks(page, rep)
                         rout_badges_check(page, rep, datadir)
+                        # **戦記の検査より後**（dev_senki が全クリア扱いにする）
+                        drunk_display_check(page, rep)
                 rep.check(not errs, "[{}] 画面の例外なし{}".format(
                     label, "：" + "／".join(errs) if errs else ""))
                 ctx.close()

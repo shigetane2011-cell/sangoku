@@ -378,6 +378,49 @@ def http_checks() -> bool:
     check("replace でも兵種の制限は効く", not json.loads(d).get("ok"), d)
     req("POST", "/api/treasure", cookie=sid, body={"key": "t_hakuusen", "general": ""})
 
+    print("[18d] 装備で増える特性が持ち主に見える（§7.201）")
+    # 杜康の酒 × 呂布・張飛 は札そのものが「酒乱の組」へ変わる（§7.146）。
+    # 武将詳細は名簿（CSV）の札を出すので、**サーバが差分を渡さないと画面に
+    # 出ない** — §7.201 まで出ていなかった。
+    req("POST", "/api/dev_treasure", cookie=sid, body={})     # 全宝物（試験用）
+    # **登用し直す。** 新しいDBでは最初の /api/state の tick() が
+    # `fresh_start_v2`（play.py:962・手元専用の一斉リセット）を1回だけ流し、
+    # **その前に配った登用を消す**。[15] で /api/state を叩いているので、
+    # 冒頭の dev_senki はもう効いていない（落とし穴49）。
+    req("POST", "/api/dev_senki", cookie=sid, body={})
+    # 呂布・張飛は版が複数あり、登用済みの版だけが払い出しに載る（§7.135）。
+    # 名前を決め打ちにせず、いま登用できている酒乱の持ち手から選ぶ。
+    D1 = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
+    who = next((c["name"] for c in D1["roster"]
+                if c["person"] in PL.DRUNK_PERSONS), None)
+    check("（準備）酒乱の持ち手が名簿にいる", who is not None)
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_toko", "general": who, "replace": True})
+    check("（準備）{} へ杜康の酒".format(who), json.loads(d).get("ok"), d)
+    D2 = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
+    toko = next(t for t in D2["treasures"] if t["key"] == "t_toko")
+    gr = toko.get("grants") or []
+    check("{} に酒乱が付いて見える".format(who),
+          [g["key"] for g in gr] == ["drunk"], str(gr))
+    check("酒乱の説明が中身を語る（混乱の割合が入る）",
+          bool(gr) and "混乱" in gr[0]["desc"], str(gr))
+    check("宝物そのものの説明は逸話のまま（機構を明かさない）",
+          "混乱" not in toko["desc"] and "酒乱" not in toko["desc"], toko["desc"])
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_toko", "general": "曹仁〔堅守〕", "replace": True})
+    D3 = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
+    toko3 = next(t for t in D3["treasures"] if t["key"] == "t_toko")
+    check("他の武将が持っても増えない", not (toko3.get("grants") or []),
+          str(toko3.get("grants")))
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_seiryu", "general": "関羽〔美髯公〕", "replace": True})
+    D4 = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
+    sei = next(t for t in D4["treasures"] if t["key"] == "t_seiryu")
+    check("札モッドだけの宝物は特性を増やさない", not (sei.get("grants") or []),
+          str(sei.get("grants")))
+    req("POST", "/api/treasure", cookie=sid, body={"key": "t_toko", "general": ""})
+    req("POST", "/api/treasure", cookie=sid, body={"key": "t_seiryu", "general": ""})
+
     print("[19] 軍功予算の超過が entry_errors に出る")
     # 官渡へデッキを組み、CSV の高額順（装備制限なしの宝物だけ）に
     # 予算を超えるまで積む。値段は実測で変わるので決め打ちにしない —

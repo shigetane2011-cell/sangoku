@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import html
 import json
 import os
@@ -294,6 +295,10 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
 _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
                 "enemy_retreat": "敵の隊が崩れた時",
                 "self_low_hp": "自身の兵が減った時",
+                # 味方が瀕死（§7.190）。**`ally_retreat`（潰走した後）とは別物**で、
+                # 崩れる前に効く。ここが表に無かったせいで救護8枚の条件が
+                # **空欄のまま出ていた**（§7.201）。閾値は self_low_hp と同じ。
+                "ally_low_hp": "味方の兵が減った時",
                 "ally_skill": "味方が兵法を放った時",
                 # 自身の**全滅**（§7.113）。「崩れた」（残存30%割れ）とは別で、
                 # 兵が一人も残らなかった時。書き分けないと self_low_hp と
@@ -360,6 +365,33 @@ def _trait_brief(g, key, t):
         desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
             F.FACTION_OF[key], F.VS_FACTION)
     return desc, cond
+
+
+def _treasure_grants(cards, key, general):
+    """その宝物が**その持ち主に限って**増やす特性（§7.201）。
+
+    `play.apply_treasure_card_mods` は装備経路とリプレイの復元経路が通る1点。
+    ここでも同じ関数へ通し、**素の札との差分**を取る（判定を2箇所に書かない）。
+    宝物そのもののキーと生まれつきの特性は差分から外す。
+    """
+    if not general:
+        return []
+    base = next((c for c in cards if c.name == general), None)
+    if base is None:
+        return []
+    had = set(F.trait_keys(base.trait)) | {key}
+    got = PL.apply_treasure_card_mods(dataclasses.replace(
+        base, trait=F.TRAIT_SEP.join(list(F.trait_keys(base.trait)) + [key])))
+    tr = {t["キー"]: t for t in R.traits()}
+    names_jp = _trait_names()
+    out = []
+    for k in F.trait_keys(got.trait):
+        if k in had or k not in tr:
+            continue
+        desc, cond = _trait_brief(None, k, tr[k])
+        out.append({"key": k, "name": names_jp.get(k, k),
+                    "kind": tr[k].get("型", ""), "desc": desc, "cond": cond})
+    return out
 
 
 def _treasure_brief(key, row):
@@ -1202,7 +1234,13 @@ class App(BaseHTTPRequestHandler):
                 "limit": (row.get("装備制限") or "").strip(),
                 "faction": (row.get("勢力") or "").strip(),
                 "kind": (row.get("型") or "").strip(),
-                "general": r["general_name"]})
+                "general": r["general_name"],
+                # 装備した**相手によって札そのものが変わる**宝物がある
+                # （杜康の酒 × 呂布・張飛 の「酒乱」＝§7.146）。武将詳細は名簿
+                # （CSV）の札を出すので、装備で増えた特性はそのままでは出ない
+                # ——**出ていなかった**（§7.201）。持ち主にだけ見せる約束
+                # （§7.136: 相手には秘策）なので、自分の払い出しにだけ混ぜる。
+                "grants": _treasure_grants(cards, r["key"], r["general_name"])})
         treasures.sort(key=lambda t2: -t2["kou"])
         recs = _deck_records(cx, me.id)
         saved = []

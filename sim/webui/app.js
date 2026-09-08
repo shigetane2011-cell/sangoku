@@ -2552,12 +2552,22 @@ function drawCardTreasure(c) {
   const el = $("#cardinfo-treasure");
   if (!el || !D) return;
   const t = treasureOf(c.name);
+  // 装備した相手によってだけ増える特性（杜康の酒×呂布・張飛の「酒乱」＝§7.146）。
+  // **持ち主にだけ見える**（§7.136: 相手には秘策）。名簿の札には載っていないので、
+  // サーバが差分で寄越した grants をここで出す（§7.201 まで出ていなかった）。
+  const grants = ((t && t.grants) || []).map((x) => `
+    <div class="ci-tr-line ci-tr-grant">
+      <span class="tag trait-tag">この宝物で・${esc(x.kind)}</span>
+      <b>【${esc(x.name)}】</b> <span class="muted">${esc(x.desc)}</span>
+      ${x.cond ? `<span class="muted">（${esc(x.cond)}）</span>` : ""}
+    </div>`).join("");
   el.innerHTML = `
     <div class="ci-tr-line">
       <span class="tag skill-tag">宝物</span>
       ${t ? `<b>【${esc(t.name)}】</b><span class="muted">${esc(t.desc || "")}</span>`
           : '<span class="muted">持っていない</span>'}
     </div>
+    ${grants}
     <div class="ci-tr-btns">
       <button class="mini ghost" data-tr-set="${esc(c.name)}" type="button">宝物を設定</button>
       ${t ? `<button class="mini ghost" data-tr-off="${esc(t.key)}" type="button">外す</button>` : ""}

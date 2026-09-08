@@ -207,6 +207,64 @@ class TriggerCaster(unittest.TestCase):
                         "発動者を狙っていない: {}".format(lines))
 
 
+class TriggerWording(unittest.TestCase):
+    """発動条件の和訳は**表に全部そろっていること**（§7.201）。
+
+    `web._TRAIT_CONDS` に無い条件は、例外にならず**黙って空欄**で出る。
+    実際 `ally_low_hp` が抜けていて、救護8枚の条件が画面にも API にも
+    出ていなかった。表と CSV がずれたらここで落とす。
+    """
+
+    def test_every_condition_has_japanese(self):
+        import re
+        from sim import web as W
+        miss = []
+        for t in R.traits():
+            if t["型"] != "誘発":
+                continue
+            m = re.search(r"(\w+) で発動", t["備考"] or "")
+            k = m.group(1) if m else ""
+            if k not in W._TRAIT_CONDS or not W._TRAIT_CONDS[k]:
+                miss.append("{}（{}）".format(t["キー"], k or "条件なし"))
+        self.assertEqual(miss, [], "発動条件の和訳が無い: " + "、".join(miss))
+
+    def test_relief_condition_is_not_the_rout_one(self):
+        """救護は**崩れる前**に効く。`ally_retreat` と同じ文にしない（§7.190）。"""
+        from sim import web as W
+        tr = {t["キー"]: t for t in R.traits()}
+        for k in ("relief", "relief1"):
+            _desc, cond = W._trait_brief(None, k, tr[k])
+            self.assertIn(W._TRAIT_CONDS["ally_low_hp"], cond, k)
+            self.assertNotIn(W._TRAIT_CONDS["ally_retreat"], cond, k)
+        self.assertNotIn("崩れた", tr["relief"].get("説明", ""),
+                         "補足説明が古い条件のまま（APIにも渡る）")
+
+
+class SameTick(unittest.TestCase):
+    """同じ刻に複数の敵が撃った時（§7.201・仕様として明示）。"""
+
+    def test_one_trigger_covers_every_caster(self):
+        """**1回分の誘発で発動者全員が対象**になり、回数は1回だけ減る。
+
+        特性は1ティック1回しか発動しない（`_fire_traits`）ので、同じ刻に
+        2枚の敵が撃っても引き金は1回。その1回で「その発動者」を全員名指しする。
+        """
+        cards = _cards()
+        names = ("郭嘉〔鬼才〕", "曹仁〔堅守〕", "張嶷〔越巂〕",
+                 "韓当〔老弓〕", "孫尚香〔弓腰姫〕", "張昭〔子布〕")
+        ua = F.build(F.Army([cards[n] for n in names], F.FORM_STANDARD), +1)
+        ub = F.build(F.Army([cards[n] for n in names], F.FORM_STANDARD), -1)
+        me = ua[0]
+        two = [ub[0], ub[1]]           # 同じ刻に2枚が撃った、という盤面
+        retired = {"new": [], "dead": []}
+        F._fire_traits(ua, ub, 10.0, retired, [], set(), fired_skill=set(),
+                       offense=set(two))
+        self.assertEqual(me.fired.get("foresight"), 1, "回数は1回だけ減る")
+        self.assertTrue(all(x.glock for x in two),
+                        "同じ刻に撃った全員が対象にならない")
+        self.assertFalse(any(x.glock for x in ub[2:]), "撃っていない隊まで巻き込む")
+
+
 class ZeroPoint(unittest.TestCase):
     """器を足しても同じ編成どうしは 0.00 のまま（§7.199）。"""
 

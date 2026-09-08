@@ -483,6 +483,9 @@ body.detail-open .deck-col-detail {
   background: var(--panel2); border: 1px solid var(--line2); border-radius: 11px; }
 .ci-tr-line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .ci-tr-line b { font-family: var(--font-min); color: var(--gold-hi); }
+/* 宝物が持ち主にだけ付ける特性（§7.201）。宝物そのものの行より一段下げる */
+.ci-tr-grant { margin-top: 4px; padding-left: 10px;
+  border-left: 2px solid var(--line2); }
 .ci-tr-btns { display: flex; gap: 6px; margin-top: 7px; }
 
 /* デッキ切替の帯を上に貼り付ける（§7.198）。天井は JS が測って
