@@ -173,7 +173,8 @@ class TreasureEngineTest(unittest.TestCase):
         F._apply_faction_treasures(us)
         F._apply_faction_treasures(base)
         # 持ち主が居れば全軍の兵力が伸びる（埋め草の合成カードも含めて）
-        self.assertAlmostEqual(us[5].men0, base[5].men0 * 1.02)
+        amt = F.TREASURE_FACTION["t_shokkin"][2]   # 量は実測で動く（§7.203）
+        self.assertAlmostEqual(us[5].men0, base[5].men0 * (1.0 + amt))
         # 2人しか居なければ立たない
         shu2 = [c for c in M._roster_cards() if c.faction == "蜀"][:2]
         shu2[0] = dataclasses.replace(shu2[0], trait=F.TRAIT_SEP.join(
@@ -189,8 +190,9 @@ class TreasureEngineTest(unittest.TestCase):
             list(F.trait_keys(gy[0].trait)) + ["t_gyokuji"]))
         us = F.build(_army(gy + _filler(3)), 1)
         F._apply_faction_treasures(us)
+        amt = F.TREASURE_FACTION["t_gyokuji"][2]   # 量は実測で動く（§7.203）
         for u in us:
-            self.assertAlmostEqual(u.rate_mult, 1.08)
+            self.assertAlmostEqual(u.rate_mult, 1.0 + amt)
 
     # 7. 七星宝刀: 構えを素通しする（帳簿にも実況にも残さない）
     def test_shichisei_pierces_nullify(self):
