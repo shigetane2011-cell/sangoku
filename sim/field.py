@@ -1492,6 +1492,38 @@ COMMAND_ROUT = 0.40
 COMMAND_COLLAPSE = 1.0
 FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 
+# ── 増幅（§7.199）───────────────────────────────────────
+# 「＜的の状態＞の敵への＜損害の種類＞ +N%」を、**損害の全部の入口で1回だけ**
+# 通す共通の器。龐統〔洞察〕が最初の持ち手だが、次に「混乱中の敵への継続損害
+# +N%」のような札が来たときに **CSV へ1行足すだけ**で済むように先に器を作った。
+#
+# **なぜ器から作るか。** 損害の入口は1か所ではない（通常攻撃2・兵法の一撃・
+# 巻き込み・継続・反射）。1枚のためにベタ書きすると、次の1枚は別の場所へ
+# 別の流儀で入ることになり、同じ意味のものが散る。
+#
+# 常在なので戦闘中は変わらない — simulate() の開幕で各隊の `amp` へ配る
+# （§7.138 の勢力の宝と同じ流儀）。**軍全体に乗る**（テストプレイの決定）。
+#
+# 【いまの範囲】条件は "stun"（行動阻害中）だけ、損害は "all"（すべて）だけ。
+# 混乱中・接敵中や、継続だけ・通常攻撃だけ、は器としては通るが未実装・未測定。
+AMPLIFY: Dict[str, Tuple[str, str, float]] = {}   # 特性キー → (条件, 損害の種類, 割合)
+AMP_COND_JP = {"行動阻害中": "stun"}
+AMP_KIND_JP = {"損害": "all", "通常攻撃": "normal", "兵法": "skill", "継続損害": "dot"}
+
+
+def _amp_mult(src: "Unit", tgt: "Unit", kind: str) -> float:
+    """src の側が備える増幅で、tgt への kind の損害が何倍になるか（§7.199）。"""
+    if not TRAITS_ON or not src.amp:
+        return 1.0
+    m = 1.0
+    for cond, want, pct in src.amp:
+        if want not in ("all", kind):
+            continue
+        if cond == "stun" and not tgt.stunned:
+            continue
+        m += pct
+    return m
+
 # 宝物（§7.138・恩賞の後継）。キーは treasures.csv の t_ 名前空間で、
 # card.trait / hidden_trait に生来特性と同じ形で乗る（§7.136 の秘匿も同経路）。
 # **数値は全部仮** — 実測（§7.53 の帯合わせ・値付け）は別タスク。
@@ -1961,6 +1993,7 @@ class Unit:
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
         "perm_atk", "perm_def", "perm_rate", "perm_scut",
+        "later", "stunned", "amp",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -2141,6 +2174,14 @@ class Unit:
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
         self.covered = 0.0      # 馬前で代わりに受けた被害（表示専用・§7.144）
+        # 【§7.199】「→ その後」で**遅れて始まる**効果の待ち行列。
+        # (始まる時刻, 効果の組) で持ち、_expire が時刻を過ぎたものを effects へ移す。
+        # 効果の山（effects）は「切れる時刻」しか持てないので、開始を遅らせる器が要る。
+        self.later: List[Tuple[float, tuple]] = []
+        self.stunned = False    # 行動阻害中か（増幅の条件が読む・§7.199）
+        # この隊の**味方が備えている増幅**（§7.199）。(条件, 損害の種類, 割合)。
+        # 常在なので戦闘中は変わらない — simulate() の開幕で1回だけ配る。
+        self.amp: Tuple[Tuple[str, str, float], ...] = ()
         self.surge = 1.0        # 勢い（乱数のゆらぎ）。1.0 が素
         self.rand = None        # この部隊ぶんの乱数。None なら引かない
         self.gauge = card.gauge_init
@@ -2460,12 +2501,21 @@ def _fire_traits(ua, ub, t, retired, ev, seen, fired_skill=None,
                 if not hit:
                     continue
                 u.fired[key] = u.fired.get(key, 0) + 1
+                # 【§7.199】「その発動者」＝いま攻め兵法を解決した敵。対象表は
+                # 「誰が撃ったか」を知らないので、ここで名指しして渡す。
+                only = None
+                if "その発動者" in target:
+                    only = [x for x in foe if x in offense and x.men > 0.0]
+                    if not only:
+                        u.fired[key] -= 1     # 撃つ相手が居なければ回数も使わない
+                        continue
                 # 発動は**毎回**記録して実況へ渡す（§7.173）。以前は同じ特性を
                 # 1戦1回に絞っていたが、決め手になった再発動が実況から消えた。
                 # 間引きは narrate 側（初回を優先し、決め手と打消しは必ず残す）。
                 _apply_skill(u, sk, target, own, foe, t, src=key,
                              ev=ev, seen=seen, name=jp,
-                             kind_jp="誘発", dead_ok=(cond == "self_dead"))
+                             kind_jp="誘発", dead_ok=(cond == "self_dead"),
+                             only=only)
                 if cond == "self_dead" and "自分" in target and ev is not None \
                         and (sk.heal_pct > 0.0 or sk.heal > 0.0):
                     ev.append(Event(t, "誘発", LINE_PRIO["誘発"],
@@ -2515,6 +2565,10 @@ class Skill:
     # 威力の幅（§7.67）: 0 より大きければ、発動ごとに power〜power_hi の一様
     # 乱数（battle_seed 由来・リプレイ再現可）。種が無い測定では中央値。
     power_hi: float = 0.0
+    # 【§7.199】「→ その後」で**前半が切れてから**始まる状態効果。遅れの秒数は
+    # 前半の最も長い秒数（＝「その後」の意味そのもの）。同時に配ると意味が変わる
+    # 兵法（守りを固めてから攻めに転じる、など）を**書いたとおりに**動かすための口。
+    after_mods: Tuple[Tuple[str, float, float], ...] = ()
     # 予算の縮尺（§7.151）を受けるか。**兵法は True・固有特性と宝物は False**
     # （§7.152 の裁定）。秒数と量は読み込みのときに済んでいるが、打ち切りの
     # 威力・回復は実行時に掛かるので、その口が見る印をここで運ぶ。
@@ -2681,7 +2735,27 @@ def _skill_wits_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     return tuple(out)
 
 
+AFTER_SEP = "→ その後"
+
+
+# 「→ その後」の後半に置ける効果。**待ち行列（Unit.later）は「効果の山」へ
+# 移すだけ**なので、山の外に別の器を持つもの（混乱＝知力比で量が変わる、
+# 打消し＝発動ごとの入れ物）は置けない。器を足すまでは早い段階で断る。
+AFTER_OK = ("atk", "def", "spd", "rate", "scut", "refl", "ncut", "stun", "glock")
+
+
 def _parse_skill(effect: str, target: str) -> Skill:
+    # 【§7.199】「A → その後 B」は前半と後半に割る。**同じ意味でも同時配りとは
+    # 書き分ける** — 読んだ人が暗算しないと分からない書き方をしない（テストプレイの指摘）。
+    head, sep, tail = effect.replace("→その後", AFTER_SEP).partition(AFTER_SEP)
+    after = _skill_mods(tail) if sep else ()
+    bad = [k for k, _a, _s in after if k not in AFTER_OK]
+    if bad:
+        raise SystemExit(
+            "「→ その後」の後半に置けない効果: {}\n  効果文: {}\n"
+            "  置けるのは {} のどれか（混乱・兵法打消しは器が足りない）".format(
+                "・".join(bad), effect, "・".join(AFTER_OK)))
+    effect = head
     p, dur = _skill_power(effect)
     heal, hdur = _skill_heal(effect)
     m = re.search(r"代償\s*兵力(\d+)%", effect)
@@ -2693,6 +2767,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  self_mods=_skill_self_mods(effect),
                  wits_mods=_skill_wits_mods(effect),
                  power_hi=float(hi.group(1)) / 100.0 if hi else 0.0,
+                 after_mods=after,
                  scaled=not _PARSE_UNSCALED)
 
 
@@ -2715,6 +2790,21 @@ def _skill_targets(target: str, u, foe, own, dead_ok: bool = False):
         pool = [x for x in own if x.men > 0.0]
         if not pool:
             return []
+        # 【§7.199】「自分と右隣」。**枠の順で次の1体**（同じ列で1つ右）。
+        # 距離で取ると同距離の2人からどちらかを黙って選ぶことになるので、
+        # 盤面の順番で決める。陣営で盤面が180度回っても枠の順は変わらないので、
+        # プレイヤーが自分の盤で見ている「右隣」と一致する。
+        # **列の右端なら自分だけ**（テストプレイの決定・案①）。
+        if "自分と右隣" in target:
+            me = [u] if u.men > 0.0 else []
+            try:
+                i = own.index(u)
+            except ValueError:
+                return me
+            for x in own[i + 1:]:
+                if x.is_front == u.is_front:
+                    return me + ([x] if x.men > 0.0 else [])
+            return me
         # 「自分と◯衛1体」は「自分」より先に判定する（語が重なるため）
         if "自分と前衛1体" in target or "自分と後衛1体" in target:
             want_front = "前衛" in target
@@ -2975,6 +3065,19 @@ def _fx_add(f: Unit, eff) -> None:
         _SKILL_FX.append((f, "eff", eff))
 
 
+def _fx_later(f: Unit, start: float, eff) -> None:
+    """**遅れて始まる**状態効果を積む（§7.199・「→ その後」）。
+
+    効果の山（effects）は「切れる時刻」しか持たないので、開始を待つぶんは
+    別の行列（Unit.later）で預かり、_expire が時刻を過ぎたら山へ移す。
+    兵法のフェーズ中なら蓄積器へ回すのは他の口と同じ（§7.165）。
+    """
+    if _SKILL_FX is None:
+        f.later.append((start, eff))
+    else:
+        _SKILL_FX.append((f, "later", (start, eff)))
+
+
 def _pool_set(f: Unit, pool) -> None:
     """打消しの入れ物を積む。兵法のフェーズ中なら蓄積器へ回す（効果と同じ口・§7.165）。"""
     if _SKILL_FX is None:
@@ -3155,6 +3258,8 @@ def _flush_men() -> None:
         for f, kind, v in _SKILL_FX:
             if kind == "eff":
                 f.effects.append(v)
+            elif kind == "later":
+                f.later.append(v)
             elif kind == "pool":
                 f.null_pool = v
             else:
@@ -3280,7 +3385,7 @@ def _finish_cast(p) -> None:
 def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                  src: str = "", ev=None, seen=None, name: str = "",
                  kind_jp: str = "兵法", resolved=None,
-                 dead_ok: bool = False) -> None:
+                 dead_ok: bool = False, only=None) -> None:
     """兵法1発ぶんの効果を盤面へ入れる。**固有特性も同じ器を通る。**
 
     src は §6.5 の同名判定に使う出どころ（兵法名または特性キー）。
@@ -3290,7 +3395,10 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     最後に1本だけ積む（成分ごとに何本も出さない）。盤面の計算は記録の有無で
     変わらない。
     """
-    tgts = _skill_targets(tstr, u, foe, own, dead_ok)
+    # 【§7.199】only を渡すと対象を外から名指しできる。誘発の「その発動者」
+    # （引き金を引いた敵を狙い返す）だけが使う — 対象文字列は「誰が撃ったか」を
+    # 知らないので、対象表からは引けない。
+    tgts = list(only) if only is not None else _skill_targets(tstr, u, foe, own, dead_ok)
     if not tgts:
         return
     name = name or src
@@ -3438,6 +3546,22 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if rec is not None:
                 rec["mods"].append([_MOD_JP_KEY.get(key, key), amt, secs,
                                     [_who(f) for f in hit]])
+    # 【§7.199】「→ その後」の後半。**前半のいちばん長い秒数だけ待ってから**始まる。
+    # 向き先の決め方は前半とまったく同じ（`ally` と符号で決まる）— 後半だけ別の
+    # 流儀にすると、同じ効果文が置き場所で違う相手に飛ぶことになる。
+    if sk.after_mods:
+        wait = max([secs for _k, _a, secs in sk.mods] or [0.0])
+        for key, amt, secs in sk.after_mods:
+            if key in ("stun", "glock"):
+                dst = [] if ally else tgts          # 阻害は敵にしか掛からない
+            else:
+                dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
+            hit = [f for f in dst if f.men > 0.0]
+            for f in hit:
+                _fx_later(f, t + wait, (t + wait + secs, key, amt, src))
+            if hit and rec is not None:
+                rec["mods"].append(["その後 " + _MOD_JP_KEY.get(key, key),
+                                    amt, secs, [_who(f) for f in hit]])
     # 知力比の弱体（§7.67）: 表記は知力同格のときの効き目。実際は
     # (撃ち手の知力/受け手の知力)^WITS_MOD 倍 — 混乱と同じで判定は置かない。
     for key, amt, secs in sk.wits_mods:
@@ -3541,13 +3665,17 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
                     # 「威力40%（14秒）」を (0.40, 14.0) と返す）。ここで秒数で割ると
                     # 総量が 1/14 になる。実際に踏んだ。
-                    f.overtime.append((t + sk.dur, "dot", dmg, u,
-                                       rec["id"] if rec else 0))
+                    # 増幅（§7.199）は**火が点いた時点の状態**で決まる（毎秒の量に
+                    # 織り込む）。燃えている最中に阻害が切れても弱まらない —
+                    # 「延焼はもう始まっている」という読みで、実装も帳簿も単純になる。
+                    f.overtime.append((t + sk.dur, "dot", dmg * _amp_mult(u, f, "dot"),
+                                       u, rec["id"] if rec else 0))
                     done += dmg
                     got.append(f)
                 else:
                     pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
-                           * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0))
+                           * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0)
+                           * _amp_mult(u, f, "skill"))     # 増幅（§7.199）
                     eff = pre * f.scut_mult
                     take = min(eff, f.men)
                     if f.scut_mult < 1.0:          # 表示専用（§7.88）
@@ -3596,6 +3724,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     if f.refl > 0.0:
                         # 反射は撃ち手の防御・反射・カットを通さない素の返り
                         # （鏡の鏡を作らない）。遅延窓経由なので同時解決は保たれる。
+                        # **増幅（§7.199）も掛けない** — 返すのは「すでに増幅済みの
+                        # 一撃」の写しなので、ここで掛けると二重になる。
                         back = take * f.refl
                         _ledger("refl", f, u, back, acc)
                         _men_add(u, -back)
@@ -3788,6 +3918,14 @@ def _expire(units, t: float) -> None:
                           for x in tg) - base) <= 1e-9:
                     u.guard_idle += 1
             u.guard_watch = live
+        # 【§7.199】「→ その後」で待たせていた効果を、時刻が来たら山へ移す。
+        # **効果の掃除より先に**やる — 移した直後に切れる短いものも正しく落ちる。
+        if u.later:
+            due = [e for st, e in u.later if st <= t]
+            if due:
+                u.effects.extend(due)
+                u.later = [(st, e) for st, e in u.later if st > t]
+                _recalc_mods(u)
         if not u.effects:
             continue
         u.effects = [e for e in u.effects if e[0] > t]
@@ -3831,6 +3969,7 @@ def _recalc_mods(u: Unit) -> None:
     # （陣頭の兵力と同じ扱い）。ここで足し直すので、__init__ の初期値が
     # 再計算で消えることもない。
     u.glock = glock
+    u.stunned = stun            # 増幅の条件が読む（§7.199）
     u.atk_mult = 0.0 if stun else 1.0 + tot["atk"] + u.perm_atk
     u.spd_mult = 0.0 if stun else 1.0 + tot["spd"]
     u.def_mult = 1.0 + tot["def"] + u.perm_def
@@ -4165,6 +4304,22 @@ def _apply_faction_treasures(us) -> None:
             _recalc_mods(u)
 
 
+def _apply_amplify(us) -> None:
+    """増幅（§7.199）を1軍へ配る。simulate が build 直後に呼ぶ。
+
+    常在なので戦闘中は変わらない — **軍全体**が同じ表を持つ（テストプレイの決定）。
+    持ち手が倒れても効き続ける（陣頭の兵力や勢力の宝と同じ扱い。倒れたら切れる
+    形にすると「誰が生きているか」で損害が跳ね、リプレイの読み解きが難しくなる）。
+    """
+    if not TRAITS_ON:
+        return
+    amp = tuple(AMPLIFY[k] for u in us for k in u.traits if k in AMPLIFY)
+    if not amp:
+        return
+    for u in us:
+        u.amp = amp
+
+
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
              repulse: float = 0.0, damage: bool = True,
              events: "List[Event] | None" = None,
@@ -4222,6 +4377,8 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
     if TRAITS_ON:
         _apply_faction_treasures(ua)
         _apply_faction_treasures(ub)
+    _apply_amplify(ua)
+    _apply_amplify(ub)
     cmd_fell = [False, False]     # 動揺は1回だけ（指揮官は一度しか倒れない）
     if seed is not None and (RAND_SIGMA > 0.0 or SKILL_JITTER > 0.0):
         # **部隊ごとに独立の流れを持たせる。** 1本の流れを共有すると、引く順序が
@@ -4374,6 +4531,17 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
+                    amp = _amp_mult(u, f, "normal")    # 増幅（§7.199）
+                    hit *= amp
+                    if (amp > 1.0 and events is not None
+                            and ("増幅", _side_of(u)) not in seen):
+                        # 常在は出来事を持たないので**効き始めた1回だけ**告げる
+                        # （馬前と同じ流儀）。出さないと、働いているのに
+                        # 画面からは何も分からない。
+                        seen.add(("増幅", _side_of(u)))
+                        events.append(Event(t, "誘発", LINE_PRIO["誘発"],
+                                            "{}の隙を見抜いた。立ちすくむ相手への一撃が深く入る。".format(
+                                                _who(f)), 0.0, side=_side_of(u)))
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL
@@ -4437,6 +4605,17 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         f.cut_saved += hit / f.ncut_mult - hit
                     if TRAITS_ON and _vs_faction(u, f):
                         hit *= 1.0 + VS_FACTION      # 対勢力（常在型）
+                    amp = _amp_mult(u, f, "normal")    # 増幅（§7.199）
+                    hit *= amp
+                    if (amp > 1.0 and events is not None
+                            and ("増幅", _side_of(u)) not in seen):
+                        # 常在は出来事を持たないので**効き始めた1回だけ**告げる
+                        # （馬前と同じ流儀）。出さないと、働いているのに
+                        # 画面からは何も分からない。
+                        seen.add(("増幅", _side_of(u)))
+                        events.append(Event(t, "誘発", LINE_PRIO["誘発"],
+                                            "{}の隙を見抜いた。立ちすくむ相手への一撃が深く入る。".format(
+                                                _who(f)), 0.0, side=_side_of(u)))
                     if u.typ == ARC and ARC_LETHAL < 1.0:
                         f.disrupt += (1.0 - ARC_LETHAL) * hit / f.men0 * DISRUPT_GAIN
                         hit *= ARC_LETHAL

@@ -532,7 +532,8 @@ def kill_premium(power_pct: float, target: str,
 # **ダメージだけが対象数で割られる。** 状態効果は対象1枚ごとに丸ごと乗るので、
 # 対象数を掛ける。ここを揃え損ねると「敵1体に3秒の行動阻害」を「敵1列に3秒」と
 # 同じ値段で売ることになる。
-TARGET_N = {"自分と前衛1体": 2.0, "自分と後衛1体": 2.0, "正面2体": 2.0,
+TARGET_N = {"自分と前衛1体": 2.0, "自分と後衛1体": 2.0, "自分と右隣": 2.0,
+            "正面2体": 2.0,
             "全体": 6.0, "1列": 3.0, "後列": 3.0, "前衛": 3.0, "後衛": 3.0,
             "1体": 1.0, "自分": 1.0}
 
@@ -567,6 +568,9 @@ TARGET_HEAL_F = {
                 '自分': 0.857, '味方1体（残兵力が最少）': 1.614, '味方1体（攻撃力が最高）': 1.207,
                 '味方1列': 0.852, '味方前衛': 1.232, '味方後衛': 0.498, '味方全体': 0.854,
                 '自分と前衛1体': 1.251, '自分と後衛1体': 0.739,
+                # 【§7.199・仮】「自分と右隣」は枠の順で次の1体（§7.199）。
+                # 前衛にも後衛にも置けるので前衛版と後衛版の中間を置く。**未実測**
+                '自分と右隣': 0.995,
 }
 # 味方側の対象係数: 2026-08-22 の対計測で一律 ×0.62（前衛0.64・1列0.65・
 # 全体0.62 と一貫。攻/防どちらも）。**味方後衛だけは別**で、2つの量
@@ -584,6 +588,7 @@ TARGET_FX_OWN = {
                 '自分': 0.805, '味方1体（残兵力が最少）': 0.427, '味方1体（攻撃力が最高）': 0.551,
                 '味方1列': 1.702, '味方前衛': 1.918, '味方後衛': 1.776, '味方全体': 3.528,
                 '自分と前衛1体': 1.243, '自分と後衛1体': 1.243,
+                '自分と右隣': 1.243,
 }
 # 【2026-08-25 再較正・§7.100】同じ掃引から。旧表では「敵後衛」1.12 と
 # 「敵後列」（表に無く既定 3.00）が同じ挙動なのに別の値段だった——いまは同値。
@@ -966,6 +971,39 @@ def tilt_coef(skill_kind: str, typ: str, tilt: str) -> float:
     return (1.0 - v + k * v) / (1.0 - w + k * w)
 
 
+def mods_value(mods, target: str, fx: float) -> float:
+    """状態効果の並び1本ぶんの値段（**段の重みを掛ける前**）。
+
+    兵法の本体（`skill.mods`）と「→ その後」の後半（`after_mods`）が
+    **同じ関数を通る**。別々に書くと、単価を直したとき片方だけ古いまま残る。
+    """
+    v = 0.0
+    for key, amt, secs in mods:
+        if key == "stun":
+            v += EFFECT_PRICE["stun"] * secs * fx
+        elif key == "glock":
+            v += EFFECT_PRICE["glock"] * secs * fx
+        elif key in ("atk", "def"):
+            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
+        elif key in ("scut", "refl", "ncut", "null"):
+            table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
+                     "ncut": TARGET_NCUT_PRICE, "null": TARGET_NULL_PRICE}[key]
+            base = next(iter(table.values()))
+            for k, pv in table.items():
+                if k in target or target in k:
+                    base = pv
+                    break
+            if key == "null":     # 量ではなく回数（§7.152）。秒数は飽和曲線
+                v += base * null_secs_f(secs) * null_count_f(amt)
+            elif key == "scut":   # 量は線形・秒数は飽和曲線（§7.193）
+                v += base * (abs(amt) * 100.0 / SCUT_AMT_REF) * scut_secs_f(secs)
+            else:                 # refl・ncut は秒数を振っていないので線形のまま
+                v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
+        elif key == "chaos":
+            v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
+    return v
+
+
 def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
                  gauge_init: float = 0.0, kisei: float = 1.0,
                  cost: float = F.BASE_COST, typ: str = F.INF,
@@ -1033,29 +1071,13 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
         v += damage_price(skill.power * tc) * target_dmg_f(target)
     v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target) \
         * HEAL_TYPE_MULT.get(typ, 1.0)
-    for key, amt, secs in skill.mods:
-        if key == "stun":
-            v += EFFECT_PRICE["stun"] * secs * fx
-        elif key == "glock":
-            v += EFFECT_PRICE["glock"] * secs * fx
-        elif key in ("atk", "def"):
-            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
-        elif key in ("scut", "refl", "ncut", "null"):
-            table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
-                     "ncut": TARGET_NCUT_PRICE, "null": TARGET_NULL_PRICE}[key]
-            base = next(iter(table.values()))
-            for k, pv in table.items():
-                if k in target or target in k:
-                    base = pv
-                    break
-            if key == "null":     # 量ではなく回数（§7.152）。秒数は飽和曲線
-                v += base * null_secs_f(secs) * null_count_f(amt)
-            elif key == "scut":   # 量は線形・秒数は飽和曲線（§7.193）
-                v += base * (abs(amt) * 100.0 / SCUT_AMT_REF) * scut_secs_f(secs)
-            else:                 # refl・ncut は秒数を振っていないので線形のまま
-                v += base * (abs(amt) * 100.0 * secs) / SCUT_BASE
-        elif key == "chaos":
-            v += EFFECT_PRICE["chaos"] * chaos_equiv(amt) * 100.0 * secs * fx
+    v += mods_value(skill.mods, target, fx)
+    # 【§7.199】「→ その後」で遅れて始まる状態効果。**当座は割引せず満額**で
+    # 請求する（前半と同じ関数を通す）。遅れて始まるぶんは目減りするはず
+    # （決着は平均120秒前後で、30秒待つ強化は持ち手が生きていないと届かない）
+    # だが、掛け目をまだ測っていない。安い側へ倒すと札が得をするので、
+    # **高い側（満額）へ倒しておく**。実測したら AFTER_DISCOUNT を入れて掛けること。
+    v += mods_value(getattr(skill, "after_mods", ()), target, fx)
     # 知力比の弱体（§7.67）: 素の弱体の値段 × (知力傾き)^WITS_MOD。
     # 相手の知力はプールの平均（≒中庸）と見なす — 智将が使えば効き、
     # 脳筋が使えば効かれにくい、という差を撃ち手側の傾きで払わせる。
@@ -1218,6 +1240,15 @@ TRAIT_PRICE = {
     'legacy': 0.2915,
     'avenge': 0.3880,
     'chain': 0.0780,
+    # 【§7.199・仮】重複解除で新設した2つ。**まだ測っていない**（TRAIT_PRICE は
+    # 実測の表で、式を当てる場所ではない）。当座は近い器の値を置き、
+    # `tools/trait_price.py`／`skill_panel` で測って差し替える。
+    #   機先 foresight … 誘発・敵の兵法の直後にその発動者を弱体（呼応と同じ「誘発で
+    #     小さい効果を何度か」の形なので、回数を絞ったぶんを見て呼応の3倍を仮置き）
+    #   洞察 insight  … 常在・軍全体の損害増幅。相手が阻害を受けているかで値打ちが
+    #     変わる**相手依存の器**（打消し・兵法防御と同族）。単価ではなく帯で読む
+    'foresight': 0.2400,
+    'insight': 0.3000,
 }
 
 
