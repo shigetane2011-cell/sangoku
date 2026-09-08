@@ -1197,6 +1197,11 @@ class App(BaseHTTPRequestHandler):
                 "key": r["key"], "name": row["名前"], "tier": row["帯"],
                 "kou": PL.treasure_kou(r["key"]),
                 "desc": _treasure_brief(r["key"], row),
+                # 装備条件を画面が自前で判定できるように渡す（§7.198）。
+                # **判定の正は /api/treasure 側**で、ここは「押す前に理由を出す」ため。
+                "limit": (row.get("装備制限") or "").strip(),
+                "faction": (row.get("勢力") or "").strip(),
+                "kind": (row.get("型") or "").strip(),
                 "general": r["general_name"]})
         treasures.sort(key=lambda t2: -t2["kou"])
         recs = _deck_records(cx, me.id)
@@ -1228,6 +1233,9 @@ class App(BaseHTTPRequestHandler):
             "treasures": treasures,
             "treasure_budgets": {n: PL.treasure_budget_kou(c)
                                  for n, c in M.REGULATIONS},
+            # 勢力の宝の利用条件（同じ部隊に同勢力が何人必要か・§7.138）。
+            # 画面が「条件を満たしているか」を出すのに使う（定義は field 側1箇所）
+            "treasure_faction_need": F.TREASURE_FACTION_NEED,
             "saved": saved,
         })
 
@@ -1472,14 +1480,28 @@ class App(BaseHTTPRequestHandler):
             return self._json({"ok": False, "errors": [
                 "【{}】は{}にしか持たせられない（{} は{}）".format(
                     row["名前"], limit, gen, jp_typ.get(gr["兵種"], gr["兵種"]))]})
-        # 1武将に宝物は1つ（ix_treasure_gen が最終防衛・ここは読める文で先に）
+        # 1武将に宝物は1つ（ix_treasure_gen が最終防衛・ここは読める文で先に）。
+        # 【§7.198】画面が「何が外れて何が付くか」を見せたうえで押した場合だけ、
+        # body.replace=True で**先に外してから付ける**。規則は緩めない —
+        # 終わった後も1武将1個で、装備制限も所持も上で通した後である。
+        # replace が無い（＝素の呼び出し）ときの挙動は従来どおり拒否。
         held = [r for r in P.owned_treasures(cx, me.id)
                 if r["general_name"] == gen and r["key"] != key]
         if held:
             hr = PL.treasure_rows().get(held[0]["key"], {})
-            return self._json({"ok": False, "errors": [
-                "{} はすでに【{}】を持っている（1武将に宝物は1つ）".format(
-                    gen, hr.get("名前", held[0]["key"]))]})
+            if not body.get("replace"):
+                return self._json({"ok": False, "errors": [
+                    "{} はすでに【{}】を持っている（1武将に宝物は1つ）".format(
+                        gen, hr.get("名前", held[0]["key"]))],
+                    "blocked_by": {"key": held[0]["key"],
+                                   "name": hr.get("名前", held[0]["key"])}})
+            for r in held:
+                P.set_treasure(cx, me.id, r["key"], "")
+            P.set_treasure(cx, me.id, key, gen)
+            return self._json({"ok": True, "unequipped": [
+                {"key": r["key"],
+                 "name": PL.treasure_rows().get(r["key"], {}).get("名前", r["key"]),
+                 "general": gen} for r in held]})
         P.set_treasure(cx, me.id, key, gen)
         self._json({"ok": True})
 

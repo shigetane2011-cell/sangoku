@@ -98,6 +98,181 @@ def _fill_board(page):
         page.wait_for_timeout(180)
 
 
+# ── 編成画面と宝物画面の導線（§7.198）───────────────────────
+#   幅で姿が変わるので、**幅ごとに同じことを確かめる**。広い卓上では詳細が
+#   3列目に常駐して盤面へ重ならない。狭い卓上・携帯では引き出しで、閉じれば
+#   元の配置操作へ戻る。宝物は別画面で、往復しても未保存の並びが残る。
+WIDE = 1240        # ここから上は3列（app.css と揃える）
+
+
+def _grant_treasures(page):
+    page.evaluate("() => fetch('/api/dev_treasure',{method:'POST',"
+                  "headers:{'content-type':'application/json'},body:'{}'})")
+    page.wait_for_timeout(500)
+
+
+def _overlaps(a, b):
+    if not a or not b:
+        return False
+    return not (a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
+                or a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"])
+
+
+def deck_ui_check(page, rep, label, width):
+    def tag(msg):
+        return "[{}] {}".format(label, msg)
+
+    def board():
+        return page.evaluate(NAMES)
+
+    _open_deck(page)
+    _grant_treasures(page)
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#slots .fb-piece", timeout=60000)
+    _fill_board(page)
+    page.wait_for_timeout(300)
+    wide = width >= WIDE
+
+    # ① デッキ切替の帯が下までスクロールしても残る
+    page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_timeout(350)
+    bar = page.query_selector("#decktabbar")
+    box = bar.bounding_box() if bar else None
+    rep.check(box is not None and box["y"] >= -1
+              and box["y"] + box["height"] <= page.viewport_size["height"] + 1,
+              tag("下までスクロールしてもデッキ切替が画面に残る"))
+    rep.check(page.query_selector("#regtabs button[data-reg='赤壁']") is not None,
+              tag("3つのデッキタブが押せる"))
+    rep.check("点" in (page.text_content("#regtabs") or ""),
+              tag("タブに使用コスト／上限が出る"))
+    page.evaluate("() => window.scrollTo(0, 0)")
+    page.wait_for_timeout(250)
+
+    # ② タブを行き来しても未保存の並びが消えない
+    before = board()
+    page.click("#regtabs button[data-reg='官渡']"); page.wait_for_timeout(350)
+    page.click("#regtabs button[data-reg='汜水関']"); page.wait_for_timeout(400)
+    rep.check(board() == before, tag("デッキを切り替えて戻っても未保存の並びが残る"))
+
+    # ③ 詳細が配置の邪魔をしない
+    card = page.query_selector("#roster .card:not([disabled])")
+    if rep.check(card is not None, tag("詳細の検査に使える札がある")):
+        card.click(); page.wait_for_timeout(300)
+        name = card.get_attribute("data-n")
+        rep.check(name in (page.text_content("#cardinfo") or ""),
+                  tag("札に1回触れると詳細がその武将になる"))
+        if wide:
+            det = page.query_selector("#detailcol")
+            rep.check(det is not None and det.is_visible(),
+                      tag("広い幅では詳細が3列目に常駐する"))
+            rep.check(not _overlaps(det.bounding_box() if det else None,
+                                    page.query_selector("#slots").bounding_box()),
+                      tag("詳細欄が配置盤面に重ならない"))
+            rep.check(not _overlaps(det.bounding_box() if det else None,
+                                    page.query_selector("#roster").bounding_box()),
+                      tag("詳細欄が武将一覧に重ならない"))
+        else:
+            ob = page.query_selector("#detail-open")
+            if rep.check(ob is not None and ob.is_visible(),
+                         tag("狭い幅では「詳細を開く」が出る")):
+                ob.click(); page.wait_for_timeout(300)
+                det = page.query_selector("#detailcol")
+                rep.check(det is not None and det.is_visible(), tag("詳細が開く"))
+                page.click("#detail-close"); page.wait_for_timeout(300)
+                rep.check(not page.query_selector("#detailcol").is_visible(),
+                          tag("詳細を閉じられる"))
+        # 閉じた（または常駐の）状態で配置操作がそのまま効く
+        b0 = board()
+        page.query_selector_all("#slots .fb-piece")[0].click(); page.wait_for_timeout(200)
+        page.query_selector_all("#slots .fb-piece")[5].click(); page.wait_for_timeout(400)
+        b1 = board()
+        rep.check(b1[0] == b0[5] and b1[5] == b0[0],
+                  tag("詳細を出した後も駒の入れ替えができる"))
+
+    # ④ 宝物画面への往復で未保存の並びとスクロール位置が残る
+    keep = board()
+    page.evaluate("() => window.scrollTo(0, 400)")
+    page.wait_for_timeout(250)
+    sy = page.evaluate("() => Math.round(window.scrollY)")
+    page.click("#open-treasures"); page.wait_for_timeout(500)
+    rep.check(page.query_selector("#tr-grid") is not None, tag("宝物の管理画面が開く"))
+    rep.check("screen=treasures" in page.url, tag("宝物画面が URL に出る（戻れる）"))
+    rep.check(not page.query_selector("#deckscreen").is_visible(),
+              tag("宝物画面は編成の上に重ねず、置き換わる"))
+    n_all = len(page.query_selector_all("#tr-grid .tr-card"))
+    rep.check(n_all >= 10, tag("宝物が一覧に並ぶ（{}件）".format(n_all)))
+    page.fill("#tr-search", "赤兎"); page.wait_for_timeout(300)
+    rep.check(len(page.query_selector_all("#tr-grid .tr-card")) < n_all,
+              tag("名前で絞り込める"))
+    page.fill("#tr-search", ""); page.wait_for_timeout(300)
+    page.click("#tr-filters button[data-f='装備中']"); page.wait_for_timeout(300)
+    rep.check(not page.query_selector_all("#tr-grid .tr-card"),
+              tag("「装備中」の絞り込みが効く（まだ0件）"))
+    page.click("#tr-filters button[data-f='すべて']"); page.wait_for_timeout(300)
+
+    # ⑤ 宝物から装備する（導線A）
+    cards = page.query_selector_all("#tr-grid .tr-card:not([disabled])")
+    if rep.check(bool(cards), tag("装備できる宝物がある")):
+        cards[0].click(); page.wait_for_timeout(400)
+        ap = page.query_selector("#tr-apply")
+        rep.check(ap is not None and ap.is_visible(), tag("適用の欄が出る"))
+        txt = page.text_content("#tr-apply") or ""
+        rep.check("功" in txt, tag("適用前に軍功の増減が出る"))
+        btn = page.query_selector("#tr-apply button[data-apply]")
+        if rep.check(btn is not None, tag("装備先の武将が選べる")):
+            who = btn.get_attribute("data-apply")
+            btn.click(); page.wait_for_timeout(700)
+            rep.check(who in (page.text_content("#tr-grid") or ""),
+                      tag("装備先が一覧に出る"))
+            # 付け替え: 同じ宝物を別の武将へ（元の持ち主から外れる旨が出る）
+            page.click("#tr-filters button[data-f='装備中']"); page.wait_for_timeout(300)
+            c2 = page.query_selector("#tr-grid .tr-card:not([disabled])")
+            if c2:
+                c2.click(); page.wait_for_timeout(400)
+                others = [b for b in page.query_selector_all("#tr-apply button[data-apply]")
+                          if b.get_attribute("data-apply") != who]
+                if rep.check(bool(others), tag("付け替え先の武将が選べる")):
+                    diff = page.text_content("#tr-apply") or ""
+                    rep.check("から外れて" in diff,
+                              tag("適用前に「誰から外れ、誰に付くか」が出る"))
+                    w2 = others[0].get_attribute("data-apply")
+                    others[0].click(); page.wait_for_timeout(700)
+                    rep.check(w2 in (page.text_content("#tr-grid") or ""),
+                              tag("別デッキの武将へ直接付け替えられる"))
+            page.click("#tr-filters button[data-f='すべて']"); page.wait_for_timeout(250)
+
+    page.click("#tr-back"); page.wait_for_timeout(500)
+    rep.check(page.query_selector("#deckscreen").is_visible(), tag("編成へ戻れる"))
+    rep.check(board() == keep, tag("宝物画面への往復で未保存の並びが残る"))
+    back_y = page.evaluate("() => Math.round(window.scrollY)")
+    rep.check(abs(back_y - sy) <= 40,
+              tag("戻り先のスクロール位置が保たれる（{}→{}）".format(sy, back_y)))
+
+    # ⑥ 武将から宝物を設定する（導線B）＋ 装備不可の理由
+    page.evaluate("() => window.scrollTo(0, 0)")
+    page.wait_for_timeout(200)
+    inf = page.query_selector("#roster .card:not([disabled])")
+    if inf:
+        inf.click(); page.wait_for_timeout(300)
+        if not wide:
+            page.click("#detail-open"); page.wait_for_timeout(250)
+        gen = inf.get_attribute("data-n")
+        st = page.query_selector("#cardinfo-treasure button[data-tr-set]")
+        if rep.check(st is not None, tag("武将の詳細に「宝物を設定」がある")):
+            st.click(); page.wait_for_timeout(500)
+            # **画面を名指しで読む** — 編成の DOM は隠れているだけで残っているので、
+            # `.action-copy` だけだと編成側の見出しを拾ってしまう
+            rep.check(gen in (page.text_content("#treasurescreen .action-copy") or ""),
+                      tag("その武将に絞って宝物画面が開く"))
+            rep.check(page.query_selector("#tr-filters button[data-f='装備可能']") is not None,
+                      tag("「装備可能」の絞り込みが出る"))
+            page.click("#tr-filters button[data-f='すべて']"); page.wait_for_timeout(300)
+            bad = page.query_selector("#tr-grid .tr-card.bad .tr-why")
+            rep.check(bad is not None and "しか持たせられない" in (bad.text_content() or ""),
+                      tag("装備できない宝物は理由が出る"))
+            page.click("#tr-back"); page.wait_for_timeout(400)
+
+
 # ── 触りかたの検査（幅ごとに同じことをする）─────────────────
 def exercise(page, rep, label, touch):
     def board():
@@ -637,8 +812,12 @@ def run():
             return 1
         with sync_playwright() as pw:
             br = _chromium(pw)
-            for label, w, h, mob in (("卓上1280", 1280, 1000, False),
-                                     ("携帯390", 390, 844, True)):
+            # 幅は3つ見る（§7.198）: 広い卓上（3列）・狭い卓上（引き出し）・携帯。
+            # 触りかたの一式（exercise）は 1280 と 390 で、編成/宝物の導線は全幅で。
+            for label, w, h, mob, full in (("卓上1680", 1680, 1000, False, False),
+                                           ("卓上1280", 1280, 1000, False, True),
+                                           ("卓上1100", 1100, 900, False, False),
+                                           ("携帯390", 390, 844, True, True)):
                 ctx = br.new_context(viewport={"width": w, "height": h},
                                      is_mobile=mob, has_touch=mob,
                                      device_scale_factor=2 if mob else 1)
@@ -646,14 +825,17 @@ def run():
                 errs = []
                 page.on("pageerror", lambda e: errs.append(str(e)))
                 _login(page, "煙検査" + label)
-                if not mob:
-                    onboard_check(page, rep)
-                truce_check(page, rep, label)
-                exercise(page, rep, label, mob)
-                council_check(page, rep, label)
-                if not mob:
-                    readonly_checks(page, rep)
-                    rout_badges_check(page, rep, datadir)
+                if full:
+                    if not mob:
+                        onboard_check(page, rep)
+                    truce_check(page, rep, label)
+                    exercise(page, rep, label, mob)
+                deck_ui_check(page, rep, label, w)
+                if full:
+                    council_check(page, rep, label)
+                    if not mob:
+                        readonly_checks(page, rep)
+                        rout_badges_check(page, rep, datadir)
                 rep.check(not errs, "[{}] 画面の例外なし{}".format(
                     label, "：" + "／".join(errs) if errs else ""))
                 ctx.close()

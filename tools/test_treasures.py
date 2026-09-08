@@ -340,6 +340,44 @@ def http_checks() -> bool:
     row = next(t for t in D["treasures"] if t["key"] == "t_seiryu")
     check("外れて未装備に戻る", row["general"] == "")
 
+    print("[18b] 画面が装備条件を先出しできるだけの情報が来る（§7.198）")
+    sek = next(t for t in D["treasures"] if t["key"] == "t_sekitoba")
+    iten = next(t for t in D["treasures"] if t["key"] == "t_iten")
+    check("装備制限が来る（赤兎馬＝騎兵）", sek.get("limit") == "騎兵", sek)
+    check("制限の無い宝物は空", iten.get("limit") == "", iten)
+    check("勢力が来る（倚天剣＝魏）", iten.get("faction") == "魏", iten)
+    check("型が来る", sek.get("kind") in ("常在", "誘発", "演出"), sek)
+    check("勢力の宝の必要人数が来る",
+          isinstance(D.get("treasure_faction_need"), int)
+          and D["treasure_faction_need"] >= 1, D.get("treasure_faction_need"))
+
+    print("[18c] 付け替え（replace）— 1武将1個の規則は保つ（§7.198）")
+    req("POST", "/api/treasure", cookie=sid,
+        body={"key": "t_seiryu", "general": "曹仁〔堅守〕"})
+    # replace なしなら従来どおり拒否。ただし「何が邪魔しているか」を返す
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_hakuusen", "general": "曹仁〔堅守〕"})
+    j = json.loads(d)
+    check("replace なしは従来どおり拒否", not j.get("ok"), d)
+    check("邪魔している宝物を名指しで返す",
+          (j.get("blocked_by") or {}).get("key") == "t_seiryu", d)
+    # replace ありなら1回で外して付け替わる
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_hakuusen", "general": "曹仁〔堅守〕", "replace": True})
+    j = json.loads(d)
+    check("replace ありは1回で通る", j.get("ok"), d)
+    check("外れた宝物を返す",
+          [u["key"] for u in (j.get("unequipped") or [])] == ["t_seiryu"], d)
+    D = json.loads(req("GET", "/api/deckdata", cookie=sid)[1])
+    have = {t["key"]: t["general"] for t in D["treasures"]}
+    check("付け替え後も1武将1個", have["t_hakuusen"] == "曹仁〔堅守〕"
+          and have["t_seiryu"] == "", have)
+    # replace でも装備制限は緩めない（騎兵のみの宝物は歩兵に付かない）
+    r, d = req("POST", "/api/treasure", cookie=sid,
+               body={"key": "t_sekitoba", "general": "曹仁〔堅守〕", "replace": True})
+    check("replace でも兵種の制限は効く", not json.loads(d).get("ok"), d)
+    req("POST", "/api/treasure", cookie=sid, body={"key": "t_hakuusen", "general": ""})
+
     print("[19] 軍功予算の超過が entry_errors に出る")
     # 官渡へデッキを組み、CSV の高額順（装備制限なしの宝物だけ）に
     # 予算を超えるまで積む。値段は実測で変わるので決め打ちにしない —

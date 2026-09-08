@@ -1573,9 +1573,10 @@ async function viewDeck(state) {
     : null;
   const wantReg = qsd.get("reg");
   const reg = (wantReg && D.regs.some((r) => r.name === wantReg)) ? wantReg : D.regs[0].name;
-  const saved = D.decks[reg] || { form: "魚鱗", cards: [] };
-  cur = { reg, form: saved.form, slots: slotsFromCards(saved.cards) };
+  DECKDRAFT = {};
+  cur = draftFor(reg);
   $("#app").innerHTML = `
+   <div id="deckscreen">
     <div class="deck-cta action-bar">
       <div class="action-copy">
         <b>編成操作</b><span class="hint muted" id="fight2hint"></span>
@@ -1585,10 +1586,16 @@ async function viewDeck(state) {
       <button class="ghost" id="fight2">この編成で出陣</button>
       ${backCouncil ? `<a class="btn ghost" id="back-council" href="${backCouncil}">軍議演習へ戻る</a>` : ""}
     </div>
-    <div class="reg-tabs" id="regtabs"></div>
+    <div class="deck-tabbar" id="decktabbar">
+      <div class="reg-tabs" id="regtabs"></div>
+      <div class="tabbar-side">
+        <span class="tabbar-kou num" id="tabbar-kou"></span>
+        <button class="mini ghost" id="open-treasures">宝物を管理</button>
+      </div>
+    </div>
     <div id="setpanel"></div>
     <div class="deck-layout fade-in">
-      <div>
+      <div class="deck-col-roster">
         <div class="roster-tools">
           <div class="filter-tabs" id="typetabs"></div>
           <div class="filter-tabs" id="bandtabs"></div>
@@ -1612,7 +1619,10 @@ async function viewDeck(state) {
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
           <button class="mini ghost" id="guide-open" title="相性と布陣の勘どころ">軍略の手引き</button>
         </div>
-        <div id="cardinfo" class="cardinfo muted">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</div>
+        <div id="cardbrief" class="cardbrief muted">
+          <span class="cb-text">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</span>
+          <button class="mini ghost" id="detail-open" type="button">詳細を開く</button>
+        </div>
         <div class="cards" id="roster" data-keep-selection></div>
       </div>
       <div class="panel mine-panel side-panel">
@@ -1632,16 +1642,70 @@ async function viewDeck(state) {
         <div class="library" id="library"></div>
         <div class="treasure-panel" id="treasure"></div>
       </div>
+      <aside class="deck-col-detail" id="detailcol" aria-label="武将の詳細">
+        <div class="detail-head">
+          <b>武将の詳細</b>
+          <button class="mini ghost" id="detail-close" type="button">閉じる</button>
+        </div>
+        <div id="cardinfo" class="cardinfo muted">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</div>
+        <div id="cardinfo-treasure" class="ci-treasure"></div>
+      </aside>
     </div>
+   </div>
+   <div id="treasurescreen" hidden></div>
 `;
   $("#guide-open").onclick = () => { ensureGuide().hidden = false; };
   drawRegTabs(); drawFormTabs(); drawTypeTabs();
   $("#search").oninput = drawRoster;
   $("#save").onclick = saveDeck;
   $("#fight2").onclick = () => doAttack(cur.reg);
+  $("#open-treasures").onclick = () => openTreasureScreen({});
+  $("#detail-open").onclick = () => setDetailOpen(true);
+  $("#detail-close").onclick = () => setDetailOpen(false);
   const du = $("#dev-unlock");
   if (du) du.onclick = async () => { await api("/api/dev_senki", {}); location.reload(); };
+  syncStickyOffsets();
+  window.addEventListener("resize", syncStickyOffsets);
+  window.addEventListener("popstate", onDeckPopState);
   drawAll();
+  if (qsd.get("screen") === "treasures") openTreasureScreen({ replace: true });
+}
+
+/* ── 未保存の編成をデッキごとに抱える（§7.198）────────────────
+   タブを行き来しても、宝物画面へ寄り道しても、**登録前の並びを失わない**。
+   以前は切り替えのたびに保存済みデッキから読み直していたので、
+   触っていた配置が黙って消えていた。 */
+let DECKDRAFT = {};
+
+function draftFor(reg) {
+  if (!DECKDRAFT[reg]) {
+    const saved = (D.decks || {})[reg] || { form: "魚鱗", cards: [] };
+    DECKDRAFT[reg] = { reg, form: saved.form, slots: slotsFromCards(saved.cards) };
+  }
+  return DECKDRAFT[reg];
+}
+
+function stashDraft() {
+  if (cur && cur.reg) {
+    DECKDRAFT[cur.reg] = { reg: cur.reg, form: cur.form, slots: normalizeSlots(cur.slots) };
+  }
+}
+
+/* 固定するタブの天井（§7.198）。ヘッダーの高さは幅で変わり、携帯では
+   操作の帯も固定になるので、**測って CSS 変数へ入れる**（決め打ちにしない）。 */
+function syncStickyOffsets() {
+  const header = document.querySelector("header");
+  const bar = document.querySelector(".deck-cta");
+  let top = header ? Math.round(header.getBoundingClientRect().height) : 0;
+  if (bar && getComputedStyle(bar).position === "sticky") {
+    top += Math.round(bar.getBoundingClientRect().height) + 6;
+  }
+  document.documentElement.style.setProperty("--deck-tabbar-top", top + "px");
+}
+
+/* 詳細欄の開閉（狭い画面だけ意味を持つ。広い画面では常設の3列目）。 */
+function setDetailOpen(on) {
+  document.body.classList.toggle("detail-open", !!on);
 }
 
 function drawSortieBar() {
@@ -1688,14 +1752,40 @@ function usedPersons(exceptReg) {
 }
 
 function drawRegTabs() {
-  $("#regtabs").innerHTML = D.regs.map((r) =>
-    `<button class="${cur.reg === r.name ? "on" : ""}" data-reg="${r.name}">
-      ${r.name}<small>　${r.cap}点</small></button>`).join("");
+  const el = $("#regtabs");
+  if (!el) return;
+  // 上部に固定する帯（§7.198）。**その場の使用点／上限**まで出すので、
+  // 縦に流れても「どの戦場を触っていて、あと何点あるか」が常に見える。
+  el.innerHTML = D.regs.map((r) => {
+    const d = r.name === cur.reg
+      ? { cost: deckCost(), n: occupiedSlotIds().length }
+      : (() => {
+          const k = DECKDRAFT[r.name];
+          const names = k ? normalizeSlots(k.slots).filter(Boolean)
+                          : ((D.decks[r.name] || {}).cards || []);
+          const cost = names.reduce((sum, n) => {
+            const c = D.roster.find((x) => x.name === n); return sum + (c ? c.cost : 0);
+          }, 0);
+          return { cost, n: names.length };
+        })();
+    const over = d.cost > r.cap + 1e-9;
+    return `<button class="${cur.reg === r.name ? "on" : ""}" data-reg="${r.name}"
+        aria-current="${cur.reg === r.name ? "true" : "false"}">
+      ${r.name}<small class="num ${over ? "warn-text" : ""}">　${d.cost}／${r.cap}点・${d.n}人</small></button>`;
+  }).join("");
   $$("#regtabs button").forEach((b) => b.onclick = () => {
-    const saved = D.decks[b.dataset.reg] || { form: "魚鱗", cards: [] };
-    cur = { reg: b.dataset.reg, form: saved.form, slots: slotsFromCards(saved.cards) };
+    if (b.dataset.reg === cur.reg) return;
+    stashDraft();                       // 触っていた並びを抱えたまま移る
+    cur = draftFor(b.dataset.reg);
     drawRegTabs(); drawFormTabs(); drawAll();
   });
+  const kou = $("#tabbar-kou");
+  if (kou) {
+    const budget = (D.treasure_budgets || {})[cur.reg] || 100;
+    const used = treasureKou();
+    kou.className = "tabbar-kou num" + (used > budget ? " warn-text" : "");
+    kou.textContent = "宝物 " + used + "／" + budget + "功";
+  }
 }
 function drawFormTabs() {
   $("#formtabs").innerHTML = Object.entries(FORMS).map(([f, n]) =>
@@ -1704,7 +1794,7 @@ function drawFormTabs() {
   $$("#formtabs button").forEach((b) => b.onclick = () => {
     // 6要素を前衛左→右・後衛左→右としてそのまま新陣形へ割り当てる。
     // 空枠を詰めないため、武将の消失も暗黙の再順序化も起こらない。
-    cur.form = b.dataset.f; drawFormTabs(); drawAll();
+    cur.form = b.dataset.f; stashDraft(); drawFormTabs(); drawAll();
   });
 }
 const FILTER = { typ: "すべて", band: "全コスト", fac: "全勢力", sort: "cost-" };
@@ -1734,7 +1824,8 @@ function drawAll() {
   // 区画ごとに隔離して描く。1箇所の失敗（サーバとJSの版ずれ等）が
   // 後続の枠（軍師に相談・保存庫・宝物…）を巻き添えにしないように。
   for (const f of [drawRoster, drawSlots, drawMeter, drawArmySummary, drawEntryState, drawDraft,
-                   drawLibrary, drawTreasures, drawSortieBar, drawScout, drawSetPanel]) {
+                   drawLibrary, drawTreasures, drawSortieBar, drawScout, drawSetPanel,
+                   drawRegTabs]) {
     try { f(); } catch (e) { console.error("drawAll:", f.name, e); }
   }
 }
@@ -1957,53 +2048,327 @@ function drawLibrary() {
   });
 }
 
+/* ── 宝物（§7.198 で編成画面から専用画面へ分けた）───────────────
+   編成画面に残すのは「誰が何を持っているか」と予算、そして管理画面への入口だけ。
+   探す・比べる・付け替えるは別画面（#treasurescreen）でやる。 */
+
+/* いま3面のどこかに居る武将（未保存の草稿も込み）。 */
 function deckGenerals() {
   const set = new Set();
-  for (const d of Object.values(D.decks)) for (const n of d.cards) set.add(n);
-  for (const n of occupiedSlotIds()) set.add(n);
+  for (const r of D.regs) {
+    const k = DECKDRAFT[r.name];
+    const names = (r.name === cur.reg) ? occupiedSlotIds()
+      : (k ? normalizeSlots(k.slots).filter(Boolean) : ((D.decks[r.name] || {}).cards || []));
+    for (const n of names) set.add(n);
+  }
   return [...set];
 }
 
+/* その武将が入っている戦場（未保存の草稿も込み）。 */
+function regsOfGeneral(name) {
+  return D.regs.filter((r) => {
+    const k = DECKDRAFT[r.name];
+    const names = (r.name === cur.reg) ? occupiedSlotIds()
+      : (k ? normalizeSlots(k.slots).filter(Boolean) : ((D.decks[r.name] || {}).cards || []));
+    return names.includes(name);
+  }).map((r) => r.name);
+}
+
+/* その戦場に居る武将の一覧（未保存の草稿も込み）。 */
+function namesInReg(reg) {
+  if (reg === cur.reg) return occupiedSlotIds();
+  const k = DECKDRAFT[reg];
+  return k ? normalizeSlots(k.slots).filter(Boolean) : ((D.decks[reg] || {}).cards || []);
+}
+
+/* 戦場ごとの宝物の功（いま／仮に動かした後）。 */
+function kouOfReg(reg, moves) {
+  const names = new Set(namesInReg(reg));
+  return (D.treasures || []).reduce((sum, t) => {
+    const gen = (moves && Object.prototype.hasOwnProperty.call(moves, t.key))
+      ? moves[t.key] : t.general;
+    return sum + (gen && names.has(gen) ? t.kou : 0);
+  }, 0);
+}
+
+/* 装備できるか（画面の先出し。**正はサーバ側の /api/treasure**）。
+   返り値 {ok, why, replaces} — replaces はその武将が今持っている別の宝物。 */
+function equipCheck(t, genName) {
+  const c = (D.roster || []).find((x) => x.name === genName);
+  if (!c) return { ok: false, why: "その武将は名簿にいない" };
+  if (t.limit && c.typ !== t.limit) {
+    return { ok: false, why: "【" + t.name + "】は" + t.limit + "にしか持たせられない（"
+      + genName + " は" + c.typ + "）" };
+  }
+  const held = (D.treasures || []).find((o) => o.general === genName && o.key !== t.key);
+  return { ok: true, why: "", replaces: held || null };
+}
+
+/* 勢力の宝の利用条件（同じ部隊に同勢力が N 人）。装備は妨げない — 満たすかを見せるだけ。 */
+function factionCheck(t, reg) {
+  if (!t.faction) return null;
+  const need = D.treasure_faction_need || 3;
+  const have = namesInReg(reg).filter((n) => {
+    const c = (D.roster || []).find((x) => x.name === n);
+    return c && c.faction === t.faction;
+  }).length;
+  return { need, have, ok: have >= need, faction: t.faction };
+}
+
+/* 編成画面に残す小さな欄: 予算・装備中の顔ぶれ・管理画面への入口。 */
 function drawTreasures() {
   const el = $("#treasure");
+  if (!el || !D) return;
   const budget = (D.treasure_budgets || {})[cur.reg] || 100;
-  const head = `<div class='side-label'>─ 宝物（どの武将に持たせるか）　${treasureKou()}／${budget}功
-    <button class="mini ghost dev-only" id="dev-treasure" title="試験用: 全種の宝物を獲得">全宝物</button> ─</div>`;
-  const gens = deckGenerals();
-  const rows = (D.treasures || []).map((o) => `
+  const used = treasureKou();
+  const inDeck = new Set(occupiedSlotIds());
+  const here = (D.treasures || []).filter((t) => t.general && inDeck.has(t.general));
+  const away = (D.treasures || []).filter((t) => t.general && !inDeck.has(t.general));
+  const free = (D.treasures || []).filter((t) => !t.general);
+  el.innerHTML = `
+    <div class='side-label'>─ 宝物　<span class="num ${used > budget ? "warn-text" : ""}">${used}／${budget}功</span>
+      <button class="mini ghost dev-only" id="dev-treasure" title="試験用: 全種の宝物を獲得">全宝物</button> ─</div>
+    ${here.length ? here.map((t) => `
       <div class="treasure-row">
-        <div class="treasure-line1">
-          <img class="tr-art-s" src="/treasure_art/${esc(o.key)}.png" alt="" hidden
-               onload="this.hidden=false" onerror="this.remove()">
-          <span class="oname">【${esc(o.name)}】</span>
-          <span class="val num">${o.kou ? o.kou + "功" : "功いらず"}</span>
-          ${o.general ? `<span class="treasure-set num">${esc(o.general)}
-            <button class="mini tiny" data-k="${esc(o.key)}">✕</button></span>` : `
-            <select data-k="${esc(o.key)}">
-              <option value="">（持たせる武将を選ぶ）</option>
-              ${gens.map((g) => `<option>${esc(g)}</option>`).join("")}
-            </select>`}
-        </div>
-        ${o.desc ? `<div class="treasure-desc muted">${esc(o.desc)}</div>` : ""}
-      </div>`).join("");
-  el.innerHTML = head +
-    (rows || "<p class='muted'>まだ宝物が無い。毎日1つ授かる。</p>") +
-    ((D.treasures || []).length
-      ? `<p class='muted' style='font-size:11.5px'>宝物は軍功予算（この戦場は${budget}功・` +
-        "全員一律）から払う。デッキ本体の点は食わない。同じ宝物は1人1個・1武将に1つ。</p>" : "");
-  const refresh = async () => { D = await api("/api/deckdata"); drawAll(); };
-  $$("#treasure select").forEach((sel) => sel.onchange = async () => {
-    if (!sel.value) return;
-    const r = await api("/api/treasure", { key: sel.dataset.k, general: sel.value });
-    if (!r.ok) { flashMsg(r.errors.join("／"), true); }
-    refresh();
-  });
-  $$("#treasure button[data-k]").forEach((b) => b.onclick = async () => {
-    await api("/api/treasure", { key: b.dataset.k, general: "" });
-    refresh();
+        <span class="tr-gen">${esc(t.general)}</span>
+        <span class="oname">【${esc(t.name)}】</span>
+        <span class="val num">${t.kou ? t.kou + "功" : "功いらず"}</span>
+        <button class="mini tiny" data-off="${esc(t.key)}" title="外す">✕</button>
+      </div>`).join("")
+      : "<p class='muted'>この戦場の武将はまだ宝物を持っていない。</p>"}
+    <div class="treasure-foot muted">
+      ${away.length ? `他の戦場で装備中 ${away.length}件・` : ""}未装備 ${free.length}件
+    </div>
+    <button class="mini" id="open-treasures2" type="button">宝物を管理（一覧・付け替え）</button>
+    ${(D.treasures || []).length ? "" : "<p class='muted'>まだ宝物が無い。毎日1つ授かる。</p>"}`;
+  const go = $("#open-treasures2");
+  if (go) go.onclick = () => openTreasureScreen({});
+  $$("#treasure button[data-off]").forEach((b) => b.onclick = async () => {
+    await api("/api/treasure", { key: b.dataset.off, general: "" });
+    D = await api("/api/deckdata");
+    drawAll();
   });
   const dv = $("#dev-treasure");
-  if (dv) dv.onclick = async () => { await api("/api/dev_treasure", {}); refresh(); };
+  if (dv) dv.onclick = async () => {
+    await api("/api/dev_treasure", {});
+    D = await api("/api/deckdata");
+    drawAll();
+  };
+}
+
+/* ── 宝物の管理画面（§7.198）──────────────────────────
+   別画面（同じページ内の差し替え）。編成の DOM はそのまま残すので、
+   戻ったときに未保存の並びもスクロール位置も生きている。 */
+const TRSCREEN = { open: false, filter: "すべて", q: "", general: null, pick: null, scroll: 0 };
+
+function openTreasureScreen(opts) {
+  const o = opts || {};
+  TRSCREEN.open = true;
+  TRSCREEN.general = o.general || null;
+  TRSCREEN.filter = o.general ? "装備可能" : "すべて";
+  TRSCREEN.pick = null;
+  TRSCREEN.scroll = window.scrollY;
+  stashDraft();
+  $("#deckscreen").hidden = true;
+  $("#treasurescreen").hidden = false;
+  const url = new URL(location.href);
+  url.searchParams.set("screen", "treasures");
+  if (o.replace) history.replaceState({ screen: "treasures" }, "", url);
+  else history.pushState({ screen: "treasures" }, "", url);
+  window.scrollTo(0, 0);
+  drawTreasureScreen();
+}
+
+function closeTreasureScreen(fromPop) {
+  TRSCREEN.open = false;
+  $("#treasurescreen").hidden = true;
+  $("#deckscreen").hidden = false;
+  if (!fromPop) {
+    const url = new URL(location.href);
+    url.searchParams.delete("screen");
+    history.pushState({ screen: "deck" }, "", url);
+  }
+  drawAll();
+  window.scrollTo(0, TRSCREEN.scroll);
+}
+
+function onDeckPopState() {
+  const want = new URLSearchParams(location.search).get("screen") === "treasures";
+  if (want && !TRSCREEN.open) openTreasureScreen({ replace: true });
+  else if (!want && TRSCREEN.open) closeTreasureScreen(true);
+}
+
+const TR_FILTERS = ["すべて", "未装備", "装備中"];
+
+function drawTreasureScreen() {
+  const el = $("#treasurescreen");
+  if (!el || !D) return;
+  const gen = TRSCREEN.general;
+  const filters = TR_FILTERS.concat(gen ? ["装備可能"] : []);
+  const budgets = D.regs.map((r) => {
+    const b = (D.treasure_budgets || {})[r.name] || 100;
+    const u = kouOfReg(r.name);
+    return `<span class="num ${u > b ? "warn-text" : ""}">${r.name} ${u}／${b}功</span>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="deck-cta action-bar">
+      <div class="action-copy">
+        <b>宝物</b>
+        <span class="hint muted">${gen ? esc(gen) + " に持たせる宝物を選ぶ" : "探す・比べる・付け替える"}</span>
+        <span id="tr-msg"></span>
+      </div>
+      <button class="ghost" id="tr-back" type="button">編成へ戻る</button>
+    </div>
+    <div class="tr-context">
+      <span class="muted">3面の軍功</span>${budgets}
+      <span class="muted tr-note">宝物の功は軍功予算から払う。デッキ本体の点は食わない。同じ宝物は1人1個・1武将に1つ。
+        <b>宝物の付け外しはその場で保存される</b>（編成の並びは「この編成を登録」を押すまで保存されない）。</span>
+    </div>
+    <div class="tr-tools">
+      <div class="filter-tabs" id="tr-filters">
+        ${filters.map((f) => `<button class="${TRSCREEN.filter === f ? "on" : ""}" data-f="${f}">${f}</button>`).join("")}
+      </div>
+      <input id="tr-search" placeholder="宝物の名で探す" value="${esc(TRSCREEN.q)}">
+      ${gen ? `<button class="mini ghost" id="tr-clear-gen" type="button">武将のしぼりを外す</button>` : ""}
+      <button class="mini ghost dev-only" id="tr-dev" type="button" title="試験用: 全種の宝物を獲得">全宝物</button>
+    </div>
+    <div class="tr-grid" id="tr-grid"></div>
+    <div class="tr-apply" id="tr-apply" hidden></div>`;
+  $("#tr-back").onclick = () => closeTreasureScreen();
+  $$("#tr-filters button").forEach((b) => b.onclick = () => {
+    TRSCREEN.filter = b.dataset.f; drawTreasureScreen();
+  });
+  const sr = $("#tr-search");
+  sr.oninput = () => { TRSCREEN.q = sr.value; drawTreasureGrid(); };
+  const cg = $("#tr-clear-gen");
+  if (cg) cg.onclick = () => { TRSCREEN.general = null; TRSCREEN.filter = "すべて"; drawTreasureScreen(); };
+  const dv = $("#tr-dev");
+  if (dv) dv.onclick = async () => {
+    await api("/api/dev_treasure", {});
+    D = await api("/api/deckdata");
+    drawTreasureScreen();
+  };
+  drawTreasureGrid();
+  drawTreasureApply();
+}
+
+function drawTreasureGrid() {
+  const el = $("#tr-grid");
+  if (!el) return;
+  const gen = TRSCREEN.general;
+  const q = (TRSCREEN.q || "").trim();
+  const list = (D.treasures || []).filter((t) => {
+    if (q && !(t.name.includes(q) || (t.desc || "").includes(q))) return false;
+    if (TRSCREEN.filter === "未装備") return !t.general;
+    if (TRSCREEN.filter === "装備中") return !!t.general;
+    if (TRSCREEN.filter === "装備可能") return !gen || equipCheck(t, gen).ok;
+    return true;
+  });
+  if (!list.length) {
+    el.innerHTML = "<p class='muted'>あてはまる宝物が無い。毎日1つ授かる。</p>";
+    return;
+  }
+  el.innerHTML = list.map((t) => {
+    const chk = gen ? equipCheck(t, gen) : null;
+    const state = t.general
+      ? `<span class="tr-state on">${esc(t.general)} が装備中</span>`
+      : '<span class="tr-state">未装備</span>';
+    const where = t.general ? regsOfGeneral(t.general) : [];
+    const bad = chk && !chk.ok;
+    return `<button type="button" class="tr-card ${bad ? "bad" : ""} ${TRSCREEN.pick === t.key ? "picked" : ""}"
+        data-k="${esc(t.key)}" ${bad ? "disabled" : ""}>
+      <div class="tr-card-head">
+        <img class="tr-art" src="/treasure_art/${esc(t.key)}.png" alt="" hidden
+             onload="this.hidden=false" onerror="this.remove()">
+        <div>
+          <div class="tr-name">【${esc(t.name)}】<span class="oc-tier">${esc(t.tier || "")}</span></div>
+          <div class="oc-kou num">${t.kou ? t.kou + "功" : "功いらず"}</div>
+        </div>
+      </div>
+      <div class="oc-desc">${esc(t.desc || "")}</div>
+      <div class="tr-meta muted">
+        ${t.limit ? `<span class="tr-limit">${esc(t.limit)}のみ</span>` : '<span class="tr-limit">兵種の制限なし</span>'}
+        ${t.faction ? `<span class="tr-limit">${esc(t.faction)}の宝</span>` : ""}
+      </div>
+      <div class="tr-foot">
+        ${state}${where.length ? `<span class="muted">（${where.join("・")}）</span>` : ""}
+      </div>
+      ${bad ? `<div class="tr-why warn-text">${esc(chk.why)}</div>` : ""}
+    </button>`;
+  }).join("");
+  $$("#tr-grid .tr-card:not([disabled])").forEach((b) => b.onclick = () => {
+    TRSCREEN.pick = b.dataset.k;
+    drawTreasureGrid();
+    drawTreasureApply();
+    const ap = $("#tr-apply");
+    if (ap) ap.scrollIntoView({ block: "nearest" });
+  });
+}
+
+/* 適用の前に「誰から外れ、誰に付くか」を全部見せる（§7.198）。 */
+function drawTreasureApply() {
+  const el = $("#tr-apply");
+  if (!el) return;
+  const t = (D.treasures || []).find((x) => x.key === TRSCREEN.pick);
+  if (!t) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  const gen = TRSCREEN.general;
+  const cands = deckGenerals().filter((n) => !gen || n === gen);
+  const rows = cands.map((n) => {
+    const chk = equipCheck(t, n);
+    const regs = regsOfGeneral(n);
+    const fc = regs.map((r) => factionCheck(t, r)).filter(Boolean);
+    const before = regs.map((r) => kouOfReg(r));
+    const after = regs.map((r) => kouOfReg(r, { [t.key]: n }));
+    const budget = regs.map((r) => (D.treasure_budgets || {})[r] || 100);
+    const money = regs.map((r, i) =>
+      `<span class="num ${after[i] > budget[i] ? "warn-text" : ""}">${r} ${before[i]}→${after[i]}／${budget[i]}功</span>`).join("");
+    return `<div class="tr-cand ${chk.ok ? "" : "bad"}">
+      <div class="tr-cand-name"><b>${esc(n)}</b><span class="muted">（${regs.join("・") || "編成外"}）</span></div>
+      <div class="tr-cand-diff muted">
+        ${t.general && t.general !== n ? `【${esc(t.name)}】が <b>${esc(t.general)}</b> から外れて <b>${esc(n)}</b> へ付く`
+          : (t.general === n ? "すでにこの武将が持っている" : `【${esc(t.name)}】が <b>${esc(n)}</b> へ付く`)}
+        ${chk.replaces ? `<span class="warn-text">／ ${esc(n)} の【${esc(chk.replaces.name)}】が外れる</span>` : ""}
+      </div>
+      <div class="tr-cand-money">${money}</div>
+      ${fc.map((f) => `<div class="tr-cand-cond ${f.ok ? "ok" : "warn-text"}">
+        ${esc(f.faction)}の宝: 同じ部隊に${f.need}人必要（いま ${f.have}人）${f.ok ? " ✓" : " — いまは働かない"}</div>`).join("")}
+      ${chk.ok
+        ? `<button class="mini primary" data-apply="${esc(n)}" type="button">${chk.replaces ? "外して付ける" : "この武将に持たせる"}</button>`
+        : `<div class="tr-why warn-text">${esc(chk.why)}</div>`}
+    </div>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="tr-apply-head">
+      <b>【${esc(t.name)}】を持たせる</b>
+      <span class="muted">${t.kou ? t.kou + "功" : "功いらず"}${t.limit ? "・" + esc(t.limit) + "のみ" : ""}</span>
+      <button class="mini ghost" id="tr-cancel" type="button">やめる</button>
+      ${t.general ? `<button class="mini ghost" id="tr-unequip" type="button">${esc(t.general)}から外す</button>` : ""}
+    </div>
+    <div class="tr-cands">${rows || "<p class='muted'>3面のどこかに武将を置くと、持たせる相手を選べる。</p>"}</div>`;
+  $("#tr-cancel").onclick = () => { TRSCREEN.pick = null; drawTreasureGrid(); drawTreasureApply(); };
+  const un = $("#tr-unequip");
+  if (un) un.onclick = () => applyTreasure(t.key, "", false);
+  $$("#tr-apply button[data-apply]").forEach((b) => b.onclick = () => {
+    const n = b.dataset.apply;
+    applyTreasure(t.key, n, !!equipCheck(t, n).replaces);
+  });
+}
+
+async function applyTreasure(key, general, replace) {
+  const r = await api("/api/treasure", { key, general, replace: !!replace });
+  const msg = $("#tr-msg");
+  if (!r.ok) {
+    if (msg) { msg.textContent = (r.errors || ["うまくいかなかった"]).join("／"); msg.className = "warn-text"; }
+    return;
+  }
+  D = await api("/api/deckdata");
+  if (msg) {
+    const off = (r.unequipped || []).map((u) => "【" + u.name + "】が外れた").join("／");
+    msg.textContent = general ? ("持たせた" + (off ? "（" + off + "）" : "")) : "外した";
+    msg.className = "muted";
+  }
+  drawTreasureScreen();
 }
 
 /* 一覧の札のシングル／ダブル判定（§7.119）。350ms は iOS のダブルタップ
@@ -2110,10 +2475,17 @@ function drawRoster() {
   });
 }
 
+/* いま詳細欄に出ている武将（§7.198）。宝物画面へ「この武将に持たせる」で
+   渡す取っ手にもなる。盤面の駒・一覧の札・キーボードの移動が全部ここを通る。 */
+let PICKED = null;
+
 function showCardInfo(name, card) {
   // 編成画面は D.roster から、リプレイは盤面が運んできた札（§7.141）から引く
   const c = card || (D && D.roster ? D.roster.find((x) => x.name === name) : null);
   if (!c) return;
+  PICKED = c.name;
+  drawCardBrief(c);
+  drawCardTreasure(c);
   const traits = (c.traits || []).length ? (c.traits || []).map((t) => `
     <div class="ci-row">
       <span class="tag trait-tag">特性・${esc(t.kind)}</span>
@@ -2159,8 +2531,55 @@ function showCardInfo(name, card) {
     </div>`;
 }
 
+/* 狭い画面用の1行（§7.198）。詳細欄が畳まれていても「いま何を選んでいるか」
+   だけは常に見える。広い画面では CSS で隠す（3列目に本文が出ているため）。 */
+function drawCardBrief(c) {
+  const el = $("#cardbrief");
+  if (!el) return;
+  const t = treasureOf(c.name);
+  el.innerHTML = `
+    <span class="cb-text">${icoTyp(c.typ, c.spear)}<b>${esc(c.name)}</b>
+      <span class="num">${c.cost}点・武勇${c.might}・知略${c.wits}</span>
+      <span class="muted">【${esc(c.skill)}】</span>
+      ${t ? `<span class="cb-tr">【${esc(t.name)}】</span>` : ""}</span>
+    <button class="mini ghost" id="detail-open" type="button">詳細を開く</button>`;
+  const b = $("#detail-open");
+  if (b) b.onclick = () => setDetailOpen(true);
+}
+
+/* 詳細欄の足元に「この武将の宝物」と設定への入口を置く（§7.198・導線B）。 */
+function drawCardTreasure(c) {
+  const el = $("#cardinfo-treasure");
+  if (!el || !D) return;
+  const t = treasureOf(c.name);
+  el.innerHTML = `
+    <div class="ci-tr-line">
+      <span class="tag skill-tag">宝物</span>
+      ${t ? `<b>【${esc(t.name)}】</b><span class="muted">${esc(t.desc || "")}</span>`
+          : '<span class="muted">持っていない</span>'}
+    </div>
+    <div class="ci-tr-btns">
+      <button class="mini ghost" data-tr-set="${esc(c.name)}" type="button">宝物を設定</button>
+      ${t ? `<button class="mini ghost" data-tr-off="${esc(t.key)}" type="button">外す</button>` : ""}
+    </div>`;
+  const set = el.querySelector("[data-tr-set]");
+  if (set) set.onclick = () => openTreasureScreen({ general: c.name });
+  const off = el.querySelector("[data-tr-off]");
+  if (off) off.onclick = async () => {
+    const r = await api("/api/treasure", { key: off.dataset.trOff, general: "" });
+    if (!r.ok && r.errors) flashMsg(r.errors.join("／"), true);
+    D = await api("/api/deckdata");
+    drawAll();
+    showCardInfo(c.name);
+  };
+}
+
+/* その武将が持っている宝物（§7.198）。所持一覧の general_name が正。 */
+function treasureOf(name) {
+  return (D && D.treasures || []).find((t) => t.general === name) || null;
+}
+
 function drawSlots() {
-  hideTip();
   const root = $("#slots");
   if (!root) return;
   mountFormationBoard(root, {
@@ -2174,11 +2593,12 @@ function drawSlots() {
       drawAll();
     },
   });
+  // 【§7.198】以前はここでカーソル追従の浮きチップ（#tip）を出していたが、
+  // **盤面の上に大きな箱がかぶって駒が掴めなくなる**ので廃止した。
+  // 触れた駒の中身は右の詳細欄（#cardinfo）へ流す — 盤面は覆われない。
   root.querySelectorAll(".fb-piece.occupied").forEach((piece) => {
     const name = normalizeSlots(cur.slots)[+piece.dataset.slotIndex];
-    piece.addEventListener("mouseenter", (e) => showTip(e, name));
-    piece.addEventListener("mousemove", moveTip);
-    piece.addEventListener("mouseleave", hideTip);
+    piece.addEventListener("mouseenter", () => showCardInfo(name));
     piece.addEventListener("focus", () => showCardInfo(name));
   });
   const errors = placementErrors();
@@ -2186,47 +2606,9 @@ function drawSlots() {
   if (errorBox) errorBox.innerHTML = errors.map((x) => `<span>⚠ ${esc(x)}</span>`).join("");
 }
 
-/* ── 概要チップ（枠の武将のマウスオン・§7.59） ─────────── */
-function showTip(e, name) {
-  const c = D.roster.find((x) => x.name === name);
-  if (!c || window.innerWidth <= 760) return;   // タッチ環境はクリックで詳細
-  let tip = $("#tip");
-  if (!tip) {
-    document.body.insertAdjacentHTML("beforeend", '<div id="tip"></div>');
-    tip = $("#tip");
-  }
-  tip.innerHTML = `
-    <b>${esc(c.name)}</b>
-    <span class="muted">${esc(c.faction)}・${icoTyp(c.typ, c.spear)}${esc(c.typ)}${c.spear ? "（槍）" : ""}・${esc(c.role)}・${c.cost}点</span><br>
-    <span class="num">兵${(c.men / 1000).toFixed(1)}千　攻勢${c.atk_pm}　守勢${(c.eff_men / 1000).toFixed(1)}千</span><br>
-    <span class="muted">【${esc(c.skill)}】${c.cadence ? "　兵法の巡り " + esc(c.cadence.tier_jp) : ""}　特性: ${c.traits.length
-      ? c.traits.map((t) => t.name).join("・") : "─（持たない）"}</span><br>
-    <span class="tip-hint">クリックで詳細</span>`;
-  tip.style.display = "block";
-  moveTip(e);
-}
-
-function moveTip(e) {
-  const tip = $("#tip");
-  if (!tip || tip.style.display === "none") return;
-  const pad = 14;
-  let x = e.clientX + pad, y = e.clientY + pad;
-  const r = tip.getBoundingClientRect();
-  if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
-  if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
-  tip.style.left = x + "px";
-  tip.style.top = y + "px";
-}
-
-function hideTip() {
-  const tip = $("#tip");
-  if (tip) tip.style.display = "none";
-}
-// チップは fixed なのでスクロールすると場所が嘘になる上、要素が
-// カーソルの下から滑り出ても mouseleave が来ないことがある。保険で消す。
-if (typeof document !== "undefined") {
-  document.addEventListener("scroll", hideTip, { passive: true, capture: true });
-}
+/* 【§7.198 で撤去】枠の武将のマウスオンで出していた浮きチップ（#tip・§7.59）。
+   カーソル追従の箱が盤面を覆い、駒の掴み直しを邪魔していた。中身は右の
+   詳細欄（#cardinfo）へ移した — 触れた札の内容は同じで、盤面は隠れない。 */
 
 function deckCost() {
   return occupiedSlotIds().reduce((s, n) => {
@@ -2288,7 +2670,8 @@ async function saveDeck() {
     D.decks[cur.reg] = { form: cur.form, cards: [...cards] };
     D.entry_errors = r.entry_errors;
     D.boards_ok = r.boards_ok;
-    flashMsg("登録した。"); drawEntryState(); drawSortieBar();
+    stashDraft();                 // 登録後の草稿＝いま登録した並び（§7.198）
+    flashMsg("登録した。"); drawEntryState(); drawSortieBar(); drawRegTabs();
   } else {
     flashMsg(r.errors.join("／"), true);
   }
