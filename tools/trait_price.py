@@ -45,6 +45,7 @@ from sim import match as M                            # noqa: E402
 from sim import rosterdata as R                       # noqa: E402
 from sim import dummies as D                          # noqa: E402
 from sim import design as DS                          # noqa: E402
+from tools import balance_common as C                 # noqa: E402
 
 DT = 0.5
 DELTA = 2.0             # 局所勾配の振り幅（skill_price と同じ）
@@ -116,8 +117,12 @@ def _measure(pool, keys, slot, store):
     got = _load(store)
     # 控えの鍵は仕事の中身（特性・コスト・席・隣）。並びの番号にすると特性を
     # 1つ足しただけで全部ずれる。
+    # **盤面の指紋も入れる**（§7.207・落とし穴50）。ここには長らく仕事の中身しか
+    # 入っておらず、三すくみを較正し直しても矢数を変えても同じ鍵だったので、
+    # **古い盤面で測った値をそのまま返していた**。
+    fp = C.board_fingerprint()
     def key(j):
-        return "{}|{}|{:.1f}|{}".format(slot, j[0], j[1], int(j[3]))
+        return "{}|{}|{:.1f}|{}|{}".format(slot, j[0], j[1], int(j[3]), fp)
     todo = [j for j in jobs if key(j) not in got]
     if todo:
         print("  席{} 残り {}/{} 本".format(slot, len(todo), len(jobs)), flush=True)

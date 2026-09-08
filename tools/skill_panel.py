@@ -53,6 +53,7 @@ from sim import match as M          # noqa: E402
 from sim import rosterdata as R     # noqa: E402
 from sim import dummies as D        # noqa: E402
 from sim import design as DS        # noqa: E402
+from tools import balance_common as C  # noqa: E402
 
 DT = 0.25
 RATE = 4.86          # 旧物差し（--filler-slope）だけが使う
@@ -301,6 +302,7 @@ def main():
             fp.get(g["名前"], ""), g["コスト"], g["能力値コスト"], g["武力"], g["知力"])
     print("{} 枚の{}を外した差 × 性格 {} × 種 {} ＝ 1案 {}局（1組1局・組み合わせ {} 通り）".format(
         len(names), what, npers, seeds, npers * seeds, npers * seeds), flush=True)
+    board_fp = C.board_fingerprint()
     yard = float(sys.argv[sys.argv.index("--yard") + 1]) if "--yard" in sys.argv else 1.0
     # 共通の物差し（§7.184）。値を替えるときは --yard-ref（旗と値を分けるのは、
     # 値なしの旗の直後に札名が来ても食わないようにするため）。
@@ -313,7 +315,11 @@ def main():
     jobs = []
     for n in names:
         for mode, bump in variants:
-            k = "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
+            # **盤面の指紋も入れる**（§7.207・落とし穴50）。札の効果文と能力値は
+            # 鍵に入っていたが、**盤面ぜんたい**（三すくみ・矢数・単価表…）が
+            # 入っていなかったので、辺を較正し直しても同じ鍵で古い値を返していた。
+            k = "{}|{}|{}|{}|{}|{}|{}".format(
+                n, what, mode, bump, npers * seeds, fp.get(n, ""), board_fp)
             if k not in got:
                 jobs.append((k, (n, mode, bump)))
     if jobs:
