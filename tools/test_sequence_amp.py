@@ -90,6 +90,32 @@ class Sequence(unittest.TestCase):
                 F._parse_skill(eff, "自分")
 
 
+class AfterPrice(unittest.TestCase):
+    """後半の値段は**待った秒数のぶん割り引く**（§7.200）。"""
+
+    def test_curve_matches_the_measurement(self):
+        from sim import design as DS
+        for wait, want in ((0.0, 1.00), (15.0, 0.52), (30.0, 0.35), (45.0, 0.27)):
+            self.assertAlmostEqual(DS.after_f(wait), want, places=2,
+                                   msg="待ち {:g}秒".format(wait))
+
+    def test_delayed_tail_is_cheaper_than_the_same_thing_up_front(self):
+        """同じ量でも「その後」に書けば安い。**同時配りより高くなってはいけない。**"""
+        from sim import design as DS
+        tgt = "自分と右隣"
+        both = F._parse_skill("防御力 +30%（30秒） + 攻撃力 +30%（20秒）", tgt)
+        seq = F._parse_skill("防御力 +30%（30秒） → その後 攻撃力 +30%（20秒）", tgt)
+        v_both = DS.effect_value(both, tgt, gauge_cost=150.0, gauge_init=60.0)
+        v_seq = DS.effect_value(seq, tgt, gauge_cost=150.0, gauge_init=60.0)
+        self.assertLess(v_seq, v_both)
+        # 前半は同じなので、差は後半に掛かる掛け目のぶんだけ
+        head = F._parse_skill("防御力 +30%（30秒）", tgt)
+        v_head = DS.effect_value(head, tgt, gauge_cost=150.0, gauge_init=60.0)
+        tail = (v_both - v_head)
+        self.assertAlmostEqual(v_seq - v_head,
+                               tail * DS.after_f(30.0 * F.SKILL_DUR_SCALE), places=3)
+
+
 class RightNeighbour(unittest.TestCase):
     """④ 自分と右隣。**枠の順**なので同距離の曖昧さが無い。"""
 
