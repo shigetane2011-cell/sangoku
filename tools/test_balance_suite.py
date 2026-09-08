@@ -37,10 +37,11 @@ class BalanceSuiteTest(unittest.TestCase):
         for _where, _name, entry in C.all_fixture_entries(self.data, self.index):
             self.assertEqual(M.validate(entry), [])
             seen += 1
-        # 名前つきの登録 9本 + official24 + special48。9本目は testplay_20260908
+        # 名前つきの登録 10本 + official24 + special48。9本目は testplay_20260908
         # ＝**テストプレイ本人が画面で組んだ登録**（§7.204。探索の産物ではないので
-        # 盤面が動いても取り直さない）。
-        self.assertEqual(seen, 81)
+        # 盤面が動いても取り直さない）。10本目 counter_testplay_20260908 は
+        # **その登録に勝つために探した相手**（§7.205・12シリーズ 12勝0敗）。
+        self.assertEqual(seen, 82)
 
     def test_distribution_reproduces_saved_sample_shape(self):
         report = B.distribution_report(self.data, self.cards)
