@@ -1346,6 +1346,12 @@ CAV_COVER_SOFT = 40.0   # 射手の縁が触れる手前、この幅で滑らか
 # 馬上回避と同じ窓（射手が遠いあいだ・構えた槍には効かない）に乗る。値段は
 # tools/skill_panel.py --trait で実カードの的で測る（design.TRAIT_PRICE）。
 HAKUBA_COVER = 0.25
+# 【§7.203】軽騎の鞍。**寄せ（守り↔兵）から馬上回避へ替えた。**
+# 防御寄せ −0.3 は 0功、−0.6 にしたら **−29功**（もっと悪くなった）。
+# 寄せは総合値を保つ付け替えなので、守りを削る向きは素直に損である。
+# 「軽い鞍で身軽に避ける」なら白馬と同じ器（馬上回避）が素直に合う。
+# 白馬（生来の特性・+0.25）より控えめ。小の帯。
+TREASURE_KEIKI_COVER = 0.15
 CAV_COVER_SKILL = True  # 射程持ちの兵法直撃にも掛ける（延焼には掛けない）
 
 # 馬前（§7.144・テストプレイの提案「歩兵に周りをカバーする固有能力」。旧名「庇護」）。
@@ -1564,7 +1570,10 @@ TREASURE_MOKGYU_AMMO = 0.60    # 木牛流馬: 持ち矢+60%（弓兵にだけ�
 TREASURE_DAIJUN_TAKE_ARC = -0.15   # 大楯（歩兵）: 弓から受ける被害
 TREASURE_DAIJUN_DEAL_CAV = -0.18   # 大楯: 騎へ与える被害（迎え撃つ強みが薄れる）
 TREASURE_BAGAI_TAKE_INF = -0.18    # 馬鎧（騎兵）: 歩から受ける被害
-TREASURE_BAGAI_DEAL_ARC = -0.16    # 馬鎧: 弓へ与える被害（強みが薄れる）
+# 【§7.203】−0.16 では騎兵の厚い盤でも **−22功**（交換が割に合わない）。
+# 騎兵にとって弓を狩る力（×3.12）は、歩に殴られにくくなること（×1.66→×1.36）
+# より値打ちが大きい。裁定「損を小さくする」に従って半分にした。
+TREASURE_BAGAI_DEAL_ARC = -0.08    # 馬鎧: 弓へ与える被害（強みが薄れる）
 # 短弓（弓兵）は相性表ではなく**距離**の話なので別の口。接敵抑制の上限を
 # 隊ごとに下げ（＝密着しても撃てる）、そのぶん通常攻撃を素で削る。
 TREASURE_TANKYU_SUPPRESS = 0.60    # 接敵時に失う割合（既定 SUPPRESS_MAX 0.85）
@@ -4239,8 +4248,13 @@ def _cav_cover(shooter: "Unit", f: "Unit") -> float:
         return 1.0          # 構えた槍は馬では避けられない（§7.151）
     near = smooth_gate(box_gap(shooter, f), 1.0, CAV_COVER_SOFT)   # 触れていれば 1
     cover = CAV_COVER
-    if TRAITS_ON and HAKUBA_COVER > 0.0 and "hakuba" in f.traits:
-        cover = min(cover + HAKUBA_COVER, 0.95)     # 白馬（§7.155）: 上乗せ
+    if TRAITS_ON:
+        # 上乗せは足していって最後に頭を打つ（白馬と軽騎の鞍を両方持てる）
+        if HAKUBA_COVER > 0.0 and "hakuba" in f.traits:
+            cover += HAKUBA_COVER               # 白馬（§7.155）
+        if TREASURE_KEIKI_COVER > 0.0 and "t_keiki" in f.traits:
+            cover += TREASURE_KEIKI_COVER       # 軽騎の鞍（§7.203）
+        cover = min(cover, 0.95)
     return 1.0 - cover * (1.0 - near)
 
 

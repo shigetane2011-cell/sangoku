@@ -175,6 +175,29 @@ class TreasureEngineTest(unittest.TestCase):
         finally:
             F.TRAITS_ON = True
 
+    def test_keiki_adds_mounted_dodge(self):
+        """軽騎の鞍（§7.203）: 騎兵が遠くの矢を避ける割合が増える。
+
+        §7.202 までは「防御寄せ −0.3」だったが、寄せは総合値を保つ付け替えなので
+        **守りを削る向きは素直に損**（−0.3 で 0功・−0.6 で −29功）。白馬と同じ器へ移した。
+        """
+        arc = F.build(_army([F._synth(4.0, F.ARC)] + _filler(5)), 1)[0]
+        plain = F.build(_army([F._synth(4.0, F.CAV)] + _filler(5)), -1)[0]
+        got = F.build(_army([dataclasses.replace(F._synth(4.0, F.CAV),
+                                                 trait="t_keiki")] + _filler(5)), -1)[0]
+        # 射手が遠い＝避けが効く。倍率が小さいほど当たっていない
+        arc.x, arc.y = 0.0, 0.0
+        for u in (plain, got):
+            u.x, u.y = 5000.0, 0.0
+        self.assertAlmostEqual(F._cav_cover(arc, plain), 1.0 - F.CAV_COVER)
+        self.assertAlmostEqual(F._cav_cover(arc, got),
+                               1.0 - (F.CAV_COVER + F.TREASURE_KEIKI_COVER))
+        # 歩兵が持っても効かない（馬上回避は騎兵の規則）
+        inf = F.build(_army([dataclasses.replace(F._synth(4.0, F.INF),
+                                                 trait="t_keiki")] + _filler(5)), -1)[0]
+        inf.x, inf.y = 5000.0, 0.0
+        self.assertAlmostEqual(F._cav_cover(arc, inf), 1.0)
+
     # 5〜6. 勢力の宝: 3人で立ち、2人では立たない
     def _shu3(self, holder_key=""):
         shu = [c for c in M._roster_cards() if c.faction == "蜀"][:3]

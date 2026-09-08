@@ -426,8 +426,9 @@ def _treasure_brief(key, row):
         return "防御寄せ +{:g} — 鎧が厚くなり、そのぶん兵が薄くなる".format(
             PL.TREASURE_CARD_MODS[key]["def_lean"])
     if key == "t_keiki":
-        return "防御寄せ {:g} — 鎧を軽くして兵を厚くする".format(
-            PL.TREASURE_CARD_MODS[key]["def_lean"])
+        return ("矢を馬で避ける割合が {:.0%} 増える（騎兵の馬上回避 {:.0%} に上乗せ・"
+                "射手が遠いあいだだけ・構えた槍には効かない／騎兵のみ）").format(
+                    F.TREASURE_KEIKI_COVER, F.CAV_COVER)
     if key == "t_shichisei":
         return "この武将の兵法は打消しの構えに阻まれない"
     # 相性を1枚だけ捻じる3つ（§7.202）。**どちらの向きかを必ず書く** —
