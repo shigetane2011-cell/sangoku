@@ -9,7 +9,8 @@ import unittest
 # 他の受け入れ試験と同じく `python3 tools/test_balance_suite.py` で走らせる
 # （リポジトリの作法）。直接起動では tools/ が sys.path[0] になり `tools`
 # パッケージが見えないので、ルートを足す。
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 from tools import balance_common as C
 from tools import balance_suite as B
@@ -64,6 +65,53 @@ class BalanceSuiteTest(unittest.TestCase):
 
     def test_restraint_multiplier_is_recorded_in_manifest(self):
         self.assertEqual(C.balance_constants()["RESTRAINT_NATURAL_MULT"], 0.40)
+
+    # ---- 値付けの控えの鍵（§7.207・落とし穴52）--------------------------------
+    # board_fingerprint は「盤面が同じなら同じ・違えば違う」でなければ控えが働かない。
+    # 番地（`<lambda at 0x7f...>`）や読み込み順が混ざると**毎回変わり**、控えが一度も
+    # 当たらないまま「守れている」ように見える。ここが見張り。
+    def test_price_cache_key_is_stable_for_the_same_board(self):
+        import subprocess
+        from tools import treasure_price as TP
+        got = [TP.board_fingerprint()]
+        # 別プロセスでも同じか（番地は プロセスごとに変わるので、混ざっていれば落ちる）
+        for _ in range(2):
+            out = subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0, %r)\n"
+                 "from tools import treasure_price as TP\n"
+                 "print(TP.board_fingerprint())" % ROOT],
+                capture_output=True, text=True, cwd=ROOT)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            got.append(out.stdout.strip())
+        self.assertEqual(len(set(got)), 1,
+                         "盤面が同じなのに指紋が割れた: {}".format(got))
+
+    def test_price_cache_key_is_independent_of_load_order(self):
+        from tools import treasure_price as TP
+        from sim import rosterdata as R
+        first = TP.board_fingerprint()
+        TP._FP.clear()
+        R.load_traits_into_field()
+        C.roster()
+        self.assertEqual(TP.board_fingerprint(), first,
+                         "読み込みの前と後で指紋が変わった（呼ぶ場所で鍵が違ってしまう）")
+
+    def test_price_cache_key_moves_when_the_board_moves(self):
+        from tools import treasure_price as TP
+        from sim import field as F
+        base = TP.board_fingerprint()
+        ta = dict(F.TYPE_ATK)
+        k0 = sorted(ta)[0]
+        ta[k0] = ta[k0] + 0.001
+        saved, F.TYPE_ATK = F.TYPE_ATK, ta
+        TP._FP.clear()
+        try:
+            self.assertNotEqual(TP.board_fingerprint(), base,
+                                "相性表を動かしたのに指紋が同じ（古い控えを掴む）")
+        finally:
+            F.TYPE_ATK = saved
+            TP._FP.clear()
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ import dataclasses
 import io
 import json
 import os
+import re
 import statistics
 import sys
 from multiprocessing import Pool
@@ -161,6 +162,9 @@ def _one(job):
 _FP = {}
 
 
+_ADDR = re.compile(r"0x[0-9a-fA-F]{6,}")
+
+
 def board_fingerprint() -> str:
     """いまの盤面の指紋（名簿4枚 ＋ field の数値定数ぜんぶ）。
 
@@ -172,6 +176,15 @@ def board_fingerprint() -> str:
     """
     if not _FP:
         import hashlib
+        # **先に読み込んでから測る。** F.TRAITS / F.SKILL_INFO は名簿から作られる
+        # 大文字の辞書なので、読み込みの前と後で指紋が変わってしまう（同じ盤面なのに
+        # 呼ぶ場所で鍵が違う）。_init と同じ冪等な読み込みをここでも済ませて、
+        # **いつ呼んでも「読み込み後の状態」**を測る（§7.207・落とし穴52）。
+        if not F.SKILL_INFO:
+            R.load_skills_into_field()
+        if not F.TRAITS:
+            R.load_traits_into_field()
+        F.TRAITS_ON = True          # _init と同じ。値付けは必ず特性ありで測る
         h = hashlib.sha1()
         for f in ("generals.csv", "skills.csv", "traits.csv", "treasures.csv"):
             h.update(io.open(os.path.join(R.DATA, f), "rb").read())
@@ -191,7 +204,12 @@ def board_fingerprint() -> str:
                                          else v)))
                 except TypeError:
                     vals.append((k, repr(v)))
-        h.update(repr(sorted(vals)).encode())
+        # **番地を消してから混ぜる。** ZERO_CASES は (名前, ラムダ) の組で、repr に
+        # `<function <lambda> at 0x7f...>` と**メモリ番地**が入る。番地はプロセスごとに
+        # 変わるので、そのまま混ぜると**盤面が1文字も動いていなくても指紋が毎回変わり**、
+        # 控えが一度も当たらない（§7.207・落とし穴52）。落とし穴50 の「古い控えを掴まない」
+        # は守られるが、それは**毎回外れるから**であって、当たるべき時にも当たらない。
+        h.update(_ADDR.sub("0xX", repr(sorted(vals))).encode())
         _FP["v"] = h.hexdigest()[:8]
     return _FP["v"]
 
