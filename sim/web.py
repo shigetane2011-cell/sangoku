@@ -402,8 +402,8 @@ def _treasure_brief(key, row):
         desc, cond = _trait_brief(None, key, row)
         return desc + ("（{}）".format(cond) if cond else "")
     if key == "t_sekitoba":
-        return "速度寄せ +0.3、自分の隊の兵力 +{:.0%}（騎兵のみ）".format(
-            F.TREASURE_SEKITOBA_MEN)
+        return "武力 +{:.0f}、自分の隊の兵力 +{:.0%}、速度寄せ +0.3（騎兵のみ）".format(
+            PL.TREASURE_CARD_MODS[key]["might"], F.TREASURE_SEKITOBA_MEN)
     if key == "t_motoku":
         return "兵法の被害 -{:.0%}（敵の手を書物で見抜く）".format(
             F.TREASURE_MOTOKU_SCUT)
@@ -412,8 +412,10 @@ def _treasure_brief(key, row):
     if key in F.TREASURE_FACTION:
         fac, kind, amt = F.TREASURE_FACTION[key]
         what = {"rate": "気勢", "atk": "攻撃", "def": "守り", "men": "兵力"}[kind]
-        return "同じ部隊に{}の武将が{}人以上いるときだけ、全軍の{} +{:.0%}".format(
-            fac, F.TREASURE_FACTION_NEED, what, amt)
+        # 量は実測で決まるので端数が出る（蜀錦 1.7% など）。丸めて嘘をつかない。
+        pct = "{:.1f}".format(amt * 100.0).rstrip("0").rstrip(".")
+        return "同じ部隊に{}の武将が{}人以上いるときだけ、全軍の{} +{}%".format(
+            fac, F.TREASURE_FACTION_NEED, what, pct)
     if key == "t_seiryu":
         return "武力 +{:.0f}（通常も兵法も出力が少し上がる）".format(
             PL.TREASURE_CARD_MODS[key]["might"])
@@ -421,9 +423,11 @@ def _treasure_brief(key, row):
         return "知力 +{:.0f}（知略の兵法の効きと混乱への耐えが上がる）".format(
             PL.TREASURE_CARD_MODS[key]["wits"])
     if key == "t_gentetsu":
-        return "防御寄せ +0.3 — 鎧が厚くなり、そのぶん兵が薄くなる"
+        return "防御寄せ +{:g} — 鎧が厚くなり、そのぶん兵が薄くなる".format(
+            PL.TREASURE_CARD_MODS[key]["def_lean"])
     if key == "t_keiki":
-        return "防御寄せ -0.3 — 鎧を軽くして兵を厚くする"
+        return "防御寄せ {:g} — 鎧を軽くして兵を厚くする".format(
+            PL.TREASURE_CARD_MODS[key]["def_lean"])
     if key == "t_shichisei":
         return "この武将の兵法は打消しの構えに阻まれない"
     # 相性を1枚だけ捻じる3つ（§7.202）。**どちらの向きかを必ず書く** —
@@ -442,8 +446,8 @@ def _treasure_brief(key, row):
                     1.0 - F.TREASURE_TANKYU_SUPPRESS, 1.0 - F.SUPPRESS_MAX,
                     F.TREASURE_TANKYU_ATK)
     if key == "t_mokgyu":
-        return "後衛に置いた時だけ守り +{:.0%}（輜重の余裕）".format(
-            F.TREASURE_MOKGYU_DEF)
+        return "持ち矢 +{:.0%}（輜重の余裕。弓兵にだけ意味がある）".format(
+            F.TREASURE_MOKGYU_AMMO)
     if key == "t_toko":
         # 酒乱（§7.146）の発動条件は機構で書かず、逸話で匂わせる（テストプレイの文言）
         return ("この将の決めゼリフが必ず実況に出る。"

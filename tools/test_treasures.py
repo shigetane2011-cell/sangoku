@@ -78,20 +78,36 @@ class TreasureEngineTest(unittest.TestCase):
         self.assertAlmostEqual(u.atk_mult, 1.0 + F.TREASURE_RENDO_ATK)
 
     # 3. 木牛流馬は後衛だけ
-    def test_mokgyu_rear_only(self):
-        card = _synth_with("t_mokgyu")
-        rear = F.build(_army(_filler(3) + [card] + _filler(2)), 1)[3]
-        front = F.build(_army([card] + _filler(5)), 1)[0]
-        self.assertAlmostEqual(rear.def_mult, 1.0 + F.TREASURE_MOKGYU_DEF)
-        self.assertAlmostEqual(front.def_mult, 1.0)
+    def test_mokgyu_carries_more_arrows(self):
+        """木牛流馬（§7.203）: 持ち矢が伸び、尽きるのが遅くなる。
 
-    # 4. 赤兎馬: 兵力+2%（盤面）＋速度寄せ+0.3（札モッド）
+        §7.202 までは「後衛のみ守り+8%」だったが、後衛は前衛に守られていて
+        殴られないので**実測 0功**だった。輜重の逸話に合わせて矢へ移した。
+        """
+        card = dataclasses.replace(F._synth(4.0, F.ARC), trait="t_mokgyu")
+        got = F.build(_army(_filler(3) + [card] + _filler(2)), 1)[3]
+        plain = F.build(_army(_filler(3) + [F._synth(4.0, F.ARC)] + _filler(2)), 1)[3]
+        self.assertAlmostEqual(got.ammo, F.AMMO_SHOTS * (1.0 + F.TREASURE_MOKGYU_AMMO))
+        self.assertAlmostEqual(plain.ammo, F.AMMO_SHOTS)
+        # 素の持ち矢を撃ち切った時点で、素は減っていて木牛は減っていない
+        far = [F.SUPPRESS_R * 5.0]
+        got.shot = plain.shot = F.AMMO_SHOTS + 2.0
+        self.assertLess(F._suppress(plain, far), F._suppress(got, far))
+        self.assertAlmostEqual(F._suppress(got, far), 1.0, msg="まだ尽きていないはず")
+
+    # 4. 赤兎馬: 兵力・武力・速度寄せ（§7.203 で武力を足した）
     def test_sekitoba_men_and_speed(self):
         base = F.build(_army([_synth_with()] + _filler(5)), 1)[0]
         got = F.build(_army([_synth_with("t_sekitoba")] + _filler(5)), 1)[0]
         self.assertAlmostEqual(got.men0, base.men0 * (1.0 + F.TREASURE_SEKITOBA_MEN))
         c = PL.apply_treasure_card_mods(_synth_with("t_sekitoba"))
         self.assertAlmostEqual(c.spd_lean, 0.3)
+        # 【§7.203】武力も乗る（実カードだけ。合成札は might=0 の運用なので動かない）
+        real = [x for x in M._roster_cards() if x.typ == F.CAV and x.might > 0][0]
+        got2 = PL.apply_treasure_card_mods(dataclasses.replace(
+            real, trait=F.TRAIT_SEP.join(list(F.trait_keys(real.trait)) + ["t_sekitoba"])))
+        self.assertAlmostEqual(got2.might,
+                               real.might + PL.TREASURE_CARD_MODS["t_sekitoba"]["might"])
 
     # 4b. 相性を1枚だけ捻じる3つ（§7.202）
     def _pair(self, ta, tb, key_a="", key_b=""):
@@ -222,8 +238,10 @@ class TreasureEngineTest(unittest.TestCase):
         for key, field_name in (("t_seiryu", "might"), ("t_hakuusen", "wits")):
             c = dataclasses.replace(base_c, trait=key)
             c = PL.apply_treasure_card_mods(c)
+            # 量は実測で動く（§7.203 で白羽扇 15→30）ので表から引く
+            add = PL.TREASURE_CARD_MODS[key][field_name]
             self.assertAlmostEqual(getattr(c, field_name),
-                                   getattr(base_c, field_name) + 15.0)
+                                   getattr(base_c, field_name) + add)
             self.assertAlmostEqual(c.fame_wits, base_c.fame_wits)  # 的は不変
         # 合成カード（武力0の指定なし運用）には足さない
         s = PL.apply_treasure_card_mods(_synth_with("t_seiryu"))

@@ -1540,10 +1540,17 @@ def _amp_mult(src: "Unit", tgt: "Unit", kind: str) -> float:
 # 宝物（§7.138・恩賞の後継）。キーは treasures.csv の t_ 名前空間で、
 # card.trait / hidden_trait に生来特性と同じ形で乗る（§7.136 の秘匿も同経路）。
 # **数値は全部仮** — 実測（§7.53 の帯合わせ・値付け）は別タスク。
-TREASURE_SEKITOBA_MEN = 0.02   # 赤兎馬: 兵力+2%（速度寄せ+0.3は play.py の札モッド側）
-TREASURE_MOTOKU_SCUT = 0.15    # 孟徳新書: 兵法防御+15%（敵の手を書物で見抜く）
+# 【§7.203】実測して**値段が付かなかった札**を作り替えた（テストプレイの裁定
+# 「弱すぎるやつは効果変えて使えるようにしよう」）。落ちた理由はどれも同じで、
+# **相手や置き場所に依存して出番が来ない**か、**量が小さすぎる**か。
+#   赤兎馬    兵力+2%（＋速度寄せ）＝3功 → **兵力と武力に分ける**（テストプレイの指示）
+#   孟徳新書  兵法防御+15% ＝9功 → **+30%**（§7.193 で単価が半分になったので倍で元の値段）
+#   木牛流馬  後衛の守り+8% ＝0功 → **矢の持ちを伸ばす**（後衛は前衛に守られていて
+#             守りが効かない。輜重の逸話にも合う）
+TREASURE_SEKITOBA_MEN = 0.04   # 赤兎馬: 兵力+4%（武力+10と速度寄せ+0.3は play.py 側）
+TREASURE_MOTOKU_SCUT = 0.30    # 孟徳新書: 兵法防御+30%（敵の手を書物で見抜く）
 TREASURE_RENDO_ATK = 0.08      # 諸葛連弩: 通常攻撃+8%（弓兵限定はセット時検証）
-TREASURE_MOKGYU_DEF = 0.08     # 木牛流馬: 後衛に置いた時だけ守り+8%（輜重の余裕）
+TREASURE_MOKGYU_AMMO = 0.60    # 木牛流馬: 持ち矢+60%（弓兵にだけ意味がある）
 
 # ── 相性を1枚だけ捻じる3つ（§7.202・テストプレイの案・**数値は全部仮**）──
 #
@@ -2030,7 +2037,7 @@ class Unit:
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
         "perm_atk", "perm_def", "perm_rate", "perm_scut",
-        "later", "stunned", "amp", "edge_deal", "edge_take", "sup_max",
+        "later", "stunned", "amp", "edge_deal", "edge_take", "sup_max", "ammo",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -2108,6 +2115,7 @@ class Unit:
         self.edge_deal: Dict[str, float] = {}
         self.edge_take: Dict[str, float] = {}
         self.sup_max = SUPPRESS_MAX      # 接敵で失う割合（短弓だけ下げる）
+        self.ammo = AMMO_SHOTS           # 持ち矢（木牛流馬だけ伸ばす・§7.203）
         if TRAITS_ON and is_front and "vanguard" in self.traits:
             self.men0 *= 1.0 + VANGUARD_MEN
             self.men = self.men0
@@ -2121,8 +2129,8 @@ class Unit:
                 self.perm_scut += TREASURE_MOTOKU_SCUT
             if "t_rendo" in self.traits:         # 諸葛連弩: 通常攻撃+8%
                 self.perm_atk += TREASURE_RENDO_ATK
-            if "t_mokgyu" in self.traits and not is_front:
-                self.perm_def += TREASURE_MOKGYU_DEF   # 木牛流馬: 後衛のみ
+            if "t_mokgyu" in self.traits:          # 木牛流馬: 持ち矢が伸びる
+                self.ammo *= 1.0 + TREASURE_MOKGYU_AMMO
             # 相性を1枚だけ捻じる3つ（§7.202）。兵種の制限はセット時に弾いて
             # あるが、ここでも兵種を見る — 陣容の復元は制限を通らないため。
             if "t_daijun" in self.traits and card.typ == INF:      # 大楯
@@ -4302,8 +4310,9 @@ def _suppress(u: Unit, gaps: List[float],
         if AMMO_SPAN > 0.0 and u.shot > AMMO_SPAN:
             sup *= math.exp(-(u.shot - AMMO_SPAN) / AMMO_TAIL_P)
     elif AMMO_MODE == "shots":
-        if AMMO_SHOTS > 0.0 and u.shot > AMMO_SHOTS:
-            sup *= math.exp(-(u.shot - AMMO_SHOTS) / AMMO_SHOTS_TAIL)
+        # 持ち矢は**隊ごと**（木牛流馬だけ伸ばす・§7.203）。既定は AMMO_SHOTS。
+        if u.ammo > 0.0 and u.shot > u.ammo:
+            sup *= math.exp(-(u.shot - u.ammo) / AMMO_SHOTS_TAIL)
     elif AMMO_TIME > 0.0 and u.shot > AMMO_TIME:
         sup *= math.exp(-(u.shot - AMMO_TIME) / AMMO_TAIL)
     return (sup, fire) if parts else sup
