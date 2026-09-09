@@ -233,6 +233,15 @@ def swap_main():
     regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
     R.load_skills_into_field(); R.load_traits_into_field()
     rows = {g["名前"]: g for g in R.generals()}
+    # 【--fx の読み方・テストプレイの指摘】**打撃と状態効果は同じ土俵にない。**
+    #   打撃    `dmg = SKILL_SCALE * burst * p_eff * coef / n`  … **n で割る**（総量の分配）
+    #   状態効果 `for key, amt, secs in sk.mods:` 各体に amt      … **割らない**（満額の複製）
+    # なので 打撃の 敵全体 0.992（正面の0.77倍＝総量ほぼ同じ）と、
+    # 状態効果の 敵全体 4.964（敵1体の5.77倍＝ほぼ体数ぶん）は、
+    # **「段差が大きい／小さい」と並べて比べてはいけない。**
+    # 問うべきは「5.77倍は大きすぎるか」ではなく「**体数ぶんに見合うか**」。
+    # 満額で6体に乗っても6倍にはならない向きの力（倒れかけの隊・まだ撃ち合って
+    # いない後衛・戦闘中に減る体数）があるので、実測が 5.77 を下回れば取り過ぎ。
     fx = "--fx" in sys.argv      # 状態効果の掛け目（TARGET_FX_FOE）を測る（§7.221）
     if "--cards" in sys.argv:
         global SWAP_CARDS
