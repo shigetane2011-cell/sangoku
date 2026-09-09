@@ -621,8 +621,143 @@ def ablate_report(got, cards, rows, texts, ch, seeds):
             ci, ch[n][0] - ch[n][1]))
 
 
+# ============================================================================
+# --spd: 移動速度の値打ちを「いつ効くか」と「兵種」で切り分ける（§7.228 の続き）
+# ============================================================================
+# テストプレイの指摘（2026-09-09）:
+#   「スタート時からの変更と、後から変更で価値が違うはず。兵種によっても。」
+# `design.effect_value` の注記も同じことを言っている（初期ゲージ0 なら 0.00・
+# 初期ゲージ100（開幕発動）なら 1.60 という**発動時刻の崖**）。
+# §7.228 は**本番の札をそのまま**測ったので、9枚がそれぞれ別の段・別の兵種・別の対象で、
+# **どの条件で 0 だったのかが分かれていない。** ここで2つの因子だけを振って切り分ける。
+#
+# **読み方の約束（§7.185・§7.226 ⑤）**: 身体1点の重さは兵種で違うので、
+# **兵種をまたいで「どちらが大きい」とは言えない。** 言えるのは
+#   (i) **同じ身体の中**で発動時刻を変えたときの動き
+#   (ii) **0 か 0 でないか**（0 はどの単位でも 0 なので兵種をまたいで比べられる）
+SPD_EFFECT = "移動速度 -25%（40秒）"       # 徐庶・司馬懿と同じ量・秒
+SPD_TARGET = "敵前衛"                      # 突っ込んでくる側を遅くする形（徐庶と同じ）
+SPD_BODIES = ("凌統〔公績〕", "関平〔麒麟児〕", "黄忠〔定軍山〕")   # 歩 c7 / 騎 c6 / 弓 c8
+# 消費300 に固定して初期ゲージだけ振る。300 なら開幕発動、0 なら一番遅い。
+SPD_GAUGE = ((300.0, 300.0, "開幕"), (300.0, 140.0, "中盤（本番の大技段）"),
+             (300.0, 0.0, "遅め"))
+
+
+def _one_spd(job):
+    """job = (身体, 効果文 or None, 削り幅, 消費ゲージ, 初期ゲージ)。
+
+    効果文が None なら**兵法なし**（基準 V0）。段は身体の札へ直接かぶせる。
+    **`_minus_one` は名簿の行から引く**ので段の差し替えは身体の作り直しには効かない。
+    ここでは同じ身体の中で段だけを変えて比べるので、そのずれは**両方に同じだけ乗る**。
+    """
+    name, text, shave, gc, gi = job
+    c = _S["cards"][name]
+    row = [r for r in R.skills() if r["武将"] == name][0]
+    sk = row["兵法名"]
+    if text is None:
+        c = replace(c, skill="")
+    else:
+        with F.unscaled():
+            F.SKILL_INFO[sk] = F._parse_skill(text, SPD_TARGET)
+        F.SKILL_TARGET[sk] = SPD_TARGET
+        if shave > 0.0:
+            c = SP._minus_one(c, _S["rows"][name], shave)
+        c = replace(c, skill=sk, gauge_cost=gc, gauge_init=gi)
+    d = []
+    for base in _S["bases"]:
+        a = SP._swap_into(base, c)
+        for i, o in enumerate(_S["opps"]):
+            d.append(F.simulate(a, o, dt=SP.DT, seed=i * 7 + 1)["diff"])
+    return d
+
+
+def spd_main():
+    seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv else 2
+    want = sys.argv[sys.argv.index("--regs") + 1].split(",") if "--regs" in sys.argv else None
+    regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
+    # **削り幅に −1 を入れること。** ここの統計量は「交点そのもの」で、`cross` は
+    # 0 以上しか返せないため、0〜3 だけで測ると**再抽出の分布が 0 で床を打ち**、
+    # 「95%区間が 0 を外した」が**必ず成り立ってしまう**（一度踏んだ）。
+    # −1 は「身体を1点太らせる」＝ `_minus_one(c, row, -1.0)` で、交点が負にもなれる。
+    shave = (tuple(float(x) for x in sys.argv[sys.argv.index("--shave") + 1].split(","))
+             if "--shave" in sys.argv else (-1.0, 0.0, 1.0, 2.0, 3.0))
+    R.load_skills_into_field(); R.load_traits_into_field()
+    rows = {g["名前"]: g for g in R.generals()}
+
+    print("『{}』（対象 {}）を、**発動時刻 × 持ち手の兵種**で振る（§7.228 の続き）".format(
+        SPD_EFFECT, SPD_TARGET))
+    print("  請求はどの組でも 0.00（EFFECT_PRICE['spd'] = 0.0）。削り幅{}・1案{}局".format(
+        list(shave), 12 * 12 * seeds))
+    print("  **兵種をまたいで大小は比べない**（身体1点の重さが違う・§7.185）。"
+          "見るのは『同じ身体の中での動き』と『0 か 0 でないか』。\n")
+    print("  身体: " + " / ".join("{}（{} c{}）".format(
+        n, rows[n]["兵種"], int(float(rows[n]["コスト"]))) for n in SPD_BODIES))
+    print()
+
+    out = {}
+    for label, cap in regs:
+        os.environ["PANEL_TOTAL"] = str(cap); SP.TOTAL = cap
+        jobs = [(n, None, 0.0, 300.0, 0.0) for n in SPD_BODIES]
+        jobs += [(n, SPD_EFFECT, d, gc, gi)
+                 for n in SPD_BODIES for gc, gi, _ in SPD_GAUGE for d in shave]
+        jobs = list(dict.fromkeys(jobs))
+        pool = Pool(int(os.environ.get("W", "8")), _init, (seeds,))
+        got = dict(zip(jobs, pool.map(_one_spd, jobs)))
+        pool.close(); pool.join()
+        out["{:g}".format(cap)] = {"|".join(map(str, k)): v for k, v in got.items()}
+        print("■ {}（上限 {:g}点）".format(label, cap), flush=True)
+        spd_report(got, shave, seeds)
+        print()
+
+    dump = (sys.argv[sys.argv.index("--dump") + 1] if "--dump" in sys.argv
+            else "/tmp/claude-0/skill_worth_spd.json")
+    json.dump(out, open(dump, "w"))
+    print("生データ: {}".format(dump))
+    print("SPD DONE")
+
+
+def spd_report(got, shave, seeds):
+    ALL = TP.game_index(seeds, range(TP.NBASE), range(TP.NPERS))
+    rng = random.Random(12321)
+    draws = [TP.cluster_draw(rng, seeds) for _ in range(300)]
+
+    def V0(name, ix):
+        return statistics.mean(got[(name, None, 0.0, 300.0, 0.0)][i] for i in ix)
+
+    def worth(name, gc, gi, ix):
+        vals = [(d, statistics.mean(got[(name, SPD_EFFECT, d, gc, gi)][i] for i in ix))
+                for d in shave]
+        return cross(vals, V0(name, ix))
+
+    def raw(name, gc, gi, ix):
+        """削らないままの残存差の増分（盤面の量そのもの）。単位を通さない 0 の検査。"""
+        return (statistics.mean(got[(name, SPD_EFFECT, 0.0, gc, gi)][i] for i in ix)
+                - V0(name, ix))
+
+    # 【0 の検査は「残存差」で行う】交点（コスト点）は `cross` が 0 以上しか返せないので、
+    # **再抽出の分布が 0 で床を打ち、「区間が 0 を外した」が必ず成り立ってしまう**（一度踏んだ）。
+    # 削り幅に −1 を入れて負も取れるようにしたが、値打ちがほぼ 0 の組では
+    # やはり 0 の近くへ潰れる。**床の無い量＝削らないままの残存差の増分**を主にする。
+    print("  {:<16}{:<20}{:>10}{:>19}{:>12}{:>11}".format(
+        "身体", "発動時刻", "残存差の増分", "95%区間", "0 を含むか", "値打ち(点)"))
+    for name in SPD_BODIES:
+        for gc, gi, lab in SPD_GAUGE:
+            r = raw(name, gc, gi, ALL)
+            bs = sorted(raw(name, gc, gi, ix) for ix in draws)
+            lo, hi = bs[int(.025*len(bs))], bs[int(.975*len(bs))]
+            x = worth(name, gc, gi, ALL)
+            print("  {:<16}{:<20}{:>+10.4f}{:>19}{:>12}{:>11}".format(
+                name, "{}（初期{:.0f}）".format(lab, gi), r,
+                "[{:+.4f}, {:+.4f}]".format(lo, hi),
+                "含む" if lo <= 0 <= hi else "**含まない**",
+                "{:+.2f}".format(x) if x is not None else "挟めず"))
+        print()
+
+
 if __name__ == "__main__":
-    if "--ablate" in sys.argv:
+    if "--spd" in sys.argv:
+        spd_main()
+    elif "--ablate" in sys.argv:
         ablate_main()
     elif "--curve" in sys.argv:
         curve_main()
