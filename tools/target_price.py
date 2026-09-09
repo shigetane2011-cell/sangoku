@@ -162,6 +162,21 @@ def main():
     got = dict(zip(jobs, pool.map(_one, jobs)))
     pool.close()
 
+    def ratio_ci(xa, xb, ya, yb):
+        """比 mean(xa−xb)／mean(ya−yb) の95%幅（相対誤差を足し合わせる近似）。
+
+        **1つのマスだけで裁定しないための欄。** 対象の値打ちは差の比なので、
+        分子と分母それぞれの誤差が乗る。誤差より小さい差は読まないこと。
+        """
+        da = [a - b for a, b in zip(xa, xb)]
+        db = [a - b for a, b in zip(ya, yb)]
+        n = len(da)
+        ma, mb = statistics.mean(da), statistics.mean(db)
+        ci = lambda z: 1.96 * statistics.pstdev(z) / (n ** 0.5)
+        if not ma or not mb:
+            return float("nan")
+        return abs(ma / mb) * ((ci(da) / ma) ** 2 + (ci(db) / mb) ** 2) ** 0.5
+
     for name, powers in cards.items():
         _, doff, _ = got[(name, None, 0)]
         _, dasis, _ = got[(name, "__asis__", 0)]
@@ -170,8 +185,8 @@ def main():
         yard = statistics.mean(a - b for a, b in zip(dasis, dyard)) / 3.0
         print("\n{} — 土台12 × 性格12 × 種{}（1案 {}局）・1コスト点の残存差 {:+.4f}".format(
             name, seeds, len(doff), yard))
-        print("{:<16}{:>7}{:>9}{:>10}{:>9}{:>9}{:>8}{:>8}{:>9}".format(
-            "対象", "威力", "勝率", "Δ勝率", "Δ残存", "コスト点", "実損害", "超過率", "適正係数"))
+        print("{:<16}{:>7}{:>9}{:>10}{:>9}{:>9}{:>8}{:>8}{:>9}{:>8}".format(
+            "対象", "威力", "勝率", "Δ勝率", "Δ残存", "コスト点", "実損害", "超過率", "適正係数", "±"))
         anchor = {}
         for t in TARGETS:
             for p in powers:
@@ -183,10 +198,13 @@ def main():
                 if t == ANCHOR:
                     anchor[p] = dd
                 coef = DS.TARGET_DMG_F[ANCHOR] * dd / anchor[p] if anchor.get(p) else float("nan")
-                print("{:<16}{:>6}%{:>9.1%}{:>+10.2%}{:>+9.4f}{:>9.2f}{:>8.0f}{:>8.1%}{:>9.3f}".format(
+                cci = (0.0 if t == ANCHOR else
+                       DS.TARGET_DMG_F[ANCHOR] * ratio_ci(d, doff, got[(name, ANCHOR, p)][1], doff))
+                print("{:<16}{:>6}%{:>9.1%}{:>+10.2%}{:>+9.4f}{:>9.2f}{:>8.0f}{:>8.1%}{:>9.3f}{:>8.3f}".format(
                     t.replace("敵1体", ""), p, statistics.mean(w), dw, dd,
                     dd / yard if yard else float("nan"),
-                    a["実損害"], a["超過"] / (a["実損害"] + a["超過"]) if a["実損害"] else 0, coef))
+                    a["実損害"], a["超過"] / (a["実損害"] + a["超過"]) if a["実損害"] else 0,
+                    coef, cci))
         print("  いまの表: 正面 {:.3f} / 残兵力が最少 {:.3f} / 敵前衛 {:.3f}".format(
             DS.TARGET_DMG_F["敵1体（正面）"], DS.TARGET_DMG_F["敵1体（残兵力が最少）"],
             DS.TARGET_DMG_F["敵前衛"]))
