@@ -76,6 +76,12 @@ RATE = 4.86          # 旧物差し（--filler-slope）だけが使う
 # 物差しで割ると +25%／+13%／−35%／−47% で、**むしろ悪い**。
 # 単価の引き直し（§7.188）は残存点のほうで行った。この旗は切り分け用に残す。
 COMMON_YARD = 0.0270
+
+
+def _panel_key(name, what, mode, bump, games, card_fp, board_fp) -> str:
+    """控えの鍵。**書き込みと読み戻しで必ずこれを通す**（§7.210・落とし穴53）。
+    札の定義（card_fp）と盤面の指紋（board_fp）の両方が入る。"""
+    return "{}|{}|{}|{}|{}|{}|{}".format(name, what, mode, bump, games, card_fp, board_fp)
 # 土台勝率がこの外だと読みが不安定になりやすい（§7.184）。本番 BO3 では、勝率
 # 87.5% の登録で身体1点が 0.004 しか動かさなかった（5割近くの登録は 0.013）。
 SAFE_WIN = (0.35, 0.65)
@@ -318,8 +324,7 @@ def main():
             # **盤面の指紋も入れる**（§7.207・落とし穴50）。札の効果文と能力値は
             # 鍵に入っていたが、**盤面ぜんたい**（三すくみ・矢数・単価表…）が
             # 入っていなかったので、辺を較正し直しても同じ鍵で古い値を返していた。
-            k = "{}|{}|{}|{}|{}|{}|{}".format(
-                n, what, mode, bump, npers * seeds, fp.get(n, ""), board_fp)
+            k = _panel_key(n, what, mode, bump, npers * seeds, fp.get(n, ""), board_fp)
             if k not in got:
                 jobs.append((k, (n, mode, bump)))
     if jobs:
@@ -340,7 +345,12 @@ def main():
         hdr += "{:>8}{:>8}".format("旧勝率", "旧残存")
     print(hdr)
     for n in names:
-        key = lambda mode, bump: "{}|{}|{}|{}|{}|{}".format(n, what, mode, bump, npers * seeds, fp.get(n, ""))
+        # **書き込み側と同じ鍵にする。** §7.208 で書き込み側にだけ board_fp を足して
+        # ここを直し忘れ、「新しい鍵で書いて古い鍵で読む」状態になっていた
+        # （古い控えに項目がある札は古い値が表に出て、無い札は KeyError で落ちる）。
+        # 鍵は1か所で作る（§7.210・落とし穴53）。
+        key = lambda mode, bump: _panel_key(n, what, mode, bump, npers * seeds,
+                                            fp.get(n, ""), board_fp)
         won, don = got[key("on", 0.0)]
         woff, doff = got[key("off", 0.0)]
         wm1, dm1 = got[key(ymode, 0.0)]

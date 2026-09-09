@@ -95,6 +95,28 @@ class BalanceSuiteTest(unittest.TestCase):
         self.assertEqual(C.board_fingerprint(), first,
                          "読み込みの前と後で指紋が変わった（呼ぶ場所で鍵が違ってしまう）")
 
+    def test_panel_writes_and_reads_the_same_cache_key(self):
+        """§7.210・落とし穴53。書き込みと読み戻しで鍵が食い違うと、**古い控えに項目が
+        ある札は古い値が表に出て**、無い札は KeyError で落ちる。§7.208 で書き込み側に
+        だけ指紋を足して読み戻しを直し忘れ、実際にそうなった。**空の札名で走らせる
+        煙検査では捕まらない**（表の行が1つも作られないため）ので、鍵そのものを見る。"""
+        import inspect
+        from tools import skill_panel as SP
+        src = inspect.getsource(SP.main)
+        # 鍵は _panel_key に一本化されていること（書式文字列の直書きが残っていない）
+        self.assertNotIn('"{}|{}|{}|{}|{}|{}"', src,
+                         "読み戻し側が鍵を直書きしている（_panel_key を通すこと）")
+        self.assertNotIn('"{}|{}|{}|{}|{}|{}|{}"', src,
+                         "書き込み側が鍵を直書きしている（_panel_key を通すこと）")
+        self.assertGreaterEqual(src.count("_panel_key("), 2,
+                                "書き込みと読み戻しの両方が _panel_key を通ること")
+        # 同じ引数なら同じ鍵・盤面が違えば違う鍵
+        a = SP._panel_key("札", "兵法", "on", 0.0, 240, "c2/s1.1", "fp1")
+        b = SP._panel_key("札", "兵法", "on", 0.0, 240, "c2/s1.1", "fp1")
+        c = SP._panel_key("札", "兵法", "on", 0.0, 240, "c2/s1.1", "fp2")
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c, "盤面の指紋が鍵に効いていない")
+
     def test_price_cache_key_moves_when_the_board_moves(self):
         from sim import field as F
         base = C.board_fingerprint()
