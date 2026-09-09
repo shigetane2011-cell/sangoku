@@ -2617,6 +2617,9 @@ class Skill:
     **盤面が持っていない量へは写さない。** 命中率はダメージ式に無いので、
     命中率 -7% は攻撃力 -7% と同じ意味になる（期待ダメージが同じ倍率で落ちる）。
     別の器を作ると「命中率だけ下げる兵法」が実は何もしない、という嘘になる。
+    **【§7.211】そこで「命中率」という語そのものを廃した。** 同じ器なのに名前が
+    2つあると、プレイヤーから別の効果に見え、軸を数えるときも1つ多く数えてしまう
+    （テストプレイの裁定「命中率はやめて攻撃力に統一」）。
     """
     power: float = 0.0      # ダメージ威力。dur > 0 なら**毎秒**の量
     kind: str = "melee"     # 知力の効き方（SKILL_WITS）
@@ -2697,8 +2700,9 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
     return (p, skill_dur(float(d.group(1)))) if d else (p, 0.0)
 
 
-# 効果文の見出し → 盤面の器。命中率は攻撃力へ写す（上の Skill の注記）。
-_MOD_KEY = {"攻撃力": "atk", "命中率": "atk", "防御力": "def", "移動速度": "spd",
+# 効果文の見出し → 盤面の器。**「命中率」は §7.211 で廃語**（攻撃力と同じ
+# atk へ写るので、プレイヤーには別の器に見えて実体が同じだった）。
+_MOD_KEY = {"攻撃力": "atk", "防御力": "def", "移動速度": "spd",
             "気勢": "rate", "兵法防御": "scut", "兵法反射": "refl", "通常攻撃防御": "ncut"}
 
 
@@ -2714,7 +2718,7 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     # 同じ弱体が敵にも飛ぶ二重取りになる（実際に踏んだ）。先に除いておく。
     effect = re.sub(r"反動\s*攻撃力\s*-\d+%（\d+秒）", "", effect)
     for m in re.finditer(
-            r"(攻撃力|命中率|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒(・知力比)?）",
+            r"(攻撃力|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒(・知力比)?）",
             effect):
         if m.group(4):
             continue                    # 知力比の口（_skill_wits_mods）が読む
@@ -2802,7 +2806,7 @@ def _skill_wits_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
         out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
                     skill_dur(float(m.group(2)))))
     for m in re.finditer(
-            r"(攻撃力|命中率|防御力|移動速度)\s*(-\d+)%（(\d+)秒・知力比）", effect):
+            r"(攻撃力|防御力|移動速度)\s*(-\d+)%（(\d+)秒・知力比）", effect):
         out.append((_MOD_KEY[m.group(1)], skill_mag(float(m.group(2)) / 100.0),
                     skill_dur(float(m.group(3)))))
     return tuple(out)

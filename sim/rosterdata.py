@@ -823,7 +823,7 @@ def _scale_effect(text: str, m: float) -> str:
     text = re.sub(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", gauge, text)
     text = re.sub(r"気勢\s*([+-])(\d+)%（(\d+)秒）", kisei, text)
     text = re.sub(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", chaos, text)
-    text = re.sub(r"(攻撃力|命中率|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
+    text = re.sub(r"(攻撃力|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
                   mod, text)
     return text
 
