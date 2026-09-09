@@ -74,6 +74,28 @@ HIT = 1200.0                         # 生の一撃を揃える（§7.215 と同
 SWAP_CARDS = ("甘寧〔錦帆賊〕", "魏延〔子午〕", "張任〔落鳳〕",
               "潘璋〔急襲〕", "孫尚香〔弓腰姫〕")
 SWAP_TO = "敵1体（正面）"
+
+# --- --curve: 身体をまたがずに、その身体の中で威力だけを振る（§7.216 ⑤ の宿題）------
+# §7.216 ⑤ は「生の一撃1,200」に揃えるために王双を 950%（本番）→1435%、
+# 黄忠を 881%→218% と**本番の外まで振って**比べていた。しかも身体1点の重さは
+# 兵種で違う（§7.185）ので、**身体をまたいで額を比べること自体ができない。**
+#
+# ここでは向きを変える:
+#   **1つの身体の中で威力だけを振り、「払える額 − 請求」が威力とともに動くか**を見る。
+#   動かない（水平）なら、打撃の冪 DAMAGE_EXP は**その身体の範囲では正しい**。
+#   身体どうしで**高さ**が違っても、それは §7.185 の「身体1点の重さ」の話であって
+#   冪の話ではない。**高さは比べない。傾きだけを比べる。**
+#
+# 威力の梯子は**その兵種が本番で使っている範囲の中**に置く（本番の外へ出さない）。
+#   騎兵 330〜3200% ／ 歩兵 331〜2900% ／ 弓兵 25〜976%（打撃を持つ72枚の実分布）
+# 効果文は **`ダメージ 威力N%` の純打撃に差し替える**（副効果は威力で動かないので
+# 傾きの邪魔になるだけ）。対象も全部 `敵1体（正面）`＝錨に揃える。
+CURVE_BODIES = {
+    "王双〔大刀〕":     (400, 900, 1800, 3000),   # 騎 c4・係数 83.6（§7.216 ⑤ で −2.0〜−3.2 側）
+    "関平〔麒麟児〕":   (400, 900, 1800, 3000),   # 騎 c6・係数 94.5（同じ兵種・ほぼ同じ係数・違うコスト）
+    "凌統〔公績〕":     (400, 900, 1800, 2900),   # 歩 c7・係数 153.6
+    "黄忠〔定軍山〕":   (150, 350, 600, 880),     # 弓 c8・係数 549.2（§7.216 ⑤ で +0.12〜+0.53 側）
+}
 # --cards 名1,名2,... で差し替えられる。**打撃を持つ札だけを渡すこと** —
 # 打撃の無い札（混乱だけ・攻撃力デバフだけ）は打撃の掛け目 TARGET_DMG_F を
 # 使わず、状態効果の掛け目 TARGET_FX_FOE で値付けされるので、この計器の
@@ -103,6 +125,10 @@ def _one(job):
         if power is None:                    # --swap: 効果文はそのまま、対象だけ差し替え
             with F.unscaled():
                 F.SKILL_INFO[sk] = F._parse_skill(row["効果"], target)
+            F.SKILL_TARGET[sk] = target
+        elif isinstance(power, str):         # --ablate: 効果文そのものを渡す
+            with F.unscaled():
+                F.SKILL_INFO[sk] = F._parse_skill(power, target)
             F.SKILL_TARGET[sk] = target
         else:
             with F.unscaled():               # 威力は整数（落とし穴44）
@@ -338,5 +364,245 @@ def swap_report(got, rows, ch, seeds):
             ci, ch[name][0] - ch[name][1]))
 
 
+# ============================================================================
+# --curve: 身体をまたがずに威力だけを振る（§7.216 ⑤ の宿題）
+# ============================================================================
+def curve_main():
+    """**1つの身体の中で**威力を振って「払える額 − 請求」が動くかを見る。
+
+    読み方（ここを外すと §7.216 ⑤ と同じ間違いになる）:
+    - **傾き**（同じ身体の中で差が威力とともに動くか）が冪の話。
+    - **高さ**（身体どうしの差の絶対値）は §7.185「身体1点の重さは兵種で違う」の話。
+      **高さは比べない。**
+    """
+    seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv else 2
+    want = sys.argv[sys.argv.index("--regs") + 1].split(",") if "--regs" in sys.argv else None
+    regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
+    if "--shave" in sys.argv:
+        global SHAVE
+        SHAVE = tuple(float(x) for x in sys.argv[sys.argv.index("--shave") + 1].split(","))
+    bodies = dict(CURVE_BODIES)
+    if "--bodies" in sys.argv:
+        keep = sys.argv[sys.argv.index("--bodies") + 1].split(",")
+        bodies = {k: v for k, v in bodies.items() if k in keep}
+    R.load_skills_into_field(); R.load_traits_into_field()
+    rows = {g["名前"]: g for g in R.generals()}
+
+    def price_pow(g, power):
+        """`ダメージ 威力N%`（対象は正面）を、その身体の呼び方で値付けする。"""
+        with F.unscaled():
+            sk = F._parse_skill("ダメージ 威力{:d}%".format(int(power)), SWAP_TO)
+        return DS.effect_value(sk, SWAP_TO, float(g["消費ゲージ%"]), float(g["初期ゲージ"]),
+                               kisei=float(g["ゲージ上昇率"]) / 100.0,
+                               cost=float(g["コスト"]), typ=R.TYPE_MAP[g["兵種"]],
+                               tilt=R.tilt_of(g))
+
+    import tools.damage_curve as DC
+    coef = {n: DC.skill_coef(n) for n in bodies}
+
+    print("§7.216 ⑤ の宿題 — **身体をまたがず**、身体の中で威力だけを振る")
+    print("  効果文は `ダメージ 威力N%` の純打撃・対象は全部 {}・削り幅{}・1案{}局\n".format(
+        SWAP_TO, list(SHAVE), 12 * 12 * seeds))
+    print("  {:<16}{:>4}{:>5}{:>8}{:>26}".format("身体", "c", "兵種", "兵法係数", "威力%（生の一撃）"))
+    for n, pws in bodies.items():
+        g = rows[n]
+        print("  {:<16}{:>4}{:>5}{:>8.1f}   {}".format(
+            n, g["コスト"], g["兵種"], coef[n],
+            " / ".join("{}%({:.0f})".format(p, p / 100.0 * coef[n]) for p in pws)))
+    print()
+
+    out = {}
+    for label, cap in regs:
+        os.environ["PANEL_TOTAL"] = str(cap); SP.TOTAL = cap
+        jobs = [(n, None, 0, 0.0) for n in bodies]
+        jobs += [(n, SWAP_TO, int(p), d) for n, pws in bodies.items() for p in pws for d in SHAVE]
+        jobs = list(dict.fromkeys(jobs))
+        pool = Pool(int(os.environ.get("W", "8")), _init, (seeds,))
+        got = dict(zip(jobs, pool.map(_one, jobs)))
+        pool.close(); pool.join()
+        out["{:g}".format(cap)] = {"|".join(map(str, k)): v for k, v in got.items()}
+        print("■ {}（上限 {:g}点）".format(label, cap), flush=True)
+        curve_report(got, bodies, rows, price_pow, seeds)
+        print()
+
+    dump = (sys.argv[sys.argv.index("--dump") + 1] if "--dump" in sys.argv
+            else "/tmp/claude-0/skill_worth_curve.json")
+    json.dump(out, open(dump, "w"))
+    print("生データ: {}".format(dump))
+    print("CURVE DONE")
+
+
+def curve_report(got, bodies, rows, price_pow, seeds):
+    ALL = TP.game_index(seeds, range(TP.NBASE), range(TP.NPERS))
+    rng = random.Random(80808)
+    draws = [TP.cluster_draw(rng, seeds) for _ in range(300)]
+
+    def V(name, p, d, ix):
+        return statistics.mean(got[(name, SWAP_TO, int(p), d)][i] for i in ix)
+
+    def V0(name, ix):
+        return statistics.mean(got[(name, None, 0, 0.0)][i] for i in ix)
+
+    print("  {:<16}{:>8}{:>10}{:>9}{:>9}{:>19}".format(
+        "身体", "威力%", "払える額", "請求", "差", "95%区間(差)"))
+    for name, pws in bodies.items():
+        gaps = []
+        for p in pws:
+            vals = [(d, V(name, p, d, ALL)) for d in SHAVE]
+            star = cross(vals, V0(name, ALL))
+            ch = price_pow(rows[name], p)
+            bs = []
+            for ix in draws:
+                x = cross([(d, V(name, p, d, ix)) for d in SHAVE], V0(name, ix))
+                if x is not None:
+                    bs.append(x - ch)
+            bs.sort()
+            ci = ("[{:+.2f}, {:+.2f}]".format(bs[int(.025*len(bs))], bs[int(.975*len(bs))])
+                  if len(bs) > 20 else "—")
+            gaps.append(None if star is None else star - ch)
+            print("  {:<16}{:>8}{:>10}{:>9.2f}{:>9}{:>19}".format(
+                name, p, "{:.2f}".format(star) if star is not None else "挟めず", ch,
+                "{:+.2f}".format(star - ch) if star is not None else "—", ci))
+        ok = [x for x in gaps if x is not None]
+        if len(ok) >= 2:
+            print("    → この身体の中での差の動き: {}  （幅 {:.2f}）".format(
+                " → ".join("{:+.2f}".format(x) for x in ok), max(ok) - min(ok)))
+        print()
+
+
+# ============================================================================
+# --ablate: 効果文から1つの節を抜いて、その節の値打ちを差で測る（§7.211 の宿題）
+# ============================================================================
+# `EFFECT_PRICE["spd"] = 0.0`（移動速度）と `["gauge"] = 0.0` は
+# **「量ではなく発動時刻で決まるから線形の単価が置けない」**という理由で 0 に
+# してある（design.effect_value の注記）。0 と決めたのではなく、**置けなかった**。
+# ここでは値札を作るのではなく、**本番の札で本当に 0 なのか**を測る:
+#
+#     いまの効果文（節あり） … 払える額 A
+#     その節を抜いた効果文   … 払える額 B
+#     **A − B が、その節が実戦で稼いでいる額**（コスト点）。請求の差は 0.00。
+#
+# 抜くのは `+` で区切られた節のうち `--term` を含むものだけ。対象・周期・他の節は
+# そのまま。**節を抜くと身体は動かない**（名簿の能力値は据え置きで効果文だけ差し替える）
+# ので、A と B は同じ身体どうしの比較になる。
+ABLATE_TERM = "移動速度"
+# 敵を遅くする4枚と、自分を速くする5枚。**性質が違うので混ぜて平均しない。**
+ABLATE_SLOW = ("司馬懿〔冢虎〕", "陸遜〔夷陵〕", "馬謖〔幼常〕", "徐庶〔元直〕")
+ABLATE_FAST = ("張遼〔逍遥津〕", "徐晃〔長駆〕", "孫堅〔江東の虎〕",
+               "公孫瓚〔白馬義従〕", "曹休〔千里駒〕")
+
+
+def strip_term(effect: str, term: str) -> str:
+    """`+` 区切りの節のうち term を含むものを落とす。"""
+    # **区切りは " + "（前後に空白）。**素の "+" で割ると `移動速度 +25%（32秒）` の
+    # 中の + まで割れて節が壊れる（一度踏んだ）。
+    parts = [x.strip() for x in effect.split(" + ")]
+    kept = [x for x in parts if term not in x]
+    if not kept:
+        raise SystemExit("節を全部落としてしまう: {}".format(effect))
+    return " + ".join(kept)
+
+
+def ablate_main():
+    seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv else 2
+    want = sys.argv[sys.argv.index("--regs") + 1].split(",") if "--regs" in sys.argv else None
+    regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
+    term = sys.argv[sys.argv.index("--term") + 1] if "--term" in sys.argv else ABLATE_TERM
+    if "--shave" in sys.argv:
+        global SHAVE
+        SHAVE = tuple(float(x) for x in sys.argv[sys.argv.index("--shave") + 1].split(","))
+    R.load_skills_into_field(); R.load_traits_into_field()
+    rows = {g["名前"]: g for g in R.generals()}
+    cards = (tuple(sys.argv[sys.argv.index("--cards") + 1].split(","))
+             if "--cards" in sys.argv else ABLATE_SLOW + ABLATE_FAST)
+    srow = {r["武将"]: r for r in R.skills()}
+
+    def price(g, text):
+        with F.unscaled():
+            sk = F._parse_skill(text, R._skill_target(g["兵法"]))
+        return DS.effect_value(sk, R._skill_target(g["兵法"]),
+                               float(g["消費ゲージ%"]), float(g["初期ゲージ"]),
+                               kisei=float(g["ゲージ上昇率"]) / 100.0,
+                               cost=float(g["コスト"]), typ=R.TYPE_MAP[g["兵種"]],
+                               tilt=R.tilt_of(g))
+
+    print("『{}』の節を抜いて、その節が稼いでいる額を測る（§7.211 の宿題）".format(term))
+    print("  削り幅{}・1案{}局・対象と周期は名簿のまま\n".format(list(SHAVE), 12 * 12 * seeds))
+    print("  {:<18}{:>4}{:>7}{:>7}   {}".format("武将", "c", "節あり", "節なし", "抜いた節"))
+    texts, ch = {}, {}
+    for n in cards:
+        g, r = rows[n], srow[n]
+        full = r["効果"]
+        cut = strip_term(full, term)
+        assert cut != full, "{} に『{}』が無い".format(n, term)
+        texts[n] = (full, cut)
+        ch[n] = (price(g, full), price(g, cut))
+        gone = [x.strip() for x in full.split(" + ") if term in x]
+        print("  {:<18}{:>4}{:>7.2f}{:>7.2f}   {}".format(
+            n, g["コスト"], ch[n][0], ch[n][1], " / ".join(gone)))
+    print()
+
+    out = {}
+    for label, cap in regs:
+        os.environ["PANEL_TOTAL"] = str(cap); SP.TOTAL = cap
+        jobs = [(n, None, 0, 0.0) for n in cards]
+        for n in cards:
+            for t in texts[n]:
+                for d in SHAVE:
+                    jobs.append((n, R._skill_target(rows[n]["兵法"]), t, d))
+        jobs = list(dict.fromkeys(jobs))
+        pool = Pool(int(os.environ.get("W", "8")), _init, (seeds,))
+        got = dict(zip(jobs, pool.map(_one, jobs)))
+        pool.close(); pool.join()
+        out["{:g}".format(cap)] = {"|".join(map(str, k)): v for k, v in got.items()}
+        print("■ {}（上限 {:g}点）".format(label, cap), flush=True)
+        ablate_report(got, cards, rows, texts, ch, seeds)
+        print()
+
+    dump = (sys.argv[sys.argv.index("--dump") + 1] if "--dump" in sys.argv
+            else "/tmp/claude-0/skill_worth_ablate.json")
+    json.dump(out, open(dump, "w"))
+    print("生データ: {}".format(dump))
+    print("ABLATE DONE")
+
+
+def ablate_report(got, cards, rows, texts, ch, seeds):
+    ALL = TP.game_index(seeds, range(TP.NBASE), range(TP.NPERS))
+    rng = random.Random(90909)
+    draws = [TP.cluster_draw(rng, seeds) for _ in range(300)]
+
+    def worth(name, text, ix):
+        tgt = R._skill_target(rows[name]["兵法"])
+        v0 = statistics.mean(got[(name, None, 0, 0.0)][i] for i in ix)
+        vals = [(d, statistics.mean(got[(name, tgt, text, d)][i] for i in ix)) for d in SHAVE]
+        return cross(vals, v0)
+
+    print("  {:<18}{:>9}{:>9}{:>10}{:>19}{:>9}".format(
+        "武将", "節あり", "節なし", "節の値打ち", "95%区間", "請求の差"))
+    for n in cards:
+        full, cut = texts[n]
+        a, b = worth(n, full, ALL), worth(n, cut, ALL)
+        bs = []
+        for ix in draws:
+            x, y = worth(n, full, ix), worth(n, cut, ix)
+            if x is not None and y is not None:
+                bs.append(x - y)
+        bs.sort()
+        ci = ("[{:+.2f}, {:+.2f}]".format(bs[int(.025 * len(bs))], bs[int(.975 * len(bs))])
+              if len(bs) > 20 else "—")
+        f = lambda v: "{:.2f}".format(v) if v is not None else "挟めず"
+        print("  {:<18}{:>9}{:>9}{:>10}{:>19}{:>9.2f}".format(
+            n, f(a), f(b),
+            "{:+.2f}".format(a - b) if (a is not None and b is not None) else "—",
+            ci, ch[n][0] - ch[n][1]))
+
+
 if __name__ == "__main__":
-    swap_main() if "--swap" in sys.argv else main()
+    if "--ablate" in sys.argv:
+        ablate_main()
+    elif "--curve" in sys.argv:
+        curve_main()
+    elif "--swap" in sys.argv:
+        swap_main()
+    else:
+        main()
