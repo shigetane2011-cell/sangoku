@@ -1523,13 +1523,30 @@ FACTION_OF = {"vs_wei": "魏", "vs_shu": "蜀", "vs_go": "呉"}
 # 別の流儀で入ることになり、同じ意味のものが散る。
 #
 # 常在なので戦闘中は変わらない — simulate() の開幕で各隊の `amp` へ配る
-# （§7.138 の勢力の宝と同じ流儀）。**軍全体に乗る**（テストプレイの決定）。
+# （§7.138 の勢力の宝と同じ流儀）。
 #
-# 【いまの範囲】条件は "stun"（行動阻害中）だけ、損害は "all"（すべて）だけ。
-# 混乱中・接敵中や、継続だけ・通常攻撃だけ、は器としては通るが未実装・未測定。
-AMPLIFY: Dict[str, Tuple[str, str, float]] = {}   # 特性キー → (条件, 損害の種類, 割合)
-AMP_COND_JP = {"行動阻害中": "stun"}
+# 【§7.212】**範囲**を4つ目の要素にした。増幅は軍全体へ配るのが既定だが、
+# 「自分の撃った兵法だけが跳ねる」という形（満寵）は持ち手1人にだけ配る。
+# 損害の入口はどれも「撃った側の隊」を src に持っているので、**配る先を
+# 変えるだけ**で自分限定になり、掛け目の側は1行も分岐が要らない。
+#   "army" … 軍全体（既定・洞察）
+#   "self" … 持ち手だけ（自己増幅）
+#
+# 【いまの範囲】条件は "stun"（行動阻害中）・"burn"（延焼中）・""（無条件）。
+# 損害は all / normal / skill / dot。混乱中・接敵中はまだ器だけで未実装。
+AMPLIFY: Dict[str, Tuple[str, str, float, str]] = {}   # キー → (条件, 種類, 割合, 範囲)
+AMP_COND_JP = {"行動阻害中": "stun", "延焼中": "burn", "すべて": ""}
 AMP_KIND_JP = {"損害": "all", "通常攻撃": "normal", "兵法": "skill", "継続損害": "dot"}
+
+
+def _burning(u: "Unit") -> bool:
+    """延焼中か＝継続損害を受けている最中か（§7.212）。
+
+    `overtime` は毎ティック末に期限切れを落とす（`_overtime`）ので、この判定は
+    最大1ティック（既定 0.25秒）だけ古い側に出る。増幅は「火が点いた時点の
+    状態で決まる」という §7.199 の粒度と同じなので、時刻を持ち回さずここで数える。
+    """
+    return any(e[1] == "dot" for e in u.overtime)
 
 
 def _amp_mult(src: "Unit", tgt: "Unit", kind: str) -> float:
@@ -1537,10 +1554,12 @@ def _amp_mult(src: "Unit", tgt: "Unit", kind: str) -> float:
     if not TRAITS_ON or not src.amp:
         return 1.0
     m = 1.0
-    for cond, want, pct in src.amp:
+    for cond, want, pct, _scope in src.amp:
         if want not in ("all", kind):
             continue
         if cond == "stun" and not tgt.stunned:
+            continue
+        if cond == "burn" and not _burning(tgt):
             continue
         m += pct
     return m
@@ -4391,17 +4410,23 @@ def _apply_faction_treasures(us) -> None:
 def _apply_amplify(us) -> None:
     """増幅（§7.199）を1軍へ配る。simulate が build 直後に呼ぶ。
 
-    常在なので戦闘中は変わらない — **軍全体**が同じ表を持つ（テストプレイの決定）。
-    持ち手が倒れても効き続ける（陣頭の兵力や勢力の宝と同じ扱い。倒れたら切れる
-    形にすると「誰が生きているか」で損害が跳ね、リプレイの読み解きが難しくなる）。
+    常在なので戦闘中は変わらない — 範囲 "army" は**軍全体**が同じ表を持つ
+    （テストプレイの決定）。持ち手が倒れても効き続ける（陣頭の兵力や勢力の宝と
+    同じ扱い。倒れたら切れる形にすると「誰が生きているか」で損害が跳ね、
+    リプレイの読み解きが難しくなる）。
+
+    【§7.212】範囲 "self" は**持ち手にだけ**載せる。損害の入口はどれも撃った側の
+    隊を `src` に渡すので、これだけで「自分の撃った一撃だけ跳ねる」になる。
     """
     if not TRAITS_ON:
         return
-    amp = tuple(AMPLIFY[k] for u in us for k in u.traits if k in AMPLIFY)
-    if not amp:
-        return
+    army = tuple(AMPLIFY[k] for u in us for k in u.traits
+                 if k in AMPLIFY and AMPLIFY[k][3] == "army")
     for u in us:
-        u.amp = amp
+        mine = tuple(AMPLIFY[k] for k in u.traits
+                     if k in AMPLIFY and AMPLIFY[k][3] == "self")
+        if army or mine:
+            u.amp = army + mine
 
 
 def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,

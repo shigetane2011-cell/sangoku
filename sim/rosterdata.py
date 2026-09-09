@@ -1033,20 +1033,22 @@ def load_traits_into_field() -> int:
     for t in traits():
         if t["型"] != "誘発":
             # 【§7.199】常在型のうち「増幅」だけは効果文から機械で読む。
-            #   増幅 ＜的の状態＞の敵への＜損害の種類＞ +N%
+            #   増幅   ＜的の状態＞の敵への＜損害の種類＞ +N%   … 軍全体
+            #   自己増幅 ＜同上＞                              … 持ち手だけ（§7.212）
             # 残りの常在（陣頭・本陣・馬前…）は従来どおり field.py 側で個別に扱う。
-            m = re.match(r"増幅\s*(\S+?)の敵への(\S+?)\s*\+(\d+)%",
+            m = re.match(r"(自己)?増幅\s*(\S+?)の敵への(\S+?)\s*\+(\d+)%",
                          (t["効果"] or "").strip())
             if m:
-                cond = F.AMP_COND_JP.get(m.group(1))
-                kind = F.AMP_KIND_JP.get(m.group(2))
+                cond = F.AMP_COND_JP.get(m.group(2))
+                kind = F.AMP_KIND_JP.get(m.group(3))
                 if cond is None or kind is None:
                     raise SystemExit(
                         "traits.csv: 増幅の語彙が未定義 — {}（条件 {} / 損害 {}）\n"
                         "  条件は {} ／ 損害は {} のどれか".format(
-                            t["キー"], m.group(1), m.group(2),
+                            t["キー"], m.group(2), m.group(3),
                             "・".join(F.AMP_COND_JP), "・".join(F.AMP_KIND_JP)))
-                F.AMPLIFY[t["キー"]] = (cond, kind, float(m.group(3)) / 100.0)
+                F.AMPLIFY[t["キー"]] = (cond, kind, float(m.group(4)) / 100.0,
+                                        "self" if m.group(1) else "army")
             continue
         note = t["備考"]
         m = re.search(r"(\w+) で発動", note)

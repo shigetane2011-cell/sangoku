@@ -155,7 +155,7 @@ class Amplify(unittest.TestCase):
 
     def test_table_is_read_from_csv(self):
         self.assertIn("insight", F.AMPLIFY)
-        self.assertEqual(F.AMPLIFY["insight"], ("stun", "all", 0.10))
+        self.assertEqual(F.AMPLIFY["insight"], ("stun", "all", 0.10, "army"))
 
     def test_only_while_the_target_is_stunned(self):
         f = self.foe[0]
@@ -177,6 +177,82 @@ class Amplify(unittest.TestCase):
             self.assertAlmostEqual(F._amp_mult(self.us[0], f, "normal"), 1.0)
         finally:
             F.TRAITS_ON = True
+
+
+class AmplifyScopeAndBurn(unittest.TestCase):
+    """【§7.212】増幅に足した2つ — 範囲「自分だけ」と条件「延焼中」。
+
+    盤面へ出した札は無い（満寵の作り替えは裁定待ち）ので、器そのものを
+    合成の特性で試す。**器を先に作って測ったときのまま**動くことを守る。
+    """
+
+    def setUp(self):
+        self.cards = _cards()
+        names = ("龐統〔鳳雛〕", "曹仁〔堅守〕", "張嶷〔越巂〕",
+                 "韓当〔老弓〕", "孫尚香〔弓腰姫〕", "張昭〔子布〕")
+        self.army = F.Army([self.cards[n] for n in names], F.FORM_STANDARD)
+        self.foe = F.build(F.Army([self.cards[n] for n in names], F.FORM_STANDARD), -1)
+        self._saved = dict(F.AMPLIFY)
+
+    def tearDown(self):
+        F.AMPLIFY.clear(); F.AMPLIFY.update(self._saved)
+
+    def _build(self, entry):
+        """先頭の札にだけ試験用の特性を足して1軍を組む。"""
+        from dataclasses import replace
+        key = "_t212"
+        F.AMPLIFY[key] = entry
+        cs = list(self.army.cards)
+        cs[0] = replace(cs[0], trait=(cs[0].trait + F.TRAIT_SEP + key).strip(F.TRAIT_SEP))
+        us = F.build(F.Army(tuple(cs), self.army.form), +1)
+        F._apply_amplify(us)
+        return us
+
+    def test_self_scope_stays_on_the_holder(self):
+        us = self._build(("", "skill", 0.5, "self"))
+        holder = [u for u in us if "_t212" in u.traits][0]
+        others = [u for u in us if "_t212" not in u.traits]
+        f = self.foe[0]
+        self.assertAlmostEqual(F._amp_mult(holder, f, "skill"), 1.5)
+        for u in others:
+            self.assertAlmostEqual(F._amp_mult(u, f, "skill"), 1.0,
+                                   msg="範囲 self が軍全体へ漏れている")
+
+    def test_army_scope_still_reaches_everyone(self):
+        us = self._build(("", "skill", 0.5, "army"))
+        f = self.foe[0]
+        for u in us:
+            self.assertAlmostEqual(F._amp_mult(u, f, "skill"), 1.5)
+
+    def test_burn_needs_a_dot_on_the_target(self):
+        us = self._build(("burn", "skill", 0.5, "self"))
+        holder = [u for u in us if "_t212" in u.traits][0]
+        f = self.foe[0]
+        f.overtime = []
+        self.assertAlmostEqual(F._amp_mult(holder, f, "skill"), 1.0)
+        f.overtime = [(99.0, "heal", 10.0, None)]          # 回復では点かない
+        self.assertAlmostEqual(F._amp_mult(holder, f, "skill"), 1.0)
+        f.overtime = [(99.0, "dot", 10.0, None)]
+        self.assertAlmostEqual(F._amp_mult(holder, f, "skill"), 1.5)
+
+    def test_kind_still_filters(self):
+        us = self._build(("burn", "skill", 0.5, "self"))
+        holder = [u for u in us if "_t212" in u.traits][0]
+        f = self.foe[0]
+        f.overtime = [(99.0, "dot", 10.0, None)]
+        self.assertAlmostEqual(F._amp_mult(holder, f, "normal"), 1.0,
+                               msg="兵法だけの増幅が通常攻撃にも乗っている")
+
+    def test_loader_reads_the_self_verb(self):
+        """自己増幅／すべて／延焼中 の語彙が読めること（CSV の1行と同じ形）。"""
+        import re
+        m = re.match(r"(自己)?増幅\s*(\S+?)の敵への(\S+?)\s*\+(\d+)%",
+                     "自己増幅 延焼中の敵への兵法 +50%")
+        self.assertIsNotNone(m)
+        self.assertEqual(F.AMP_COND_JP.get(m.group(2)), "burn")
+        self.assertEqual(F.AMP_KIND_JP.get(m.group(3)), "skill")
+        self.assertEqual("self" if m.group(1) else "army", "self")
+        self.assertEqual(F.AMP_COND_JP.get("すべて"), "")   # 無条件
 
 
 class TriggerCaster(unittest.TestCase):
