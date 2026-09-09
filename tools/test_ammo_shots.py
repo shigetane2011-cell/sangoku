@@ -47,14 +47,16 @@ class AmmoShotsTest(unittest.TestCase):
         """採用した3つの値の見張り（§7.187）。ここが動いたら弓の値札が丸ごと動く。
 
         矢の数え方・持ち矢・弓の兵種係数・6マス表の2マスは**組で意味を持つ**。
-        持ち矢は決着秒で、残り4つは兵種の3辺（いまの着地: 騎→弓 +4.7・
-        弓→歩 +4.7・歩→騎 +4.9・§7.197 で詰め直し）で同時に解いた値なので、片方だけ動かすと崩れる。
+        持ち矢は決着秒で、残り4つは兵種の3辺で同時に解いた値なので、片方だけ動かすと崩れる。
+        いまの着地: **騎→弓 +4.8・弓→歩 +5.7・歩→騎 +5.5（§7.229 で詰め直し）**。
+        （§7.197 の着地は +4.7／+4.7／+4.9 だった。§7.224 で騎兵5枚が弱くなり
+        歩→騎 が +8.4 まで開いたので、6マス表の2本で解き直した。**名簿は1行も動いていない。**）
         """
         self.assertEqual(F.AMMO_MODE, "shots")
         self.assertAlmostEqual(F.AMMO_SHOTS, 9.0)
         self.assertAlmostEqual(F.ACT_COEF[F.ARC], 0.6032)
-        self.assertAlmostEqual(F.CAV_VS_ARC, 2.124)
-        self.assertAlmostEqual(F.INF_VS_CAV, 0.6629)
+        self.assertAlmostEqual(F.CAV_VS_ARC, 1.5368)
+        self.assertAlmostEqual(F.INF_VS_CAV, 0.5572)
 
     def test_parts_matches_plain(self):
         """parts=True の1つ目は parts なしと同じ。2つ目は接敵抑制だけ（矢切れを含まない）。"""
