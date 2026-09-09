@@ -63,6 +63,8 @@ import tools.target_price as TP      # noqa: E402
 
 TARGETS = ("敵1体（正面）", "敵1体（知略が最高）", "敵1体（残兵力が最少）")
 SHAVE = (0.0, 1.0, 2.0, 3.0)        # 身体を削る幅（コスト点）。**釣り合う点を挟む**
+# --shave 0,1,2,3,4,5 で広げられる。「挟めず」と出たら**幅の外に釣り合い点がある**
+# ということなので、幅を広げて測り直すこと（王允で踏んだ・§7.222 (C)）。
 BODIES = ("王双〔大刀〕", "荀攸〔謀主〕", "黄忠〔定軍山〕")
 HIT = 1200.0                         # 生の一撃を揃える（§7.215 と同じ帯）
 
@@ -242,6 +244,9 @@ def swap_main():
     # 問うべきは「5.77倍は大きすぎるか」ではなく「**体数ぶんに見合うか**」。
     # 満額で6体に乗っても6倍にはならない向きの力（倒れかけの隊・まだ撃ち合って
     # いない後衛・戦闘中に減る体数）があるので、実測が 5.77 を下回れば取り過ぎ。
+    if "--shave" in sys.argv:
+        global SHAVE
+        SHAVE = tuple(float(x) for x in sys.argv[sys.argv.index("--shave") + 1].split(","))
     fx = "--fx" in sys.argv      # 状態効果の掛け目（TARGET_FX_FOE）を測る（§7.221）
     if "--cards" in sys.argv:
         global SWAP_CARDS
