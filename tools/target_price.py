@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 import os
+import random
 import statistics
 import sys
 from dataclasses import replace
@@ -57,6 +58,30 @@ import tools.skill_panel as SP        # noqa: E402
 
 ANCHOR = "敵1体（正面）"
 TARGETS = (ANCHOR, "敵1体（残兵力が最少）", "敵前衛")
+
+# 局の並びは `_one` の二重ループそのまま: 局番号 = 土台 × (性格×種) + 性格 × 種 + 種
+NBASE, NPERS = 12, 12
+
+
+def game_index(nseeds, bases, pers):
+    """土台と相手の番号の組から局番号を作る。"""
+    return [b * NPERS * nseeds + p * nseeds + s
+            for b in bases for p in pers for s in range(nseeds)]
+
+
+def cluster_draw(rng, nseeds):
+    """**土台と相手をかたまりごと**選び直す（§7.213 の訂正）。
+
+    432局は「土台12 × 相手12 × 種3」で、**同じ土台の36局・同じ相手の36局は
+    独立ではない**（その土台が兵法に向いていれば36局まとめて動く）。局を1つずつ
+    選び直すと区間が3〜4倍狭く出て、跨いでいないように見えてしまう。一度やった。
+
+    値札は**この12デッキ・12相手の外にも通る**必要があるので、土台も相手も
+    「選び直す対象」として扱う（＝母集団からの標本と見る）。
+    """
+    bs = [rng.randrange(NBASE) for _ in range(NBASE)]
+    ps = [rng.randrange(NPERS) for _ in range(NPERS)]
+    return game_index(nseeds, bs, ps)
 
 # 相手の型（テストプレイの指定）。12性格を3つへ束ねる。
 FAMILY = {
@@ -170,27 +195,26 @@ def main():
                   open(out, "w"))
         print("生データを書き出した: {}".format(out), flush=True)
 
+    rng = random.Random(20260909)
+    draws = [cluster_draw(rng, seeds) for _ in range(1000)]
+
     def ratio_ci(xa, xb, ya, yb):
-        """比 mean(xa−xb)／mean(ya−yb) の95%幅。**対にして取る。**
+        """比 mean(xa−xb)／mean(ya−yb) の95%幅。**かたまりごと選び直して取る。**
 
-        分子と分母は**同じ土台・同じ相手・同じ種の同じ局**なので、独立として
-        誤差を足し合わせると桁で緩くなる（初回の測定では ±0.85 と出て、
-        1マスも判定できなかった）。デッキと相手のばらつきは両方に同じだけ
-        乗るので、局ごとの残差 `A_i − R×B_i` で取れば消える。
-
-            R = 平均A / 平均B、  SE(R) = sd(A − R·B) / (√n × |平均B|)
-
-        **1つのマスだけで裁定しないための欄**であることは変わらない。
+        返すのは 2.5% 点と 97.5% 点の**半幅**（表を狭く保つため）。区間が
+        非対称なときは半幅だと形を落とすので、裁定に使うときは生の区間を見ること。
+        **1つのマスだけで裁定しない**のは変わらない。
         """
-        A = [a - b for a, b in zip(xa, xb)]
-        B = [a - b for a, b in zip(ya, yb)]
-        n = len(A)
-        ma, mb = statistics.mean(A), statistics.mean(B)
-        if not ma or not mb:
+        vals = []
+        for ix in draws:
+            ma = statistics.mean(xa[i] - xb[i] for i in ix)
+            mb = statistics.mean(ya[i] - yb[i] for i in ix)
+            if mb:
+                vals.append(ma / mb)
+        if not vals:
             return float("nan")
-        r = ma / mb
-        res = [a - r * b for a, b in zip(A, B)]
-        return 1.96 * statistics.pstdev(res) / (n ** 0.5) / abs(mb)
+        vals.sort()
+        return (vals[int(0.975 * len(vals))] - vals[int(0.025 * len(vals))]) / 2.0
 
     for name, powers in cards.items():
         _, doff, _ = got[(name, None, 0)]
