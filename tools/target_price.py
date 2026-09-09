@@ -161,21 +161,36 @@ def main():
     pool = Pool(int(os.environ.get("W", "8")), _init, (seeds,))
     got = dict(zip(jobs, pool.map(_one, jobs)))
     pool.close()
+    if "--dump" in sys.argv:
+        # 生の勝率・残存差を書き出す。**測り直さずに読み直せる**ようにするため
+        # （誤差の取り方を変えるたびに20分回すのは無駄）。
+        import json
+        out = sys.argv[sys.argv.index("--dump") + 1]
+        json.dump({"|".join(map(str, k)): {"w": v[0], "d": v[1]} for k, v in got.items()},
+                  open(out, "w"))
+        print("生データを書き出した: {}".format(out), flush=True)
 
     def ratio_ci(xa, xb, ya, yb):
-        """比 mean(xa−xb)／mean(ya−yb) の95%幅（相対誤差を足し合わせる近似）。
+        """比 mean(xa−xb)／mean(ya−yb) の95%幅。**対にして取る。**
 
-        **1つのマスだけで裁定しないための欄。** 対象の値打ちは差の比なので、
-        分子と分母それぞれの誤差が乗る。誤差より小さい差は読まないこと。
+        分子と分母は**同じ土台・同じ相手・同じ種の同じ局**なので、独立として
+        誤差を足し合わせると桁で緩くなる（初回の測定では ±0.85 と出て、
+        1マスも判定できなかった）。デッキと相手のばらつきは両方に同じだけ
+        乗るので、局ごとの残差 `A_i − R×B_i` で取れば消える。
+
+            R = 平均A / 平均B、  SE(R) = sd(A − R·B) / (√n × |平均B|)
+
+        **1つのマスだけで裁定しないための欄**であることは変わらない。
         """
-        da = [a - b for a, b in zip(xa, xb)]
-        db = [a - b for a, b in zip(ya, yb)]
-        n = len(da)
-        ma, mb = statistics.mean(da), statistics.mean(db)
-        ci = lambda z: 1.96 * statistics.pstdev(z) / (n ** 0.5)
+        A = [a - b for a, b in zip(xa, xb)]
+        B = [a - b for a, b in zip(ya, yb)]
+        n = len(A)
+        ma, mb = statistics.mean(A), statistics.mean(B)
         if not ma or not mb:
             return float("nan")
-        return abs(ma / mb) * ((ci(da) / ma) ** 2 + (ci(db) / mb) ** 2) ** 0.5
+        r = ma / mb
+        res = [a - r * b for a, b in zip(A, B)]
+        return 1.96 * statistics.pstdev(res) / (n ** 0.5) / abs(mb)
 
     for name, powers in cards.items():
         _, doff, _ = got[(name, None, 0)]
