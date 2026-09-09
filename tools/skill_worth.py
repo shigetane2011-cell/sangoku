@@ -233,12 +233,21 @@ def swap_main():
     regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
     R.load_skills_into_field(); R.load_traits_into_field()
     rows = {g["名前"]: g for g in R.generals()}
+    fx = "--fx" in sys.argv      # 状態効果の掛け目（TARGET_FX_FOE）を測る（§7.221）
     if "--cards" in sys.argv:
         global SWAP_CARDS
         SWAP_CARDS = tuple(sys.argv[sys.argv.index("--cards") + 1].split(","))
         for n in SWAP_CARDS:
-            if F.SKILL_INFO[rows[n]["兵法"]].power <= 0:
-                raise SystemExit("{} は打撃を持たない。打撃の掛け目の比較に使えない".format(n))
+            has_dmg = F.SKILL_INFO[rows[n]["兵法"]].power > 0
+            if fx and has_dmg:
+                raise SystemExit("{} は打撃を持つ。--fx は状態効果だけの札に使う".format(n))
+            if not fx and not has_dmg:
+                raise SystemExit("{} は打撃を持たない。--fx を付けること".format(n))
+    if fx:
+        print("【--fx】状態効果の掛け目（TARGET_FX_FOE）を測る。"
+              "敵全体 {:.3f} / 敵1体（正面）{:.3f} ＝ {:.2f}倍\n".format(
+                  DS.TARGET_FX_FOE["敵全体"], DS.TARGET_FX_FOE["敵1体（正面）"],
+                  DS.TARGET_FX_FOE["敵全体"] / DS.TARGET_FX_FOE["敵1体（正面）"]))
 
     def price(g, tgt):
         sk = F.SKILL_INFO[g["兵法"]]
