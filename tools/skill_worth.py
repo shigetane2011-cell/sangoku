@@ -193,6 +193,15 @@ def main():
     print("WORTH DONE")
 
 
+def _logfit(xs, ys):
+    """log(値打ち) を log(威力) に回した傾き＝**実測の冪**。値札は DAMAGE_EXP。"""
+    import math
+    lx = [math.log(x) for x in xs]; ly = [math.log(y) for y in ys]
+    mx = statistics.mean(lx); my = statistics.mean(ly)
+    return (sum((a - mx) * (b - my) for a, b in zip(lx, ly))
+            / sum((a - mx) ** 2 for a in lx))
+
+
 def cross(vals, v0):
     """V(d) が V0 を横切る d を、隣り合う2点の直線で挟んで返す。
 
@@ -467,6 +476,21 @@ def curve_report(got, bodies, rows, price_pow, seeds):
         if len(ok) >= 2:
             print("    → この身体の中での差の動き: {}  （幅 {:.2f}）".format(
                 " → ".join("{:+.2f}".format(x) for x in ok), max(ok) - min(ok)))
+        # 【差だけを見ない・§7.226 ②】`払える額 − 請求` は**比が一定でも請求が
+        # 大きくなるほど広がる**（0.5倍の値札は、請求2点なら差1点・0.3点なら差0.15点）。
+        # 差の広がりを冪の証拠にしないため、**比**と**冪**をここで併記する。
+        rs, fitp, fitv = [], [], []
+        for p in pws:
+            vals = [(d, V(name, p, d, ALL)) for d in SHAVE]
+            star = cross(vals, V0(name, ALL))
+            if star is None or star <= 0:
+                continue
+            ch = price_pow(rows[name], p)
+            rs.append(star / ch); fitp.append(p); fitv.append(star)
+        if rs:
+            print("    → 比（払える額÷請求）: {}  ".format(" → ".join("{:.2f}".format(x) for x in rs))
+                  + ("｜実測の冪 {:.2f}（値札は {:.4f}）".format(_logfit(fitp, fitv), DS.DAMAGE_EXP)
+                     if len(rs) >= 3 else ""))
         print()
 
 
