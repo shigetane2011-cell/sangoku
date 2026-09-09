@@ -72,6 +72,10 @@ HIT = 1200.0                         # 生の一撃を揃える（§7.215 と同
 SWAP_CARDS = ("甘寧〔錦帆賊〕", "魏延〔子午〕", "張任〔落鳳〕",
               "潘璋〔急襲〕", "孫尚香〔弓腰姫〕")
 SWAP_TO = "敵1体（正面）"
+# --cards 名1,名2,... で差し替えられる。**打撃を持つ札だけを渡すこと** —
+# 打撃の無い札（混乱だけ・攻撃力デバフだけ）は打撃の掛け目 TARGET_DMG_F を
+# 使わず、状態効果の掛け目 TARGET_FX_FOE で値付けされるので、この計器の
+# 比較対象にならない（§7.220）。
 
 _S = {}
 
@@ -229,6 +233,12 @@ def swap_main():
     regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
     R.load_skills_into_field(); R.load_traits_into_field()
     rows = {g["名前"]: g for g in R.generals()}
+    if "--cards" in sys.argv:
+        global SWAP_CARDS
+        SWAP_CARDS = tuple(sys.argv[sys.argv.index("--cards") + 1].split(","))
+        for n in SWAP_CARDS:
+            if F.SKILL_INFO[rows[n]["兵法"]].power <= 0:
+                raise SystemExit("{} は打撃を持たない。打撃の掛け目の比較に使えない".format(n))
 
     def price(g, tgt):
         sk = F.SKILL_INFO[g["兵法"]]
