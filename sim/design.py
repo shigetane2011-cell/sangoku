@@ -1032,6 +1032,20 @@ def mods_value(mods, target: str, fx: float) -> float:
     兵法の本体（`skill.mods`）と「→ その後」の後半（`after_mods`）が
     **同じ関数を通る**。別々に書くと、単価を直したとき片方だけ古いまま残る。
     """
+    # 【§7.232】**効き先で引く。札の対象で引かない。**
+    # `field._skill_mods` の符号規約は「敵対象の札でも**プラスの節は撃った本人だけ**に
+    # 乗る」（`dst = (tgts if ally else [u]) if amt > 0 else …`）。値付けが札の対象で
+    # 引いていたので、**敵後列の札に自分強化を付けると 3.16倍・前衛の主力なら 0.60倍**
+    # で請求していた（趙雲〔長坂坡〕・傅僉〔守将〕・曹彰〔黄鬚〕）。
+    # **行動阻害・ゲージ阻害・混乱は符号に関わらず敵だけ**なので、この振り替えをしない。
+    ally = ("味方" in target) or ("自分" in target)
+
+    def _eff(amt: float):
+        """その節が実際に乗る先（対象文字列, 対象係数）。"""
+        if not ally and amt > 0.0:
+            return "自分", target_fx("自分")
+        return target, fx
+
     v = 0.0
     for key, amt, secs in mods:
         if key == "stun":
@@ -1039,13 +1053,14 @@ def mods_value(mods, target: str, fx: float) -> float:
         elif key == "glock":
             v += EFFECT_PRICE["glock"] * secs * fx
         elif key in ("atk", "def"):
-            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx
+            v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * _eff(amt)[1]
         elif key in ("scut", "refl", "ncut", "null"):
             table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
                      "ncut": TARGET_NCUT_PRICE, "null": TARGET_NULL_PRICE}[key]
+            tgt = _eff(amt)[0]          # 構えも同じ規約（いま敵対象の持ち手は0枚）
             base = next(iter(table.values()))
             for k, pv in table.items():
-                if k in target or target in k:
+                if k in tgt or tgt in k:
                     base = pv
                     break
             if key == "null":     # 量ではなく回数（§7.152）。秒数は飽和曲線

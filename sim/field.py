@@ -2758,6 +2758,15 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
             continue                    # 知力比の口が読む
         out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
                     skill_dur(float(m.group(2)))))
+    # 見切り（§7.232）: **防御力プラスの呼び名**。畏怖（＝攻撃力マイナスの呼び名）と
+    # 同じ形で、**新しい器は作らない**。符号を文に持たない書式（「見切り 15%（30秒）」）。
+    # **名前は「回避」にしない** — この作品の「回避」は既に**馬上回避**
+    # （射程持ち→騎兵の被害倍率・常在・騎兵限定）を指し、白馬の説明文でプレイヤーにも
+    # 見えている。公孫瓚〔白馬義従〕はその白馬の持ち手なので、同じ札に別の意味の
+    # 「回避」が2つ並ぶことになる（§7.231 で消したばかりの紛らわしさと同じ形）。
+    for m in re.finditer(r"見切り\s*\+?(\d+)%（(\d+)秒）", effect):
+        out.append(("def", skill_mag(float(m.group(1)) / 100.0),
+                    skill_dur(float(m.group(2)))))
     m = re.search(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", effect)
     if m:
         out.append(("chaos", skill_mag(float(m.group(1)) / 100.0),
