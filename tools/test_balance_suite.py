@@ -57,9 +57,12 @@ class BalanceSuiteTest(unittest.TestCase):
         self.assertEqual(sum(C.cadence(c) == "手数" for c in self.cards), 10)
 
     def test_cadence_builder_keeps_cost_count_and_placement(self):
+        # 上限は M.REGULATIONS から引く。数字を焼き込むと、上限を動かした日に
+        # ここが「盤面が壊れた」ように見える（§7.236 で 18→20 のとき実際に鳴った）。
+        cap = dict(M.REGULATIONS)["汜水関"]
         army = B._cadence_army(self.cards, 0, "鶴翼", 6, 0, "test")
         self.assertIsNotNone(army)
-        self.assertAlmostEqual(army.total_cost(), 18.0)
+        self.assertAlmostEqual(army.total_cost(), cap)
         self.assertEqual(sum(C.cadence(c) == "手数" for c in army.cards), 6)
         self.assertEqual(M.placement_errors(army), [])
 
