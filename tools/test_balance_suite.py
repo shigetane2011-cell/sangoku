@@ -38,18 +38,21 @@ class BalanceSuiteTest(unittest.TestCase):
         for _where, _name, entry in C.all_fixture_entries(self.data, self.index):
             self.assertEqual(M.validate(entry), [])
             seen += 1
-        # 名前つきの登録 10本 + official24 + special48。9本目は testplay_20260908
+        # 名前つきの登録 12本 + official24 + special48。9本目は testplay_20260908
         # ＝**テストプレイ本人が画面で組んだ登録**（§7.204。探索の産物ではないので
         # 盤面が動いても取り直さない）。10本目 counter_testplay_20260908 は
         # **その登録に勝つために探した相手**（§7.205・12シリーズ 12勝0敗）。
-        self.assertEqual(seen, 82)
+        # 【§7.236】80 → 82 → 84。汜水関の上限を18→20にして王者と破陣を取り直した
+        # とき、旧版を chappy_prev_20260910 / counter_prev_20260910 として控えに残した。
+        self.assertEqual(seen, 84)
 
     def test_distribution_reproduces_saved_sample_shape(self):
         report = B.distribution_report(self.data, self.cards)
         special = report["pools"]["special48"]
         self.assertEqual(special["entries"], 48)
         self.assertEqual(special["slots"], 864)
-        self.assertEqual(special["coverage"], 136)   # §7.195 の組み直しで 120 → 136
+        # §7.195 の組み直しで 120 → 136、【§7.236】上限20で組み直して 136 → 138。
+        self.assertEqual(special["coverage"], 138)
         self.assertGreater(special["effective_cards"], 80)
         # 手数の段の枚数（名簿の形の見張り）。§7.155 で 顔良〔河北の驍〕 を大技から
         # 手数へ移して 8 → 9、§7.171 で 呂布〔飛将〕（轅門射戟）が手数へ 9 → 10。
