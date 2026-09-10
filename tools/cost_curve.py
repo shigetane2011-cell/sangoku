@@ -1,26 +1,37 @@
 # -*- coding: utf-8 -*-
-"""コスト1点が買える強さは、帯によって同じか（兵種ごと）。
+"""札は「独り立ちして強い」のか「良い相棒と組んで強い」のか（帯 × 兵種）。
 
     python3 tools/cost_curve.py
-    python3 tools/cost_curve.py --cap 20 --panel 24
+    python3 tools/cost_curve.py --cap 20 --panel 24 --out X.json
 
 きっかけ（テストプレイ）: 上限を上げたら兵種の3辺が動いた件について
 「単にカタログオーバーの強い武将がコスト別・兵種別に偏ってるだけな可能性もあり、
-その場合それを直す方が筋が良い」。
+その場合それを直す方が筋が良い」。あわせて体感の申し送り:
 
-【何を測るか】土台の5枚を固定し、**残り1枠へ名簿の全札を順に入れて**同じ相手へ当てる。
-横軸をその札のコスト、縦軸を残存差にすると、**同じ兵種の中でコスト1点がいくら買うか**の
-曲線が出る。曲線がまっすぐなら帯ごとの偏りは無い。折れていれば、折れているところの札が
-割安（または割高）である。
+    馬の3-5弱い ／ 弓の3〜4は高コストと組まないと強くない（カードは強い）
+    ／ 歩兵の2-4コストは独り立ちして強い
 
-【行は分ける】前衛（歩・騎）と後衛（弓）は同じ枠に立てないので**別の土台・別の曲線**にする
-（one_ruler と同じ理由。混ぜると兵種ぐるみの歪みが曲線の折れに化ける）。
+【なぜ one_ruler では足りないか】あちらは札を1枠に立たせて**1対1で**殴り合わせる。
+「組んで強い」も「壁として線を保つ」も測っていない（計器自身が注記している）。
+上の体感3つは全部その盲点の中にある。
 
-【one_ruler との違い】one_ruler は各札を**同コストの合成札**と比べるので、合成側の
-コスト曲線そのものが曲がっていると差が 0 に見えてしまう。ここは**実測の札どうしを
-同じ枠で並べる**ので、曲線の形が直接出る。
+【何を測るか】試す札を1枚だけ替え、**残り5枚の相棒の質を3段に振る**:
 
-測れないもの: 束ねたときの働き（壁として線を保つ・兵法の噛み合い）。1枠ぶんの差だけ。
+    相棒 1点ずつ（計5点）  … 埋め草だけの部隊。ここで強ければ**独り立ちして強い**
+    相棒 2点ずつ（計10点）
+    相棒 3点ずつ（計15点）… 良い相棒。ここでだけ強ければ**組んで強い**
+
+同じ相手（在野）へ1組1局ずつ当て、札ごとに3つの点を出す。
+**「独り立ち」＝相棒1点のときの点／「相棒への効き」＝相棒3点 − 相棒1点。**
+上限20では相棒3点だと試す札は5点までしか入らないので、体感が指している帯
+（騎3-5・弓3-4・歩2-4）はちょうど全部入る。
+
+【行は分ける】前衛（歩・騎）と後衛（弓）は同じ枠に立てないので土台を別に組む。
+兵種をまたいだ大小は読まない（one_ruler と同じ理由）。**同じ兵種の中の帯の差**と
+**同じ札の相棒による差**だけを読む。
+
+測れないもの: 兵法どうしの噛み合い（相棒は帯で選ぶだけで中身を選んでいない）・
+実デッキの並び・宝物。
 """
 import argparse, json, os, statistics, sys
 from collections import defaultdict
@@ -35,6 +46,7 @@ import tools.balance_common as BC   # noqa: E402
 DT = 0.5
 FIX = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "docs", "balance", "fixtures-v1.json")
+LEVELS = (1, 2, 3)
 _C = None
 
 
@@ -48,10 +60,10 @@ def _boot():
 
 
 def _score(job):
-    names, form, cap, panel, seed0 = job
+    names, cap, panel, seed0 = job
     cards = _boot()
     me = M.with_surplus(F.Army(tuple(cards[n] for n in names),
-                               BC.FORM_BY_NAME[form]), cap)
+                               BC.FORM_BY_NAME["魚鱗"]), cap)
     out = []
     for k, (fn, ff) in enumerate(panel):
         foe = M.with_surplus(F.Army(tuple(cards[n] for n in fn),
@@ -77,80 +89,111 @@ def main(argv=None):
              for e in ent[::step]][:a.panel]
 
     g = {x["名前"]: x for x in R.generals()}
+    person = {n: M.person_of(cards[n]) for n in cards}
+    def cost(n): return int(float(g[n]["コスト"]))
     def typ(n): return g[n]["兵種"]
     def spear(n): return bool((g[n].get("槍") or "").strip())
-    # 土台5枚（どれも2点・魚鱗 前3/後3）。試す枠は前衛の1枠 or 後衛の1枠。
-    # 前衛の土台: 歩2枚 + 後衛の弓3枚 ／ 後衛の土台: 前衛の歩3枚 + 弓2枚
-    two = [n for n in cards if int(g[n]["コスト"]) == 2]
-    inf2 = [n for n in two if typ(n) == "歩兵" and not spear(n)][:3]
-    arc2 = [n for n in two if typ(n) == "弓兵"][:3]
-    assert len(inf2) >= 3 and len(arc2) >= 3, (len(inf2), len(arc2))
-    FRONT_BASE = inf2[:2] + arc2[:3]     # 試す枠は前衛の先頭
-    REAR_BASE = inf2[:3] + arc2[:2]      # 試す枠は後衛の末尾
+
+    # 相棒（帯ごと）。前衛に置けるのは歩・騎、後衛に置けるのは弓と槍持ち歩兵。
+    mates = {}
+    for L in LEVELS:
+        front = sorted(n for n in cards if cost(n) == L and typ(n) in ("歩兵", "騎兵"))
+        rear = sorted(n for n in cards if cost(n) == L
+                      and (typ(n) == "弓兵" or (typ(n) == "歩兵" and spear(n))))
+        mates[L] = (front, rear)
+        assert len(front) >= 4 and len(rear) >= 4, (L, len(front), len(rear))
 
     jobs, index = [], []
     for n in sorted(cards):
         t = typ(n)
-        if t in ("歩兵", "騎兵"):
-            seq = [n] + FRONT_BASE; row = "前衛"
-        elif t == "弓兵":
-            seq = REAR_BASE + [n]; row = "後衛"
-        else:
+        if t not in ("歩兵", "騎兵", "弓兵"):
             continue
-        if n in seq[1:] if row == "前衛" else n in seq[:-1]:
-            continue
-        army = F.Army(tuple(cards[x] for x in seq), BC.FORM_BY_NAME["魚鱗"])
-        if M.placement_errors(army):
-            continue
-        if army.total_cost() > cap + 1e-9:
-            continue
-        index.append((n, t, row, int(g[n]["コスト"])))
-        jobs.append((tuple(seq), "魚鱗", cap, panel, a.seed))
+        head = t in ("歩兵", "騎兵")          # 前衛で試すか後衛で試すか
+        for L in LEVELS:
+            fr, re = mates[L]
+            # **前衛を先に取り、後衛はそこで使った人を除いて取る。**
+            # 槍持ちの歩兵は前衛にも後衛にも置けるので、両方の並びの先頭に
+            # 同じ人が来ることがある（3点の傅僉で実際に起きた）。素朴に
+            # `[:2]` `[:3]` と切ると同じ人物が2枚になり、その帯が丸ごと
+            # 落ちる（相棒3点の段が1枚しか残らなかった）。
+            pick_f = [x for x in fr if person[x] != person[n]]
+            taken = {person[n]}
+            front = []
+            for x in pick_f:
+                if person[x] in taken:
+                    continue
+                front.append(x); taken.add(person[x])
+                if len(front) >= (2 if head else 3):
+                    break
+            rear = []
+            for x in re:
+                if person[x] in taken:
+                    continue
+                rear.append(x); taken.add(person[x])
+                if len(rear) >= (3 if head else 2):
+                    break
+            seq = ([n] + front + rear) if head else (front + rear + [n])
+            if len(seq) != 6 or len(set(person[x] for x in seq)) != 6:
+                continue
+            army = F.Army(tuple(cards[x] for x in seq), BC.FORM_BY_NAME["魚鱗"])
+            if M.placement_errors(army) or army.total_cost() > cap + 1e-9:
+                continue
+            index.append((n, t, cost(n), L))
+            jobs.append((tuple(seq), cap, panel, a.seed))
 
-    print("上限 {:g} ／ 相手 {}組 ／ 測る札 {} 枚 = {:,}局".format(
+    print("上限 {:g} ／ 相手 {}組 ／ {:,} 通り = {:,}局".format(
         cap, len(panel), len(jobs), len(jobs) * len(panel)))
-    print("前衛の土台: {}".format(" ".join(x.split("〔")[0] for x in FRONT_BASE)))
-    print("後衛の土台: {}".format(" ".join(x.split("〔")[0] for x in REAR_BASE)))
     with Pool(a.jobs, initializer=_boot) as pool:
         vals = pool.map(_score, jobs, chunksize=4)
 
     yard = F.cost_yardstick(DT)
-    by = defaultdict(list)
+    sc = {}
+    for (n, t, c, L), v in zip(index, vals):
+        sc[(n, L)] = v
     rows = []
-    for (n, t, row, c), v in zip(index, vals):
-        by[(t, c)].append(v)
-        rows.append({"name": n, "typ": t, "row": row, "cost": c, "score": v})
-    print("\n■ 兵種ごとの「コスト k の札を1枚入れたときの残存差」中央値"
-          "（コスト1点 = 残存差 {:.4f}）\n".format(yard))
-    print("| 兵種 | " + " | ".join("{}点".format(k) for k in range(1, 11)) + " |")
-    print("|---|" + "---:|" * 10)
-    med = {}
-    for t in ("歩兵", "騎兵", "弓兵"):
-        cells = []
-        for k in range(1, 11):
-            v = by.get((t, k), [])
-            m = statistics.median(v) if v else None
-            med[(t, k)] = m
-            cells.append("—" if m is None else "{:+.3f}".format(m))
-        print("| {} | {} |".format(t, " | ".join(cells)))
+    for n in sorted(set(k[0] for k in sc)):
+        t, c = typ(n), cost(n)
+        r = {"name": n, "typ": t, "cost": c,
+             **{"L{}".format(L): sc.get((n, L)) for L in LEVELS}}
+        if r["L1"] is not None and r["L3"] is not None:
+            r["need"] = (r["L3"] - r["L1"]) / yard
+        rows.append(r)
 
-    print("\n■ 1点あたりいくら買えるか（隣の帯との差 ÷ 1点。**コスト点**に直した）\n")
-    print("| 兵種 | " + " | ".join("{}→{}".format(k, k + 1) for k in range(1, 10)) + " |")
-    print("|---|" + "---:|" * 9)
+    def cell(t, lo, hi, key):
+        v = [r[key] for r in rows if r["typ"] == t and lo <= r["cost"] <= hi
+             and r.get(key) is not None]
+        return (statistics.median(v), len(v)) if v else (None, 0)
+
+    BANDS = [(1, 2), (3, 5), (6, 8), (9, 10)]
+    print("\n■ 独り立ち（相棒が1点ずつのときの残存差・中央値）"
+          "  ＋ほど埋め草だけの部隊でも強い\n")
+    print("| 兵種 | " + " | ".join("{}-{}点".format(*b) for b in BANDS) + " |")
+    print("|---|" + "---:|" * len(BANDS))
     for t in ("歩兵", "騎兵", "弓兵"):
-        cells = []
-        for k in range(1, 10):
-            a1, b1 = med[(t, k)], med[(t, k + 1)]
-            cells.append("—" if a1 is None or b1 is None
-                         else "{:+.2f}".format((b1 - a1) / yard))
-        print("| {} | {} |".format(t, " | ".join(cells)))
-    print("\n1.00 なら「1点ぶんきっちり」。**1より大きい帯は割安（お買い得）**、"
-          "小さい帯は割高。")
+        cs = []
+        for lo, hi in BANDS:
+            m, k = cell(t, lo, hi, "L1")
+            cs.append("—" if m is None else "{:+.3f}({})".format(m, k))
+        print("| {} | {} |".format(t, " | ".join(cs)))
+
+    print("\n■ 相棒への効き（相棒3点 − 相棒1点。**コスト点**）"
+          "  大きいほど「良い相棒と組まないと強くない」\n")
+    print("| 兵種 | " + " | ".join("{}-{}点".format(*b) for b in BANDS) + " |")
+    print("|---|" + "---:|" * len(BANDS))
+    for t in ("歩兵", "騎兵", "弓兵"):
+        cs = []
+        for lo, hi in BANDS:
+            m, k = cell(t, lo, hi, "need")
+            cs.append("—" if m is None else "{:+.2f}({})".format(m, k))
+        print("| {} | {} |".format(t, " | ".join(cs)))
+    print("\n（かっこ内は枚数。上限{:g}では相棒3点のとき試す札は5点までしか"
+          "入らないので、6点以上は「相棒への効き」を出せない）".format(cap))
 
     if a.out:
-        json.dump({"cap": cap, "yardstick": yard, "panel": len(panel), "rows": rows},
+        json.dump({"cap": cap, "yardstick": yard, "panel": len(panel),
+                   "levels": list(LEVELS), "rows": rows},
                   open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        print("\n控え: " + a.out)
+        print("控え: " + a.out)
     return 0
 
 
