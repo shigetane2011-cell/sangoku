@@ -2758,6 +2758,19 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
             continue                    # 知力比の口が読む
         out.append(("atk", skill_mag(-float(m.group(1)) / 100.0),
                     skill_dur(float(m.group(2)))))
+    # 恒久の強化（§7.235）: `防御力 +5%（恒久）`。**時限のモッドではなく能力そのもの**を
+    # 上げる（`Unit.perm_atk` / `perm_def`）。宝物の常在で使っている器と同じ口なので、
+    # **`MOD_CAP`（±50%）の山には数えない**し、`_recalc_mods` の代入でも消えない。
+    # **累積させたいときはこれを使う。** `_recalc_mods` の重複判定は
+    # `(効果の種類, 出どころ)` — **出どころ＝どの兵法／どの特性か**なので、
+    # **同じ札が何度鳴っても大きいほう1つ**しか採られない（§6.5）。
+    # 的盧は同じ出どころで4回鳴るので、時限の口へ入れると +5% のまま増えない。
+    # 恒久の口はその判定の外（陣頭の兵力と同じ扱い）なので素直に積み上がる。
+    # なお**違う出どころどうしは足し合わさる** — 兵法の攻撃力+10% と誘発特性の
+    # +15% は +25% になる（±50%で頭打ち）。名簿には**その組が28枚**ある。
+    for m in re.finditer(r"(攻撃力|防御力)\s*\+(\d+)%（恒久）", effect):
+        out.append(("perm_" + ("atk" if m.group(1) == "攻撃力" else "def"),
+                    skill_mag(float(m.group(2)) / 100.0), 0.0))
     # 見切り（§7.232）: **防御力プラスの呼び名**。畏怖（＝攻撃力マイナスの呼び名）と
     # 同じ形で、**新しい器は作らない**。符号を文に持たない書式（「見切り 15%（30秒）」）。
     # **名前は「回避」にしない** — この作品の「回避」は既に**馬上回避**
@@ -3068,8 +3081,13 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
                 who, name, where, mins(secs))
         what = {"def": "守り", "spd": "足", "rate": "気勢",
                 "scut": "兵法への備え", "refl": "刃返しの構え",
-                "ncut": "矢弾への備え"}.get(stat, "攻撃")
+                "ncut": "矢弾への備え",
+                "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
         up = {"spd": "速まる", "scut": "固まる", "refl": "整う"}.get(stat, "上がる")
+        # 恒久（§7.235）は秒を持たない。「0分」と出さず「以後ずっと」と言う。
+        if stat in ("perm_def", "perm_atk"):
+            return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・以後ずっと）".format(
+                who, name, where, what, up, amount)
         return "{}の【{}】発動！　{}の{}が{}！（{:+.0%}・{:.0f}分）".format(
             who, name, where, what, up, amount, mins(secs))
     # 弱体は種類で言い分ける（§7.173: 速度や気勢まで「刃が鈍る」と語らない）
@@ -3637,6 +3655,18 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
+        if key in ("perm_atk", "perm_def"):     # 恒久の強化（§7.235）
+            # **蓄積器（_fx_add）へは入れない。** あれは秒で切れる山で、しかも
+            # 「同じ名は強いほう一つだけ」なので積み上がらない。能力そのものへ足す。
+            for f in hit:
+                setattr(f, key, getattr(f, key) + amt)
+                _recalc_mods(f)                 # 倍率へ写す（代入で作られるので必須）
+            if hit:
+                note("buff", amt, 0.0, abs(amt) * len(hit), key, hit)
+                if rec is not None:
+                    rec["mods"].append([_MOD_JP_KEY[key], amt, 0.0,
+                                        [_who(f) for f in hit]])
+            continue
         # 打消しの残り回数（§7.152）。**この一度の発動につき1つ**の入れ物を作り、
         # 対象になった隊で分け合う（味方前衛なら前衛あわせて N発）。次にこの
         # 兵法を撃てば作り直される＝残りも戻る。inf は旧表記の「何発でも」。
@@ -3873,7 +3903,9 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
 # 状態効果の内部キー → 表示語（記録・詳録用・§7.173）
 _MOD_JP_KEY = {"atk": "攻撃力", "def": "防御力", "spd": "移動速度", "rate": "気勢",
                "scut": "兵法防御", "refl": "兵法反射", "ncut": "通常攻撃防御",
-               "null": "兵法打消し"}
+               "null": "兵法打消し",
+               # 恒久（§7.235）。秒を持たないので実況は「以後ずっと」の言い回しになる
+               "perm_atk": "攻撃力", "perm_def": "防御力"}
 
 
 def _stat_down_jp(key: str) -> str:
@@ -3904,7 +3936,10 @@ def _skill_extra(item) -> str:
         return "{}が混乱（{:.0f}分）".format(where, mins(secs))
     if kind == "buff":
         what = {"def": "守り", "spd": "足", "rate": "気勢", "scut": "兵法への備え",
-                "refl": "刃返しの構え", "ncut": "矢弾への備え", "null": "打消しの構え"}.get(stat, "攻撃")
+                "refl": "刃返しの構え", "ncut": "矢弾への備え", "null": "打消しの構え",
+                "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
+        if stat in ("perm_def", "perm_atk"):     # 恒久（§7.235）
+            return "{}の{}が上がる（{:+.0%}・以後ずっと）".format(where, what, amount)
         return "{}の{}が上がる（{:+.0%}・{:.0f}分）".format(where, what, amount, mins(secs))
     if kind == "debuff":
         return "{}の{}（{:+.0%}・{:.0f}分）".format(where, _stat_down_jp(stat), amount, mins(secs))

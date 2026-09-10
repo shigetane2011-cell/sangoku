@@ -291,6 +291,31 @@ class TreasureEngineTest(unittest.TestCase):
             else:
                 self.assertIn("的盧", text)
 
+    # 9-b. 的盧: 恒久の防御が**積み上がり**、時限の山とは別に生き残る（§7.235）
+    def test_teki_perm_def_stacks(self):
+        cond, target, cap, sk, jp = F.TRAITS["t_teki"]
+        self.assertEqual((cond, target, cap), ("ally_low_hp", "自分", 4))
+        self.assertEqual(sk.mods, (("perm_def", 0.05, 0.0),))
+        card = _synth_with("t_teki")
+        ua = F.build(_army([card] + _filler(5)), 1)
+        ub = F.build(_army(_filler(6)), -1)
+        u = ua[0]
+        self.assertAlmostEqual(u.perm_def, 0.0)
+        for i in range(1, 5):
+            F._apply_skill(u, sk, target, ua, ub, 0.0, src="t_teki",
+                           seen=set(), name=jp, kind_jp="誘発")
+            self.assertAlmostEqual(u.perm_def, 0.05 * i)
+            # **倍率へ写っている**（_recalc_mods は代入で作るので、写し忘れると消える）
+            self.assertAlmostEqual(u.def_mult, 1.0 + 0.05 * i)
+        # 時限の山を載せて振り直しても恒久は残る（ここが器の要点）
+        F._fx_add(u, (30.0, "def", 0.10, "test"))
+        F._recalc_mods(u)
+        self.assertAlmostEqual(u.def_mult, 1.0 + 0.10 + 0.20)
+        # 恒久は MOD_CAP（±50%）の山に数えない — 時限が上限に張り付いても足される
+        F._fx_add(u, (30.0, "def", 0.90, "test"))
+        F._recalc_mods(u)
+        self.assertAlmostEqual(u.def_mult, 1.0 + F.MOD_CAP + 0.20)
+
     # 10. 玉帯詔: 気勢(rate)の時限モッドの初消費者 — 効いて、切れる
     def test_gyokutai_rate_mod_first_consumer(self):
         cond, target, cap, sk, jp = F.TRAITS["t_gyokutai"]

@@ -1026,6 +1026,12 @@ def after_f(wait: float) -> float:
     return 1.0 / (1.0 + max(wait, 0.0) / AFTER_DELAY_A)
 
 
+# 恒久の強化（§7.235）の「残り時間の目安」。戦闘は90秒で、誘発が鳴るのは概ね中盤
+# （味方の壊滅は初弾の中央値 43〜48秒・4割割れはそれより早い）。**仮の値**であって
+# 測ったものではない — 恒久を使う札が増えたら、発動時刻を数えて置き直すこと。
+PERM_SECS = 45.0
+
+
 def mods_value(mods, target: str, fx: float) -> float:
     """状態効果の並び1本ぶんの値段（**段の重みを掛ける前**）。
 
@@ -1054,6 +1060,12 @@ def mods_value(mods, target: str, fx: float) -> float:
             v += EFFECT_PRICE["glock"] * secs * fx
         elif key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * _eff(amt)[1]
+        elif key in ("perm_atk", "perm_def"):
+            # 恒久の強化（§7.235）。**秒を持たない**ので、鳴ってから戦闘が終わるまでの
+            # 残り時間で値付けする。ここを 0 のままにすると、また「値札の無い器」が
+            # 生まれる（移動速度で踏んだ・§7.230）。
+            v += (EFFECT_PRICE[key[5:]] * abs(amt) * 100.0 * PERM_SECS
+                  * _eff(amt)[1])
         elif key in ("scut", "refl", "ncut", "null"):
             table = {"scut": TARGET_SCUT_PRICE, "refl": TARGET_REFL_PRICE,
                      "ncut": TARGET_NCUT_PRICE, "null": TARGET_NULL_PRICE}[key]

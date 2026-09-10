@@ -256,6 +256,12 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         parts.append("{} {}%（{:.0f}分間{}）".format(
             _MOD_JP[m.group(1)], sign, F.mins(float(m.group(3))),
             "・撃ち手の知略しだいで効き目が変わる" if m.group(4) else ""))
+    # 恒久の強化（§7.235）。**秒の書式ではないので上の正規表現に掛からない** —
+    # ここへ足さないと、単独持ちは生の文が出て、他の節と一緒だと行ごと消える
+    # （畏怖・見切りで踏んだのと同じ罠）。
+    for m in _re.finditer(r"(攻撃力|防御力)\s*\+(\d+)%（恒久）", raw):
+        parts.append("{} +{}%（以後ずっと・積み重なる）".format(
+            _MOD_JP[m.group(1)], m.group(2)))
     m = _re.search(r"混乱\s*(\d+)%（(\d+)秒）", raw)
     if m:
         # 「20%」が**何の20%か**が読めない（テストプレイの指摘: 部隊の20%？
