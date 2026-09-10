@@ -1619,8 +1619,10 @@ async function viewDeck(state) {
           ${icoTyp("歩兵")}歩兵＝近接・足は遅いが守り厚い　／　${icoTyp("騎兵")}騎兵＝最速・初撃に突撃+60%・回り込みも可　／　${icoTyp("弓兵")}弓兵＝後衛から遠射・守り薄く、詰められると乱れる　／　${icoTyp("槍")}槍持ち＝後衛にも置け、前線越しに突く（威力半減）
           <button class="mini ghost" id="guide-open" title="相性と布陣の勘どころ">軍略の手引き</button>
         </div>
-        <div id="cardbrief" class="cardbrief muted">
-          <span class="cb-text">札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</span>
+        <!-- 一覧の上の一行。**中身は動かさない**（以前はここへ触れた札の説明を
+             流していたが、マウスが通るたびに書き換わって読みにくかった）。 -->
+        <div class="deck-hint muted">
+          <span>札に1回触れると詳細。素早く2回で布陣へ（編成中の札は素早く2回で外す）。</span>
           <button class="mini ghost" id="detail-open" type="button">詳細を開く</button>
         </div>
         <div class="cards" id="roster" data-keep-selection></div>
@@ -1701,6 +1703,14 @@ function syncStickyOffsets() {
     top += Math.round(bar.getBoundingClientRect().height) + 6;
   }
   document.documentElement.style.setProperty("--deck-tabbar-top", top + "px");
+  // 3列目の詳細欄は**タブ帯の下**へ貼る。同じ天井にすると帯（z-index 19）が
+  // 詳細欄を覆って読めなくなる（テストプレイの指摘）。帯の高さも幅で変わるので測る。
+  const tabbar = document.querySelector(".deck-tabbar");
+  let below = top;
+  if (tabbar && getComputedStyle(tabbar).position === "sticky") {
+    below += Math.round(tabbar.getBoundingClientRect().height) + 12;
+  }
+  document.documentElement.style.setProperty("--deck-detail-top", below + "px");
 }
 
 /* 詳細欄の開閉（狭い画面だけ意味を持つ。広い画面では常設の3列目）。 */
@@ -1741,11 +1751,16 @@ function usedPersons(exceptReg) {
   const used = new Map();   // person -> reg
   // 戦記は PvE。登録デッキの配分に縛られず手持ちを自由に試せる場にする
   if (PREP) return used;
-  for (const [reg, d] of Object.entries(D.decks)) {
-    if (reg === exceptReg) continue;
-    for (const n of d.cards) {
+  // **未保存の草稿込みで見る（`namesInReg`）。** 以前は保存済みの `D.decks` だけを
+  // 見ていたので、赤壁からその武将を外しても**登録するまで他の戦場で「赤壁で使用」の
+  // まま**になり、「その武将を抜いた仮の編成をいったん保存する」しか手が無かった
+  // （テストプレイの指摘）。他の3つの導線（`deckGenerals`・`regsOfGeneral`・
+  // `namesInReg`）は最初から草稿込みで、ここだけが取り残されていた。
+  for (const r of D.regs) {
+    if (r.name === exceptReg) continue;
+    for (const n of namesInReg(r.name)) {
       const c = D.roster.find((x) => x.name === n);
-      if (c) used.set(c.person, reg);
+      if (c) used.set(c.person, r.name);
     }
   }
   return used;
@@ -2484,7 +2499,6 @@ function showCardInfo(name, card) {
   const c = card || (D && D.roster ? D.roster.find((x) => x.name === name) : null);
   if (!c) return;
   PICKED = c.name;
-  drawCardBrief(c);
   drawCardTreasure(c);
   const traits = (c.traits || []).length ? (c.traits || []).map((t) => `
     <div class="ci-row">
@@ -2533,19 +2547,11 @@ function showCardInfo(name, card) {
 
 /* 狭い画面用の1行（§7.198）。詳細欄が畳まれていても「いま何を選んでいるか」
    だけは常に見える。広い画面では CSS で隠す（3列目に本文が出ているため）。 */
-function drawCardBrief(c) {
-  const el = $("#cardbrief");
-  if (!el) return;
-  const t = treasureOf(c.name);
-  el.innerHTML = `
-    <span class="cb-text">${icoTyp(c.typ, c.spear)}<b>${esc(c.name)}</b>
-      <span class="num">${c.cost}点・武勇${c.might}・知略${c.wits}</span>
-      <span class="muted">【${esc(c.skill)}】</span>
-      ${t ? `<span class="cb-tr">【${esc(t.name)}】</span>` : ""}</span>
-    <button class="mini ghost" id="detail-open" type="button">詳細を開く</button>`;
-  const b = $("#detail-open");
-  if (b) b.onclick = () => setDetailOpen(true);
-}
+/* 【撤去】一覧の上に置いていた「小さな武将説明」（#cardbrief・§7.198）。
+   札の上をマウスが通るたびに一行の帯が書き換わり、**読もうとしている一覧の
+   すぐ上でちらつく**ので、かえって見づらかった（テストプレイの指摘）。
+   触れた札の中身は詳細欄（#cardinfo）へ流れるので、情報は失われない。
+   「詳細を開く」は兵種の凡例の行へ移した（狭い画面で引き出しを開く唯一の口）。 */
 
 /* 詳細欄の足元に「この武将の宝物」と設定への入口を置く（§7.198・導線B）。 */
 function drawCardTreasure(c) {

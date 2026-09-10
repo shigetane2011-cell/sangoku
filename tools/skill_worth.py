@@ -754,8 +754,105 @@ def spd_report(got, shave, seeds):
         print()
 
 
+# ============================================================================
+# --lean: 速度寄せ（spd_lean）の値打ち（§7.231 ⑤(a) の宿題）
+# ============================================================================
+# `SPD_LEAN_MEN_RATE = {歩:0, 騎:0, 弓:0}` なので、速度寄せは兵力を1も取らない
+# ＝**値札 0**。しかも速度寄せは「初期値をいじる」＝ t=0 から効く class で、
+# **§7.230 が「働く」と測ったほう**である（接敵は 5.2秒。時限モッドはその後に飛ぶ）。
+# 10枚が使っているので、0 でよいのかを確かめる。
+#
+# 量は小さい: `SPD_LEAN_SPAN 0.20` × 0.3 ＝ **速度 +6%**。
+# §7.230 の「敵3隊に −25%」とは桁が違うので、0 に近くても不思議ではない。
+LEAN_BODIES = ("凌統〔公績〕", "関平〔麒麟児〕", "黄忠〔定軍山〕")   # 歩 c7 / 騎 c6 / 弓 c8
+LEAN_AMT = 0.3        # 名簿で使われている量（10枚中8枚が ±0.3）
+
+
+def _one_lean(job):
+    """job = (身体, 速度寄せ, 削り幅)。速度寄せ 0.0 が基準。兵法は名簿のまま。"""
+    name, lean, shave = job
+    c = _S["cards"][name]
+    row = [r for r in R.skills() if r["武将"] == name][0]
+    with F.unscaled():
+        F.SKILL_INFO[row["兵法名"]] = F._parse_skill(row["効果"], row["対象"])
+    F.SKILL_TARGET[row["兵法名"]] = row["対象"]
+    if shave != 0.0:
+        c = SP._minus_one(c, _S["rows"][name], shave)
+    c = replace(c, spd_lean=lean)
+    d = []
+    for base in _S["bases"]:
+        a = SP._swap_into(base, c)
+        for i, o in enumerate(_S["opps"]):
+            d.append(F.simulate(a, o, dt=SP.DT, seed=i * 7 + 1)["diff"])
+    return d
+
+
+def lean_main():
+    seeds = int(sys.argv[sys.argv.index("--seeds") + 1]) if "--seeds" in sys.argv else 2
+    want = sys.argv[sys.argv.index("--regs") + 1].split(",") if "--regs" in sys.argv else None
+    regs = [(n, c) for n, c in M.REGULATIONS if not want or "{:g}".format(c) in want]
+    shave = (tuple(float(x) for x in sys.argv[sys.argv.index("--shave") + 1].split(","))
+             if "--shave" in sys.argv else (-1.0, 0.0, 1.0, 2.0))
+    amt = (float(sys.argv[sys.argv.index("--amt") + 1]) if "--amt" in sys.argv else LEAN_AMT)
+    R.load_skills_into_field(); R.load_traits_into_field()
+    rows = {g["名前"]: g for g in R.generals()}
+    print("速度寄せ +{:.1f}（速度 +{:.0f}%）の値打ち（§7.231 ⑤(a) の宿題）".format(
+        amt, F.SPD_LEAN_SPAN * amt * 100))
+    print("  兵力は1も取っていない（SPD_LEAN_MEN_RATE が全兵種 0）＝**値札 0**。")
+    print("  削り幅{}・1案{}局。**0 の判定は残存差で行う**（交点は 0 で床を打つ）\n".format(
+        list(shave), 12 * 12 * seeds))
+    print("  身体: " + " / ".join("{}（{} c{}・名簿の速度寄せ {}）".format(
+        n, rows[n]["兵種"], int(float(rows[n]["コスト"])), rows[n].get("速度寄せ") or "0")
+        for n in LEAN_BODIES))
+    print()
+    out = {}
+    for label, cap in regs:
+        os.environ["PANEL_TOTAL"] = str(cap); SP.TOTAL = cap
+        jobs = [(n, 0.0, 0.0) for n in LEAN_BODIES]
+        jobs += [(n, amt, d) for n in LEAN_BODIES for d in shave]
+        jobs = list(dict.fromkeys(jobs))
+        pool = Pool(int(os.environ.get("W", "8")), _init, (seeds,))
+        got = dict(zip(jobs, pool.map(_one_lean, jobs)))
+        pool.close(); pool.join()
+        out["{:g}".format(cap)] = {"|".join(map(str, k)): v for k, v in got.items()}
+        print("■ {}（上限 {:g}点）".format(label, cap), flush=True)
+        ALL = TP.game_index(seeds, range(TP.NBASE), range(TP.NPERS))
+        rng = random.Random(24242)
+        draws = [TP.cluster_draw(rng, seeds) for _ in range(300)]
+
+        def V0(n, ix):
+            return statistics.mean(got[(n, 0.0, 0.0)][i] for i in ix)
+
+        def raw(n, ix):
+            return statistics.mean(got[(n, amt, 0.0)][i] for i in ix) - V0(n, ix)
+
+        def worth(n, ix):
+            vals = [(d, statistics.mean(got[(n, amt, d)][i] for i in ix)) for d in shave]
+            return cross(vals, V0(n, ix))
+
+        print("  {:<16}{:>12}{:>21}{:>12}{:>11}".format(
+            "身体", "残存差の増分", "95%区間", "0 を含むか", "値打ち(点)"))
+        for n in LEAN_BODIES:
+            r = raw(n, ALL)
+            bs = sorted(raw(n, ix) for ix in draws)
+            lo, hi = bs[int(.025*len(bs))], bs[int(.975*len(bs))]
+            x = worth(n, ALL)
+            print("  {:<16}{:>+12.4f}{:>21}{:>12}{:>11}".format(
+                n, r, "[{:+.4f}, {:+.4f}]".format(lo, hi),
+                "含む" if lo <= 0 <= hi else "**含まない**",
+                "{:+.2f}".format(x) if x is not None else "挟めず"))
+        print()
+    dump = (sys.argv[sys.argv.index("--dump") + 1] if "--dump" in sys.argv
+            else "/tmp/claude-0/skill_worth_lean.json")
+    json.dump(out, open(dump, "w"))
+    print("生データ: {}".format(dump))
+    print("LEAN DONE")
+
+
 if __name__ == "__main__":
-    if "--spd" in sys.argv:
+    if "--lean" in sys.argv:
+        lean_main()
+    elif "--spd" in sys.argv:
         spd_main()
     elif "--ablate" in sys.argv:
         ablate_main()

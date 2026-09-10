@@ -154,6 +154,36 @@ def deck_ui_check(page, rep, label, width):
     page.click("#regtabs button[data-reg='汜水関']"); page.wait_for_timeout(400)
     rep.check(board() == before, tag("デッキを切り替えて戻っても未保存の並びが残る"))
 
+    # ②-b 他の戦場の「使用中」は**未保存の草稿で決まる**（§7.234）。
+    # 以前は保存済みデッキだけを見ていたので、外しても**登録するまで**他の戦場で
+    # 掴めず、「その武将を抜いた仮の編成をいったん保存する」しか手が無かった。
+    def _disabled(n):
+        return page.evaluate(
+            """(n) => { const el = document.querySelector(`#roster .card[data-n="${
+                 CSS.escape(n)}"]`); return el ? el.disabled : null; }""", n)
+
+    held = next((x for x in board() if x), None)
+    if rep.check(held is not None, tag("使用中の検査に使える札がある")):
+        # 登録できる状態なら登録しておく（本番の筋に近づける）。
+        # **この罠を捕まえるのは下の「他の戦場に居る武将は掴めない」のほう** —
+        # 草稿を見ていない実装だと、まだ登録していない並びが他の戦場から見えず、
+        # そこで落ちる。「登録しなくても掴める」は望ましい形の念押し。
+        sv = page.query_selector("#save")
+        if sv and not sv.is_disabled():
+            sv.click(); page.wait_for_timeout(600)
+        page.click("#regtabs button[data-reg='官渡']"); page.wait_for_timeout(400)
+        rep.check(_disabled(held) is True, tag("他の戦場に居る武将は掴めない"))
+        page.click("#regtabs button[data-reg='汜水関']"); page.wait_for_timeout(400)
+        el = page.query_selector('#roster .card[data-n="%s"]' % held.replace('"', ''))
+        if el:
+            el.dblclick(); page.wait_for_timeout(350)          # 素早く2回で枠から外す
+        rep.check(held not in board(), tag("編成中の札を素早く2回で外せる"))
+        page.click("#regtabs button[data-reg='官渡']"); page.wait_for_timeout(400)
+        rep.check(_disabled(held) is False,
+                  tag("外した武将は**登録しなくても**他の戦場で掴める"))
+        page.click("#regtabs button[data-reg='汜水関']"); page.wait_for_timeout(400)
+        _fill_board(page); page.wait_for_timeout(250)
+
     # ③ 詳細が配置の邪魔をしない
     card = page.query_selector("#roster .card:not([disabled])")
     if rep.check(card is not None, tag("詳細の検査に使える札がある")):
@@ -171,6 +201,16 @@ def deck_ui_check(page, rep, label, width):
             rep.check(not _overlaps(det.bounding_box() if det else None,
                                     page.query_selector("#roster").bounding_box()),
                       tag("詳細欄が武将一覧に重ならない"))
+            # 下へスクロールすると**帯も詳細欄も貼り付く**。同じ天井にすると
+            # 帯（z-index 19）が詳細欄を覆って読めない（テストプレイの指摘・§7.234）。
+            # **貼り付いた状態**で見ないと出ない — 頭では素直に上下に並ぶ。
+            page.evaluate("() => window.scrollTo(0, 600)")
+            page.wait_for_timeout(350)
+            rep.check(not _overlaps(page.query_selector("#detailcol").bounding_box(),
+                                    page.query_selector("#decktabbar").bounding_box()),
+                      tag("下へスクロールしても戦場選択が詳細欄にかぶらない"))
+            page.evaluate("() => window.scrollTo(0, 0)")
+            page.wait_for_timeout(250)
         else:
             ob = page.query_selector("#detail-open")
             if rep.check(ob is not None and ob.is_visible(),

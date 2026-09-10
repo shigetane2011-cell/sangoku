@@ -453,14 +453,18 @@ body.detail-open .deck-col-detail {
 @media (min-width: 1240px) {
   body[data-view="deck"] .wrap { max-width: 1560px; }
   .deck-layout { grid-template-columns: minmax(300px, 1fr) 370px 300px; }
+  /* 天井は**タブ帯の下**（--deck-detail-top）。タブ帯と同じ天井にすると
+     帯（z-index 19）が詳細欄を覆って読めない（テストプレイの指摘）。 */
   .deck-col-detail, body.detail-open .deck-col-detail {
-    display: block; position: sticky; inset: auto; right: auto; top: var(--deck-tabbar-top, 62px);
+    display: block; position: sticky; inset: auto; right: auto;
+    top: var(--deck-detail-top, var(--deck-tabbar-top, 62px));
     width: auto; padding: 0; background: none; border-left: 0; box-shadow: none;
     backdrop-filter: none;
-    align-self: start; max-height: calc(100vh - var(--deck-tabbar-top, 62px) - 16px);
+    align-self: start;
+    max-height: calc(100vh - var(--deck-detail-top, var(--deck-tabbar-top, 62px)) - 16px);
     overflow: auto; }
   .deck-col-detail .detail-head { display: none; }
-  #cardbrief { display: none; }
+  .deck-hint { display: none; }        /* 3列目が常設なので案内も引き出しも要らない */
 }
 @media (min-width: 1400px) {
   .deck-layout { grid-template-columns: minmax(0, 1fr) 370px 330px; }
@@ -471,14 +475,13 @@ body.detail-open .deck-col-detail {
 .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .detail-head b { font-family: var(--font-min); color: var(--gold-hi); letter-spacing: .1em; }
 .detail-head button { margin-left: auto; }
-.cardbrief { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+/* 一覧の上の一行（旧 .cardbrief）。**中身は動かさない** — 以前はここへ触れた札の
+   説明を流していたが、マウスが札の上を通るたびに書き換わり、読もうとしている一覧の
+   すぐ上でちらついて邪魔だった（テストプレイの指摘）。案内文と「詳細を開く」だけ残す。 */
+.deck-hint { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   background: var(--panel2); border: 1px solid var(--line2); border-radius: 11px;
-  padding: 7px 12px; margin-bottom: 10px; font-size: 12.5px; min-height: 2.4em; }
-.cardbrief .cb-text { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  min-width: 0; }
-.cardbrief b { font-family: var(--font-min); color: var(--ink); }
-.cardbrief .cb-tr { color: var(--gold); }
-.cardbrief button { margin-left: auto; }
+  padding: 7px 12px; margin-bottom: 10px; font-size: 12.5px; }
+.deck-hint button { margin-left: auto; }
 .ci-treasure { margin-top: 10px; padding: 9px 12px; font-size: 12.5px;
   background: var(--panel2); border: 1px solid var(--line2); border-radius: 11px; }
 .ci-tr-line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
