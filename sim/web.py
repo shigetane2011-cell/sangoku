@@ -158,18 +158,71 @@ def _deck_records(cx, pid):
     return out
 
 
+# 顔絵フォルダの中身の控え（§7.238）。**フォルダを1回読むだけにする。**
+#
+# 以前は札1枚につき「名前.png/.jpg/.jpeg/.webp/.svg」→「人物.〃」と**最大10回**
+# ファイルの有無を確かめていた。名簿139枚ぶんで **824回の os.stat**（実測）。
+# Linux では28ミリ秒で済むが、**Windows は「存在しないファイル」の確認が桁違いに
+# 遅い** — とくに落としたばかりのフォルダは Defender が1件ずつ走査するので、
+# ここが数秒に化ける。テストプレイの報告「昨日から立ち上げの時妙に重い」の正体。
+#
+# **絵を差し替えたら効く**という §7.171 の狙いは保つ: フォルダの更新時刻が
+# 変わったら控えを捨てて読み直す（Windows でも新規・削除・リネームで親の
+# mtime は動く）。同じ絵を上書きしただけのときは中の mtime/大きさが変わるので、
+# 版の印（?v=）もそこから作る。
+_PORTRAIT_EXT = ("png", "jpg", "jpeg", "webp", "svg")
+_PORTRAIT_INDEX: "dict[str, tuple[str, int, int]]" = {}
+_PORTRAIT_INDEX_AT = [-1.0, -1.0]   # [フォルダの更新時刻, 最後に確かめた時刻]
+
+
+def _portrait_index() -> "dict[str, tuple[str, int, int]]":
+    """「拡張子を除いた名前 → (拡張子, 更新時刻, 大きさ)」。フォルダ1回読み。"""
+    # **フォルダの更新確認も1秒に1回まで。** ここは1リクエストで139回呼ばれるので、
+    # 毎回 stat すると「824回 → 139回」にしかならない（Windows ではまだ重い）。
+    now = time.time()
+    if now - _PORTRAIT_INDEX_AT[1] < 1.0:
+        return _PORTRAIT_INDEX
+    _PORTRAIT_INDEX_AT[1] = now
+    d = os.path.join(WEBUI, "portraits")
+    try:
+        stamp = os.stat(d).st_mtime
+    except OSError:
+        _PORTRAIT_INDEX.clear()
+        _PORTRAIT_INDEX_AT[0] = -1.0
+        return _PORTRAIT_INDEX
+    if stamp == _PORTRAIT_INDEX_AT[0]:
+        return _PORTRAIT_INDEX
+    idx = {}
+    try:
+        for e in os.scandir(d):
+            if not e.is_file():
+                continue
+            base, _, ext = e.name.rpartition(".")
+            if not base or ext.lower() not in _PORTRAIT_EXT:
+                continue
+            # 同じ名前で複数の拡張子があれば、探す順（png→jpg→…）の先勝ち
+            cur = idx.get(base)
+            if cur and _PORTRAIT_EXT.index(cur[0]) <= _PORTRAIT_EXT.index(ext.lower()):
+                continue
+            st = e.stat()
+            idx[base] = (ext.lower(), int(st.st_mtime), st.st_size)
+    except OSError:
+        pass
+    _PORTRAIT_INDEX.clear()
+    _PORTRAIT_INDEX.update(idx)
+    _PORTRAIT_INDEX_AT[0] = stamp
+    return _PORTRAIT_INDEX
+
+
 def _portrait_v(name: str, person: str) -> str:
     """顔絵の版の印（`?v=更新時刻-大きさ`）。App._portrait と同じ順で探す（名前→人物）。
     絵を差し替えた瞬間に URL が変わるので、ブラウザの古い控えを引かない（§7.171 追記）。
     無ければ空（生成の置き絵）。"""
-    d = os.path.join(WEBUI, "portraits")
+    idx = _portrait_index()
     for cand in ((name, person) if name != person else (name,)):
-        for ext in ("png", "jpg", "jpeg", "webp", "svg"):
-            try:
-                st = os.stat(os.path.join(d, cand + "." + ext))
-            except OSError:
-                continue
-            return "?v=%x-%x" % (int(st.st_mtime), st.st_size)
+        hit = idx.get(cand)
+        if hit:
+            return "?v=%x-%x" % (hit[1], hit[2])
     return ""
 
 
@@ -989,14 +1042,19 @@ class App(BaseHTTPRequestHandler):
     def _portrait(self, key: str):
         key = os.path.basename(key).split(".")[0]
         person = key.split("〔")[0] if "〔" in key else key
+        # 在りかは _portrait_index（フォルダ1回読みの控え・§7.238）から引く。
+        # **探す順は _portrait_v と同じ**でなければならない — 版の印と実物が
+        # 食い違うと、差し替えたのに古い絵が出る（またはその逆）。
+        idx = _portrait_index()
         for candidate in (key, person) if key != person else (key,):
-            for ext in ("png", "jpg", "jpeg", "webp", "svg"):
+            hit = idx.get(candidate)
+            if hit:
+                ext = hit[0]
                 path = os.path.join(self._PORTRAIT_DIR, candidate + "." + ext)
-                if os.path.exists(path):
-                    ctype = {"svg": "image/svg+xml", "png": "image/png",
-                             "webp": "image/webp"}.get(ext, "image/jpeg")
-                    if self._send_file(path, ctype, max_age=0):
-                        return
+                ctype = {"svg": "image/svg+xml", "png": "image/png",
+                         "webp": "image/webp"}.get(ext, "image/jpeg")
+                if self._send_file(path, ctype, max_age=0):
+                    return
         g = next((x for x in R.generals() if x["名前"] == key), None) \
             or next((x for x in R.generals() if x["人物"] == person), None)
         fac = (g or {}).get("勢力", "群雄")

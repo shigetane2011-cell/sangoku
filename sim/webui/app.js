@@ -1876,8 +1876,9 @@ function drawSetPanel() {
     ${rows}
     <div class="setrow set-actions">
       <button class="mini" id="set-all">選んだ組を一斉登録</button>
+      <button class="mini" id="set-save">3面まとめて保存</button>
       <button class="mini ghost" id="set-reset">全リセット</button>
-      <span class="muted" style="font-size:12px">一斉登録は3面まとめて検証してから置き換える（人物の取り合いも一度に解ける）。リセットは登録だけ消す — 保存庫は残る。</span>
+      <span class="muted" style="font-size:12px">一斉登録は3面まとめて検証してから置き換える（人物の取り合いも一度に解ける）。まとめて保存は<b>いま登録中の3面</b>を同じ名前で各戦場の保存庫へ。リセットは登録だけ消す — 保存庫は残る。</span>
     </div>
   </details>`;
   $$("#setpanel [data-goreg]").forEach((b) => b.onclick = () => {
@@ -1890,7 +1891,34 @@ function drawSetPanel() {
     s.onchange = () => { SETSEL[s.dataset.setsel] = s.value; };
   });
   $("#set-all").onclick = registerSet;
+  $("#set-save").onclick = saveSet;
   $("#set-reset").onclick = resetAllDecks;
+}
+
+/* 【§7.238】いま登録中の3面を、同じ名前で各戦場の保存庫へ一度に入れる。
+   保存庫は戦場ごとに別なので、同じ名前が3つ並んでも衝突しない — むしろ
+   「この3面の組」として揃うほうが探しやすい（テストプレイの要望）。
+   **登録済みの中身をそのまま保存する**（編成台のいじりかけではない）。 */
+async function saveSet() {
+  const boards = D.regs
+    .map((r) => ({ reg: r.name, d: D.decks[r.name] }))
+    .filter((x) => x.d && (x.d.cards || []).length);
+  if (!boards.length) { flashMsg("登録されている面が無い。", true); return; }
+  const name = (prompt(
+    `登録中の${boards.length}面（${boards.map((b) => b.reg).join("・")}）を`
+    + "この名前で保存する。同じ名前があれば上書き。", "")
+    || "").trim();
+  if (!name) return;
+  const ok = [], ng = [];
+  for (const b of boards) {
+    const r = await api("/api/savedeck",
+      { name, reg: b.reg, form: b.d.form, cards: b.d.cards });
+    if (r.ok) ok.push(b.reg); else ng.push(`${b.reg}: ${r.errors.join("／")}`);
+  }
+  D = await api("/api/deckdata");
+  drawLibrary(); drawSetPanel();
+  if (ng.length) flashMsg(`${ok.length}面を保存。${ng.join("／")}`, true);
+  else flashMsg(`${ok.length}面を「${name}」で保存した。`);
 }
 
 async function registerSet() {
@@ -2484,8 +2512,11 @@ function drawRoster() {
     cur.slots = next;
     drawAll();
   });
+  // 【§7.238】**マウスオンでは何も出さない**（テストプレイの決定）。
+  // 詳細はシングルクリックで出る（§7.119 の「1回触れると詳細／素早く2回で布陣へ」）。
+  // ホバーで勝手に右が書き変わると、読んでいる最中に別の札へ飛ばされる。
+  // **focus は残す** — これを消すとキーボードだけで詳細が見られなくなる。
   $$("#roster .card").forEach((el) => {
-    el.onmouseenter = () => showCardInfo(el.dataset.n);
     el.onfocus = () => showCardInfo(el.dataset.n);
   });
 }
@@ -2612,9 +2643,9 @@ function drawSlots() {
   // 【§7.198】以前はここでカーソル追従の浮きチップ（#tip）を出していたが、
   // **盤面の上に大きな箱がかぶって駒が掴めなくなる**ので廃止した。
   // 触れた駒の中身は右の詳細欄（#cardinfo）へ流す — 盤面は覆われない。
+  // 【§7.238】駒もマウスオンでは出さない。押せば出る（上の onPieceTap）。
   root.querySelectorAll(".fb-piece.occupied").forEach((piece) => {
     const name = normalizeSlots(cur.slots)[+piece.dataset.slotIndex];
-    piece.addEventListener("mouseenter", () => showCardInfo(name));
     piece.addEventListener("focus", () => showCardInfo(name));
   });
   const errors = placementErrors();
