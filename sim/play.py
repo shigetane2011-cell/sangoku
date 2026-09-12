@@ -886,6 +886,14 @@ def _tenka_resolve(cx, cards, serial: int, now: int) -> int:
             if dummy_ids:
                 rested_dummy = min(dummy_ids, key=lambda pid: (b.get(pid), pid))
                 del ents[rested_dummy]
+        # 再戦回避（§7.240）。`plan_round` は `Board.recent` を見て直近
+        # REMATCH_GAP 人を避けるが、**ratings 表はレートと対局数しか持たない**
+        # ので、読み込んだ順位表の recent は空のままだった。毎時の天下では
+        # レートが動かない（在野は対局数が多く K が小さい）ので、首位の人は
+        # 同じ2位と延々と当たり続けた（実測: 24開催で相手2人）。組を作る
+        # 直前に対戦記録から入れる。**順位の表示では引かない**（重い）。
+        b.recent = P.recent_opponents(cx, "天下", L.REMATCH_GAP,
+                                      scan=len(ents) * L.REMATCH_GAP + 8)
         pairs = L.plan_round(b, list(ents), serial)
     except Exception as e:
         with cx:

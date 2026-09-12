@@ -255,6 +255,27 @@ class Scene3_SameSecondOrdering(unittest.TestCase):
         self.assertNotIn("【甲】5回目", text)     # 枠（兵法3本）を超えた再発動は落ちる
         self.assertNotIn("【甲】2回目", text)
 
+    def test_opening_cast_survives_bigger_later_casts(self):
+        """**戦いで最初の兵法は必ず出す**（§7.241）。
+
+        枠の中の取捨は「初回優先 → 大きい順」なので、開幕の1発は小さいから
+        落ちていた（序盤は兵が減っていないぶん量が出ない）。実測で 178戦の
+        35% で1発目が実況から消えていた（テストプレイの報告）。
+        """
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        ev = [F.Event(-1.0, "布陣", F.LINE_PRIO["布陣"], "両軍、布陣。")]
+        casts = [{"id": 1, "nth": 1}]
+        ev.append(F.Event(5.0, "兵法", F.LINE_PRIO["兵法"], "曹Z の【開幕】",
+                          mag=1.0, side="A", cast=1))
+        # あとから撃たれた大技を、枠（兵法3本）ぶんより多く並べる
+        for i in range(5):
+            casts.append({"id": 10 + i, "nth": 1})
+            ev.append(F.Event(50.0 + i, "兵法", F.LINE_PRIO["兵法"],
+                              "孫Y の【大技{}】".format(i), mag=9000.0 + i,
+                              side="B", cast=10 + i))
+        lines, _ = F._arrange(ev, casts, 1.0)
+        self.assertIn("【開幕】", "\n".join(lines))
+
 
 class Scene1_LaterCastDecides(unittest.TestCase):
     """2回目以降の兵法で決着する: 決め手が実況から消えず、決着の前に出る。"""

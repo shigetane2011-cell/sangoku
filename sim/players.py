@@ -615,6 +615,32 @@ def board_ratings(cx: sqlite3.Connection, board: str
         "SELECT player_id, rating, games FROM ratings WHERE board = ?", (board,))}
 
 
+def recent_opponents(cx: sqlite3.Connection, board: str, per: int,
+                     scan: int = 0) -> Dict[str, List[str]]:
+    """その順位表で**直近に当たった相手**を人ごとに古い順で返す（§7.240）。
+
+    再戦回避（`ladder.plan_round`）が見る `Board.recent` の中身。**ratings 表は
+    レートと対局数しか持たない**ので、ここが唯一の出どころである。順位表を
+    読み込むたびに引くのではなく、組を作る直前に呼ぶ（順位の表示では要らない）。
+
+    `per` は人ごとに何人ぶん覚えるか（`ladder.REMATCH_GAP`）。`scan` は見る
+    行数の上限で、既定は「参加者 × per」で足りる（1巡で全員が1行に現れる）。
+    演習（council）や部屋・フリーは組み合わせに関係ないので数えない。
+    """
+    scan = scan or max(per * 64, 256)
+    got: Dict[str, List[str]] = {}
+    rows = list(cx.execute(
+        "SELECT pid_a, pid_b FROM battles"
+        " WHERE board = ? AND mode IN ('tenka','ranked')"
+        " ORDER BY id DESC LIMIT ?", (board, int(scan))))
+    for r in rows:                      # 新しい順に見て、古い順の並びへ直す
+        for me, foe in ((r["pid_a"], r["pid_b"]), (r["pid_b"], r["pid_a"])):
+            lst = got.setdefault(me, [])
+            if len(lst) < per:
+                lst.insert(0, foe)
+    return got
+
+
 def save_board_ratings(cx: sqlite3.Connection, board: str,
                        vals: Dict[str, Tuple[float, int]]) -> None:
     with cx:

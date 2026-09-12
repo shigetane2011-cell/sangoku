@@ -3156,6 +3156,22 @@ _CASTS = None
 _CAST_BY_ID: Dict[int, dict] = {}
 
 
+def _is_opening_skill(rec) -> bool:
+    """この記録が**その戦いで最初に撃たれた兵法**か（§7.241）。
+
+    開幕の1発は序盤ゆえに量が小さく、語る下限（NARRATE_FLOOR）に届かないことが
+    ある（実測 132人＝対象兵力の1.3%）。「撃ったのに実況に何も出ない」のは
+    読者にとって不具合と区別できないので、**1発目だけは下限を通す**
+    （テストプレイの決定）。測定の経路は記録を作らないので通らない。
+    """
+    if rec is None or _CASTS is None or rec.get("kind") != "兵法":
+        return False
+    for r in _CASTS:
+        if r["kind"] == "兵法":
+            return r["id"] == rec["id"]
+    return False
+
+
 def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
                src: str = ""):
     """発動1回ぶんの記録を開く。None なら記録しない（測定の経路）。
@@ -3501,6 +3517,7 @@ def _finish_cast(p) -> None:
     if ev is None or not name:
         return
     base = sum(f.men0 for f in p["tgts"]) or 1.0
+    opening = _is_opening_skill(rec)    # 1発目は下限を通す（§7.241）
     main = None
     extras = []
     seen_kind = set()
@@ -3525,7 +3542,9 @@ def _finish_cast(p) -> None:
             total = amount * (secs if kind in ("dot", "hot") else 1.0)
             if not hit:
                 continue
-            if total / base < NARRATE_FLOOR and not (kind == "damage" and acc["kills"]):
+            if (total / base < NARRATE_FLOOR
+                    and not (kind == "damage" and acc["kills"])
+                    and not opening):
                 continue
         item = (kind, amount, secs, mag, stat, hit)
         if main is None or mag > main[3]:
@@ -5662,10 +5681,17 @@ def _arrange(ev: List[Event], casts: list, score: float):
         kept.append(e)
         kept_ids.add(id(e))
 
+    # **戦いで最初に撃たれた兵法も必ず出す**（§7.241）。枠の中の取捨は
+    # 「初回優先 → 大きい順」なので、開幕の1発は**小さいから落ちる**
+    # （序盤は兵が減っていないぶん量が出ない）。実測で 178戦の 35% で
+    # 1発目が実況から消えていた。兵法戦はここから始まるので、
+    # 布陣・決着・決め手と同じ扱いにする。打ち消された1発目は must で既に残る。
+    first_skill = min((e for e in ev if e.kind == "兵法" and e.cast),
+                      key=lambda e: (e.t, seq[id(e)]), default=None)
     # 布陣と決着は枠に関係なく必ず出す。**予算で落ちると誰と誰の話か分からなくなる**
     # （実測で虎牢関の布陣行が消えた）。must（決め手・打消し・決着の刻の崩れ）も同じ。
     for e in ev:
-        if e.kind in ("布陣", "決着") or e.must:
+        if e.kind in ("布陣", "決着") or e.must or e is first_skill:
             keep(e)
     used: Dict[str, int] = {}
     for e in kept:
