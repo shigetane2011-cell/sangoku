@@ -1103,6 +1103,40 @@ HEAL_OVERFLOW = True
 # 0.50 は仮の取り分ではなく**値札のある量**である（design.effect_value が
 # この割合ぶんの自己回復として請求する）ので、動かせば値段も動く。
 DRAIN_SHARE = 0.50
+# 一騎討ち（§7.249）: 名指しした敵1体と**二人だけの盤面**を作る。続くあいだ
+#
+#   ・撃ち手はその相手だけを殴り、相手も撃ち手だけを殴る
+#   ・**どちらも他の誰からも狙われない**（通常攻撃のみ。兵法は届く）
+#
+# つまり「2枚を一時的に盤面から抜く」器で、行動阻害（動けない）とも打消し
+# （兵法を消す）とも別物である。**一方的な得ではない** —— 相手の主力は
+# 味方全員からも守られるので、勝っている側が使うと損になる。だから
+# 「関羽がその相手に勝てるか」「関羽が集中砲火を浴びていたか」で値打ちが
+# 大きく振れる（＝性格ごとの分散が大きい器）。
+#
+# **兵法には掛けない。** 掛けると「弓主体の相手を丸ごと無効化する札」になって
+# しまい、二値的すぎる。矢と槍は届かないが計略は届く、という線で引く。
+DUEL_SKILL_SAFE = False   # True にすると兵法からも守る（既定は守らない）
+# 挑まれた側も余人から守るか（§7.249）。**False を採る。**
+#
+#   True  … 二人とも守られる（文字どおりの一騎討ち）。だが**相手の主力が
+#           こちらの味方全員からも守られる**ので、押している盤面では損になる。
+#   False … 守られるのは**挑んだ側だけ**。名乗りに応じた者は味方の援護を離れて
+#           乱軍の中へ引きずり出され、こちらの味方からは撃たれ続ける。
+#
+# 実測（関羽・官渡30・12性格×20種・値札を払う前の盤面の値打ち）:
+#
+#   案                     勝率      残存差     槍陣    斉射
+#   いま（畏怖）            93.8%   ±0.0000     80%     80%
+#   両者を守る 12秒         94.6%   **−0.0053**  95%   **75%**
+#   挑んだ側だけ 12秒       95.0%    +0.0012     95%     80%
+#   挑んだ側だけ 20秒       95.4%    −0.0008    100%     80%
+#
+# **両者を守ると残存差がマイナスになる**（味方が敵の主力を殴れないぶん総ダメージが
+# 落ちる）うえ、斉射に悪化する。片側だけなら穴（槍陣 80%→95〜100%）だけが塞がり、
+# 斉射も悪化しない。絵としても筋が通る —— 名乗りに応じて前へ出た者は、
+# 自陣の援護を離れたぶん晒される。
+DUEL_SHIELD_BOTH = False
 # §6.5「1つの能力に対する補正合計は -50% 〜 +50% に丸める」。
 MOD_CAP = 0.50
 USE_TYPE_DEF = True
@@ -2149,6 +2183,8 @@ class Unit:
         "wiped_at", "hidden_traits", "covered",
         "perm_atk", "perm_def", "perm_rate", "perm_scut",
         "later", "stunned", "amp", "edge_deal", "edge_take", "sup_max", "ammo",
+        # 一騎討ち（§7.249）。相手の隊と、終わる時刻。
+        "duel_with", "duel_until", "duel_secs", "duel_host",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -2346,6 +2382,12 @@ class Unit:
         # None なら回数無制限＝旧表記。cap は表示と値付けのための控え。
         self.null_cap = 0.0
         self.null_pool = None   # 分け合う残り回数 [n]。発動のたびに作り直す
+        # 一騎討ち（§7.249）: 相手の隊と終わる時刻。**通常攻撃の狙いだけ**を
+        # 捻じる（`_weights` の1箇所）。どちらかが倒れるか時刻を過ぎたら解ける。
+        self.duel_with = None
+        self.duel_until = 0.0
+        self.duel_host = False  # 挑んだ側か（挑まれた側と守られ方が違う）
+        self.duel_secs = 0.0    # 討ち合った通算の秒数（表示専用）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         # 隊が壊滅した時刻（ANNIHIL_UNIT を割った t）。**付いた隊は兵力 0**
         # （§7.239 で盤面から降ろすようにした。以前は表示用の印だった）。
@@ -2604,9 +2646,28 @@ def _screen(u: Unit, f: Unit, foes: List[Unit]) -> float:
 
 
 def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
-    """射撃の重み。射程は縁からの距離で測り、射線が通るぶんだけ当たる。"""
+    """射撃の重み。射程は縁からの距離で測り、射線が通るぶんだけ当たる。
+
+    【§7.249】一騎討ちはここ**1箇所**で効く。通常攻撃の狙い先を捻じるだけの器
+    なので、移動も兵法も射程も何も変えない（変えると器が3つに増える）。
+
+      ・自分が討ち合っているなら、**相手だけ**を狙う
+      ・相手が誰かと討ち合っているなら、**その相方でない限り狙えない**
+    """
+    if u.duel_with is not None:
+        # 討ち合っている隊は相手だけを見る。距離・射線・遮蔽はそのまま通す
+        # （届かないなら届かない ——「討ち合っているから必ず当たる」にはしない）。
+        return [(smooth_gate(d, u.rng, RANGE_SOFT) * f.ratio()
+                 * _sight(u, f, foes) * _screen(u, f, foes))
+                if f is u.duel_with else 0.0
+                for f, d in zip(foes, gaps)]
     out = []
     for f, d in zip(foes, gaps):
+        if f.duel_with is not None and (DUEL_SHIELD_BOTH or f.duel_host):
+            # 討ち合っている隊へは横から手を出せない。DUEL_SHIELD_BOTH=False なら
+            # 守られるのは**挑んだ側だけ**で、挑まれた者は乱軍の中に晒される。
+            out.append(0.0)
+            continue
         rat = f.ratio()
         # ratio を掛けて全滅した札を撃ち続けないようにし、exp(FOCUS(1-ratio)) で
         # 弱った札へ寄せる。どちらも ratio の連続関数で、分岐を含まない。
@@ -2763,6 +2824,9 @@ class Skill:
     # 「知力差を見て兵を奪う」形をそのまま書けるようにするための印で、
     # 掛かるのは**打撃そのもの**（したがって戻る量も同じ倍率で動く）。
     drain_wits: bool = False
+    # 一騎討ち（§7.249）: 名指しした敵1体と二人だけの盤面を作る秒数（0 なら無し）。
+    # **対象が敵1体の兵法にしか付けられない**（`_parse_skill` が断る）。
+    duel: float = 0.0
     # 予算の縮尺（§7.151）を受けるか。**兵法は True・固有特性と宝物は False**
     # （§7.152 の裁定）。秒数と量は読み込みのときに済んでいるが、打ち切りの
     # 威力・回復は実行時に掛かるので、その口が見る印をここで運ぶ。
@@ -2981,6 +3045,14 @@ def _parse_skill(effect: str, target: str) -> Skill:
     # そのまま読む（打撃の器を共有している）。**組み合わせを黙って無視しない**:
     # 継続ダメージや威力の無い文に付いても effect_value は値段を請求するので、
     # 器の無い組みは読み込みで落とす（移動速度・気勢で踏んだ「値札の無い器」の裏返し）。
+    # 一騎討ち（§7.249）。「一騎討ち 12秒」。**対象が敵1体でなければ断る** ——
+    # 二人だけの盤面を作る器なので、相手が複数だと意味が定まらない。
+    md = re.search(r"一騎討ち\s*(\d+)秒", effect)
+    duel = skill_dur(float(md.group(1))) if md else 0.0
+    if duel > 0.0 and "敵1体" not in target:
+        raise SystemExit(
+            "一騎討ちは**敵1体**の対象にだけ付けられる（いまの対象: {}）\n"
+            "  効果文: {}".format(target, effect))
     drain = DRAIN_SHARE if "吸収" in effect else 0.0
     if drain > 0.0 and (p <= 0.0 or dur > 0.0):
         raise SystemExit(
@@ -2990,6 +3062,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  heal=heal, heal_pct=_skill_heal_pct(effect),
                  drain=drain,
                  drain_wits=drain > 0.0 and "知力比" in effect,
+                 duel=duel,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
                  self_mods=_skill_self_mods(effect),
@@ -3164,6 +3237,12 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         # 読める。実量は記録（hot_actual）に持ち、合戦詳録が出す。
         return "{}の【{}】！　{}に継続回復。{:.0f}分のあいだ兵力を回復する（毎分{:,.0f}）。".format(
             who, name, where, mins(secs), per_min(amount))
+    if kind == "duel":
+        # 一騎討ち（§7.249）。**どちらがどう守られるか**を書き分ける
+        # （DUEL_SHIELD_BOTH の注記。挑まれた側は晒されたままである）。
+        return ("{}の【{}】！　{}に一騎討ちを挑む —— {}は味方の援護を離れて"
+                "引きずり出され、{}には余人の刃も矢も届かない。（{:.0f}分）".format(
+                    who, name, where, where, who, mins(secs)))
     if kind == "stun":
         return "{}の【{}】！　{}が立ちすくむ！（{:.0f}分）".format(
             who, name, where, mins(secs))
@@ -3249,6 +3328,7 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
            "spill": [],
            "reflected": 0.0, "heal": 0.0, "hot": None, "hot_actual": 0.0,
            "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
+           "duel": None,          # 一騎討ち（§7.249）: {"with": 相手, "secs": 秒}
            "decisive": False}
     _CASTS.append(rec)
     _CAST_BY_ID[rec["id"]] = rec
@@ -3316,6 +3396,18 @@ def _is_offense(sk: "Skill", tstr: str) -> bool:
         if key in ("stun", "chaos", "glock") or amt < 0.0:
             return True
     return bool(sk.wits_mods)
+
+
+def _fx_add_duel(a: Unit, b: Unit, until: float, host: bool) -> None:
+    """一騎討ちの組を1つ立てる（§7.249）。窓が開いていれば流し込みまで預ける。
+
+    host は**挑んだ側か**。守られ方が違う（DUEL_SHIELD_BOTH の注記）ので、
+    どちらが名乗りを上げたかを持たないと区別できない。
+    """
+    if _SKILL_FX is None:
+        a.duel_with, a.duel_until, a.duel_host = b, until, host
+    else:
+        _SKILL_FX.append((a, "duel", (b, until, host)))
 
 
 def _fx_add(f: Unit, eff) -> None:
@@ -3523,6 +3615,10 @@ def _flush_men() -> None:
                 f.later.append(v)
             elif kind == "pool":
                 f.null_pool = v
+            elif kind == "duel":
+                # 一騎討ち（§7.249）。両側を**同じ窓で**組むので、同じ刻に
+                # 撃たれた別の一騎討ちに割り込まれない。
+                f.duel_with, f.duel_until, f.duel_host = v
             else:
                 f.chaos = max(f.chaos, v[0])
                 f.chaos_until = max(f.chaos_until, v[1])
@@ -3870,6 +3966,18 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if sk.mods or sk.self_mods or sk.wits_mods:
         _expire(own + foe, t)
 
+    if sk.duel > 0.0:
+        # 一騎討ち（§7.249）。対象は**敵1体**に限られている（読み込みで検めた）。
+        # 相手が既に誰かと討ち合っているなら**割り込まない** — 先に名乗った側の
+        # 組を壊すと「最後に撃ったほうが勝つ」になり、同時解決が崩れる。
+        f = next((x for x in tgts if x.side != u.side and x.men > 0.0), None)
+        if f is not None and f.duel_with is None and u.duel_with is None:
+            until = t + sk.duel
+            _fx_add_duel(u, f, until, True)
+            _fx_add_duel(f, u, until, False)
+            note("duel", sk.duel, sk.duel, 0.0, "", [f])
+            if rec is not None:
+                rec["duel"] = {"with": _who(f), "secs": sk.duel}
     if sk.heal_pct > 0.0:
         # 割合回復（§7.129・持重）。**解決後の兵力**で選び直す — 特性は兵法の
         # 後・遅延窓を流す前に撃つので、`men` のままだと「いま討たれた隊」を
@@ -4085,6 +4193,9 @@ def _skill_extra(item) -> str:
     where = ("{}隊".format(n) if n > 1 else (_who(hit[0]) if hit else ""))
     if kind == "damage":
         return "{}に {:,.0f} の損害".format(where, amount)
+    if kind == "duel":
+        return "{}を一騎討ちへ引きずり出す（{:.0f}分・その間ほかの敵は手が出せない）".format(
+            where, mins(secs))
     if kind == "dot":
         return "{}が炎上（毎分{:,.0f}・{:.0f}分）".format(where, per_min(amount), mins(secs))
     if kind == "heal":
@@ -5039,6 +5150,16 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
 
         t += dt
         for u in ua + ub:
+            # 一騎討ち（§7.249）が解ける条件は2つだけ: **時刻を過ぎた**か
+            # **どちらかが倒れた**か。片側だけ解けると残ったほうが死体を
+            # 狙い続けて何もしなくなるので、必ず両方を同時に外す。
+            if u.duel_with is not None:
+                d = u.duel_with
+                if t >= u.duel_until or u.men <= 0.0 or d.men <= 0.0:
+                    u.duel_with = d.duel_with = None
+                    u.duel_host = d.duel_host = False
+                else:
+                    u.duel_secs += dt       # 表示専用
             if u.fell_at is None and u.ratio() < ROUT_UNIT:
                 u.fell_at = t
             if u.wiped_at is None and u.ratio() < ANNIHIL_UNIT:

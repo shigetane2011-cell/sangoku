@@ -56,6 +56,9 @@ def _run(job):
     R.load_traits_into_field()
     R.load_skills_into_field()
     F.TRAITS_ON = True
+    for k, v in (opt.get("consts") or {}).items():
+        # 盤面の定数を子プロセスの中だけで差し替える口（掃引用）。
+        setattr(F, k, v)
     if rout is not None:
         # 敗走線（ROUT_RATIO）を差し替えて測る口。**子プロセスの中だけ**で書き換える
         # ので本番には漏れない（Pool は maxtasksperchild=1 で使い捨て）。
@@ -110,7 +113,8 @@ def main():
                pos=spec.get("pos", "auto"))
     routs = spec.get("routs", [None])
     jobs = [(v["card"], v["label"], v.get("patch"),
-             dict(opt, pos=v.get("pos", opt["pos"])), r)
+             dict(opt, pos=v.get("pos", opt["pos"]),
+                  consts=v.get("consts", spec.get("consts"))), r)
             for v in spec["variants"] for r in routs]
     with Pool(spec.get("workers", 4), maxtasksperchild=1) as p:
         got = dict(p.imap_unordered(_run, jobs))
@@ -137,6 +141,17 @@ def main():
                       statistics.mean(o[k][1] for k in ks), dm, dse,
                       statistics.mean(o[k][2] for k in ks),
                       statistics.mean(o[k][3] for k in ks)))
+        if spec.get("by_persona"):
+            # 平均だけ見ると「穴が埋まった」が見えない（§7.248 の関羽は
+            # 謀弩75%・槍陣75% という**特定の相手**で沈んでいた）。
+            ps = sorted({k[0] for k in ref})
+            print()
+            print("{:<32}{}".format("案", "".join("{:>7}".format(x[:4]) for x in ps)))
+            for v in spec["variants"]:
+                o = got[(v["label"], rout)]
+                print("{:<32}{}".format(v["label"], "".join(
+                    "{:>7.0%}".format(statistics.mean(
+                        o[k][0] for k in o if k[0] == x)) for x in ps)))
         print()
 
 
