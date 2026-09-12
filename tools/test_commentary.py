@@ -208,7 +208,8 @@ class Scene3_SameSecondOrdering(unittest.TestCase):
                         ref=id(e_a), side="A")
         # 盤面が積む順とは違う順（決着が先）に並んでいても
         ev = [opening, e_end, e_wipe, e_b, e_a, quote]
-        casts = [{"id": 1, "nth": 1}, {"id": 2, "nth": 1}]
+        casts = [{"id": 1, "nth": 1, "kind": "兵法", "side": "A", "who": "曹Z"},
+                 {"id": 2, "nth": 1, "kind": "兵法", "side": "B", "who": "孫Y"}]
         lines, sides = F._arrange(ev, casts, 1.0)
         self.assertEqual(len(lines), len(sides))
 
@@ -238,12 +239,13 @@ class Scene3_SameSecondOrdering(unittest.TestCase):
         casts = []
         # 同じ兵法を6回。大きさは後ほど大きいが、初回が先に選ばれる
         for i in range(6):
-            casts.append({"id": i + 1, "nth": i + 1})
+            casts.append({"id": i + 1, "nth": i + 1, "kind": "兵法",
+                          "side": "A", "who": "曹Z"})
             ev.append(F.Event(10.0 + i, "兵法", F.LINE_PRIO["兵法"],
                               "曹Z の【甲】{}回目".format(i + 1), mag=100.0 * (i + 1),
                               side="A", cast=i + 1))
         # 別の武将の初回（小さい）と、6回目の打消し（must）
-        casts.append({"id": 7, "nth": 1})
+        casts.append({"id": 7, "nth": 1, "kind": "兵法", "side": "B", "who": "孫Y"})
         ev.append(F.Event(20.0, "兵法", F.LINE_PRIO["兵法"], "孫Y の【乙】1回目", mag=1.0,
                           side="B", cast=7))
         ev[-2].must = True          # 甲の6回目（打ち消された・決め手）
@@ -264,17 +266,124 @@ class Scene3_SameSecondOrdering(unittest.TestCase):
         """
         F._JP["A"], F._JP["B"] = "曹", "孫"
         ev = [F.Event(-1.0, "布陣", F.LINE_PRIO["布陣"], "両軍、布陣。")]
-        casts = [{"id": 1, "nth": 1}]
+        casts = [{"id": 1, "nth": 1, "kind": "兵法", "side": "A", "who": "曹Z"}]
         ev.append(F.Event(5.0, "兵法", F.LINE_PRIO["兵法"], "曹Z の【開幕】",
                           mag=1.0, side="A", cast=1))
-        # あとから撃たれた大技を、枠（兵法3本）ぶんより多く並べる
+        # あとから撃たれた大技は**同じ武将**が撃つ（§7.243 の「各隊の初回」では
+        # 拾われない並びにして、開幕の1発が残ることだけを見る）
         for i in range(5):
-            casts.append({"id": 10 + i, "nth": 1})
+            casts.append({"id": 10 + i, "nth": 2 + i, "kind": "兵法",
+                          "side": "B", "who": "孫Y"})
             ev.append(F.Event(50.0 + i, "兵法", F.LINE_PRIO["兵法"],
                               "孫Y の【大技{}】".format(i), mag=9000.0 + i,
                               side="B", cast=10 + i))
         lines, _ = F._arrange(ev, casts, 1.0)
         self.assertIn("【開幕】", "\n".join(lines))
+
+
+class EverySkillGetsALine(unittest.TestCase):
+    """出ない兵法をなくす（§7.242・§7.243）。テストプレイの報告が3回続いた:
+    開幕の1発 → 打消しに名前が出る構え → 「まだ出てない兵法ある　霍峻とか」。
+    """
+
+    def _big(self, ev, casts, n, who="孫Y", side="B", t0=50.0):
+        """枠（兵法3本）より多い大技を1人に撃たせる（埋め草）。"""
+        for i in range(n):
+            cid = 100 + i
+            casts.append({"id": cid, "nth": 1 + i, "kind": "兵法",
+                          "side": side, "who": who})
+            ev.append(F.Event(t0 + i, "兵法", F.LINE_PRIO["兵法"],
+                              "{} の【大技{}】".format(who, i), mag=9000.0 + i,
+                              side=side, cast=cid))
+
+    def test_each_caster_gets_its_first_line(self):
+        """兵法を撃った隊は、その初回が必ず出る（小さくても）。"""
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        ev = [F.Event(-1.0, "布陣", F.LINE_PRIO["布陣"], "両軍、布陣。")]
+        casts = []
+        for k, who in enumerate(("曹Z", "曹V", "曹W")):
+            cid = k + 1
+            casts.append({"id": cid, "nth": 1, "kind": "兵法",
+                          "side": "A", "who": who})
+            ev.append(F.Event(10.0 + k, "兵法", F.LINE_PRIO["兵法"],
+                              "{} の【小技{}】".format(who, k), mag=1.0 + k,
+                              side="A", cast=cid))
+        self._big(ev, casts, 5)
+        text = "\n".join(F._arrange(ev, casts, 1.0)[0])
+        for k in range(3):
+            self.assertIn("【小技{}】".format(k), text)
+
+    def test_repeat_casts_still_compete(self):
+        """2回目以降は今までどおり枠の中で競う（全部出すわけではない）。"""
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        ev = [F.Event(-1.0, "布陣", F.LINE_PRIO["布陣"], "両軍、布陣。")]
+        casts = []
+        for i in range(5):
+            cid = i + 1
+            casts.append({"id": cid, "nth": i + 1, "kind": "兵法",
+                          "side": "A", "who": "曹Z"})
+            ev.append(F.Event(10.0 + i, "兵法", F.LINE_PRIO["兵法"],
+                              "曹Z の【甲】{}回目".format(i + 1), mag=1.0,
+                              side="A", cast=cid))
+        self._big(ev, casts, 5)
+        text = "\n".join(F._arrange(ev, casts, 1.0)[0])
+        self.assertIn("【甲】1回目", text)
+        self.assertNotIn("【甲】4回目", text)
+
+    def test_named_stance_cast_is_kept(self):
+        """打消しの行が名前を出した構えは、その発動も出る。
+
+        「だが甲が乙の【丙】で兵法全体を打ち消した」と語るのに【丙】の発動が
+        実況に無いと、読者は見たことのない兵法の名前を突然聞かされる。
+        構えは量（回数×秒）が小さいので、大きい順の取捨でほぼ必ず落ちていた。
+        """
+        F._JP["A"], F._JP["B"] = "曹", "孫"
+        ev = [F.Event(-1.0, "布陣", F.LINE_PRIO["布陣"], "両軍、布陣。")]
+        # 田豊は先に大技を撃つので、構えは「その隊の初回」では拾われない
+        casts = [{"id": 1, "nth": 1, "kind": "兵法", "side": "A", "who": "曹田豊"},
+                 {"id": 2, "nth": 2, "kind": "兵法", "side": "A", "who": "曹田豊"}]
+        ev.append(F.Event(5.0, "兵法", F.LINE_PRIO["兵法"], "曹田豊 の【檄】",
+                          mag=8000.0, side="A", cast=1))
+        ev.append(F.Event(6.0, "兵法", F.LINE_PRIO["兵法"],
+                          "曹田豊 の【剛直の諫言】発動！", mag=120.0, side="A", cast=2))
+        self._big(ev, casts, 5)
+        # 打消しの行（must）。相方は cast 2
+        casts.append({"id": 200, "nth": 1, "kind": "兵法", "side": "B",
+                      "who": "孫黄忠", "nullified": True, "stance_cast": 2})
+        ev.append(F.Event(80.0, "兵法", F.LINE_PRIO["兵法"],
+                          "孫黄忠 の【百歩穿楊】！　だが曹霍峻が曹田豊の"
+                          "【剛直の諫言】で兵法全体を打ち消した。", mag=0.0,
+                          side="B", cast=200, must=True))
+        text = "\n".join(F._arrange(ev, casts, 1.0)[0])
+        self.assertIn("打ち消した", text)
+        self.assertIn("【剛直の諫言】発動", text)
+
+    def test_stance_cast_is_wired_from_the_pool(self):
+        """記録の相方（stance_cast）が、構えを張った発動の番号になっている。
+
+        入れ物（null_pool）の4つめで運ぶ。ここが切れると上の保証が黙って
+        効かなくなる（実況は「名前だけ出る」に戻る）。
+        """
+        ua = F.build(F.Army(tuple(F._synth(4.0, F.INF) for _ in range(3)),
+                            F.FORM_STANDARD), 1)
+        ub = F.build(F.Army(tuple(F._synth(4.0, F.INF) for _ in range(3)),
+                            F.FORM_STANDARD), -1)
+        casts = []
+        F._CASTS, F._CAST_BY_ID = casts, {}
+        try:
+            F._apply_skill(ua[0], F._parse_skill("兵法打消し 2発（60秒）", "味方全体"),
+                           "味方全体", ua, ub, 0.0, src="＿構え", name="＿構え",
+                           kind_jp="兵法")
+            for u in ua:
+                F._recalc_mods(u)
+            stance_id = casts[0]["id"]
+            F._apply_skill(ub[0], F.Skill(power=3.0), "敵全体", ub, ua, 1.0,
+                           src="＿砲", name="＿砲", kind_jp="兵法")
+            blocked = [r for r in casts if r.get("nullified")]
+            self.assertTrue(blocked, "打ち消されていない（土台が崩れている）")
+            self.assertEqual(blocked[0]["stance_cast"], stance_id)
+        finally:
+            F._CASTS, F._CAST_BY_ID = None, {}
 
 
 class Scene1_LaterCastDecides(unittest.TestCase):

@@ -3186,6 +3186,7 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
                    max(1, u.fired.get(src, 0) if src else 1)),
            "intended": [_who(f) for f in tgts], "hit": [],
            "nullified": False, "blocker": "", "stance_by": "", "stance_skill": "",
+           "stance_cast": 0,
            "left": None, "damage": 0.0, "over": 0.0, "per": [], "kills": [], "shared_kills": [],
            "spill": [],
            "reflected": 0.0, "heal": 0.0, "hot": None, "hot_actual": 0.0,
@@ -3636,12 +3637,15 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             # 誰が遮っても同じ残りが減る。使い切ったら構えは下りる。
             rest = None
             by, stance = "", ""
+            stance_cast = 0
             if blocker.null_pool is not None:
                 blocker.null_pool[0] -= 1.0
                 blocker.nullify = blocker.null_pool[0] > 0.0
                 rest = int(max(0.0, blocker.null_pool[0]))
                 if len(blocker.null_pool) >= 3:     # 構えを与えた武将と兵法（§7.173）
                     by, stance = blocker.null_pool[1], blocker.null_pool[2]
+                if len(blocker.null_pool) >= 4:     # その構えを張った発動（§7.242）
+                    stance_cast = blocker.null_pool[3]
             if not stance:
                 stance = next((e[3] for e in blocker.effects if e[1] == "null"), "")
             if name and name not in blocker.null_names:
@@ -3650,7 +3654,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             if rec is not None:
                 rec.update({"nullified": True, "blocker": _who(blocker),
                             "stance_by": by, "stance_skill": stance, "left": rest,
-                            "hit": []})
+                            "stance_cast": stance_cast, "hit": []})
             if ev is not None and name:
                 left = ("" if rest is None else
                         ("　この構えの残り: 尽きた。" if rest <= 0
@@ -3746,8 +3750,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         # 兵法を撃てば作り直される＝残りも戻る。inf は旧表記の「何発でも」。
         # 入れ物には**構えを与えた武将と兵法**も添える（§7.173: 誰の構えが
         # 打ち消したかを実況と詳録で言えるように。数える口は [0] だけ）。
+        # 4つめは**その構えを張った発動の記録番号**（§7.242）。あとで
+        # 「〜の【甲】で打ち消した」と語るとき、その【甲】の発動行を
+        # 実況へ必ず残すために使う（名前だけ出て発動が出ないのを防ぐ）。
         pool = (None if key != "null" or amt == math.inf
-                else [amt, _who(u), name])
+                else [amt, _who(u), name, rec["id"] if rec is not None else 0])
         for f in hit:
             if key == "null":
                 # 入れ物は**効果と同じ口**（蓄積器）から入れる（§7.165）。ここで直に
@@ -5681,17 +5688,37 @@ def _arrange(ev: List[Event], casts: list, score: float):
         kept.append(e)
         kept_ids.add(id(e))
 
-    # **戦いで最初に撃たれた兵法も必ず出す**（§7.241）。枠の中の取捨は
-    # 「初回優先 → 大きい順」なので、開幕の1発は**小さいから落ちる**
-    # （序盤は兵が減っていないぶん量が出ない）。実測で 178戦の 35% で
-    # 1発目が実況から消えていた。兵法戦はここから始まるので、
-    # 布陣・決着・決め手と同じ扱いにする。打ち消された1発目は must で既に残る。
-    first_skill = min((e for e in ev if e.kind == "兵法" and e.cast),
-                      key=lambda e: (e.t, seq[id(e)]), default=None)
+    # **兵法を撃った隊は、その初回を必ず出す**（§7.241 →§7.243 で各隊へ拡張）。
+    # 枠の中の取捨は「初回優先 → 大きい順」だが、**大きい順の前に枠が尽きる**。
+    # 実測で、文が作られた発動のうち実況に出るのは 41%、兵法を撃った武将のうち
+    # 実況に出るのは 52% しかなかった（テストプレイの報告が3回続いた:
+    # 開幕の1発・構えの相方・「まだ出てない兵法ある」）。
+    # 枠を 3→6 に広げても 69%/80% までで、**撃った武将が出ないことは残る**。
+    # 「撃った武将は少なくとも1回は出る」を約束するほうが読者の疑いに答える
+    # （実測 96%/99%・実況は平均 22.3 → 26.3 行）。2回目以降は今までどおり
+    # 枠の中で大きい順に競う。
+    first_of: Dict[tuple, int] = {}
+    for rec in sorted(casts, key=lambda r: r["id"]):
+        # 記録は表示のための器なので**欠けていても落ちない**ように読む
+        # （試験が最小の記録を作る・実戦の記録は全部の欄を持つ）。
+        if rec.get("kind") == "兵法":
+            first_of.setdefault((rec.get("side", ""), rec.get("who", "")),
+                                rec["id"])
+    opening_casts = set(first_of.values())
+    # **名前を出した構えの発動も必ず出す**（§7.242）。打消しの行は
+    # 「だが甲が乙の【丙】で兵法全体を打ち消した」と語るので、【丙】の発動が
+    # 実況に無いと、読者は見たことのない兵法の名前を突然聞かされる
+    # （テストプレイの報告「まだ出てない兵法ある　霍峻とか」）。構えは量が
+    # 小さい（回数×秒）ので大きい順の取捨でほぼ必ず落ちていた。打消しの行は
+    # must なので、**その相方**をここで引き上げる。
+    stance_casts = {rec.get("stance_cast") for rec in casts if rec.get("nullified")}
+    stance_casts.discard(0)
     # 布陣と決着は枠に関係なく必ず出す。**予算で落ちると誰と誰の話か分からなくなる**
     # （実測で虎牢関の布陣行が消えた）。must（決め手・打消し・決着の刻の崩れ）も同じ。
     for e in ev:
-        if e.kind in ("布陣", "決着") or e.must or e is first_skill:
+        if (e.kind in ("布陣", "決着") or e.must
+                or (e.cast and (e.cast in opening_casts
+                                or e.cast in stance_casts))):
             keep(e)
     used: Dict[str, int] = {}
     for e in kept:
