@@ -249,12 +249,21 @@ class Scene3_SameSecondOrdering(unittest.TestCase):
         ev.append(F.Event(20.0, "兵法", F.LINE_PRIO["兵法"], "孫Y の【乙】1回目", mag=1.0,
                           side="B", cast=7))
         ev[-2].must = True          # 甲の6回目（打ち消された・決め手）
-        lines, _ = F._arrange(ev, casts, 1.0)
+        # 枠は**2発目以降を何本添えるか**（§7.243）。試験は本番の値に依らず固定する。
+        old = F.LINE_CAPS["兵法"]
+        F.LINE_CAPS["兵法"] = 2
+        try:
+            lines, _ = F._arrange(ev, casts, 1.0)
+        finally:
+            F.LINE_CAPS["兵法"] = old
         text = "\n".join(lines)
-        self.assertIn("【甲】1回目", text)
+        self.assertIn("【甲】1回目", text)      # 撃った隊の初回は必ず（§7.242）
         self.assertIn("【乙】1回目", text)
-        self.assertIn("【甲】6回目", text)
-        self.assertNotIn("【甲】5回目", text)     # 枠（兵法3本）を超えた再発動は落ちる
+        self.assertIn("【甲】6回目", text)      # 決め手（must）は枠の外
+        self.assertIn("【甲】5回目", text)      # 2発目以降は大きい順に1本
+        # 同じ隊の2発目以降は LINE_REPEAT_UNIT 本まで（§7.243）。同じ文が
+        # 何行も並ぶのを止めるため、枠が空いていても隊ごとに絞る。
+        self.assertNotIn("【甲】4回目", text)
         self.assertNotIn("【甲】2回目", text)
 
     def test_opening_cast_survives_bigger_later_casts(self):
@@ -326,9 +335,14 @@ class EverySkillGetsALine(unittest.TestCase):
                               "曹Z の【甲】{}回目".format(i + 1), mag=1.0,
                               side="A", cast=cid))
         self._big(ev, casts, 5)
-        text = "\n".join(F._arrange(ev, casts, 1.0)[0])
-        self.assertIn("【甲】1回目", text)
-        self.assertNotIn("【甲】4回目", text)
+        old = F.LINE_CAPS["兵法"]
+        F.LINE_CAPS["兵法"] = 2          # 2発目以降は2本まで（本番の値に依らない）
+        try:
+            text = "\n".join(F._arrange(ev, casts, 1.0)[0])
+        finally:
+            F.LINE_CAPS["兵法"] = old
+        self.assertIn("【甲】1回目", text)      # 初回は必ず
+        self.assertNotIn("【甲】4回目", text)    # 大技5本に押し出される
 
     def test_named_stance_cast_is_kept(self):
         """打消しの行が名前を出した構えは、その発動も出る。
