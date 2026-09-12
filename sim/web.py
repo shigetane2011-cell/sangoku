@@ -296,6 +296,18 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             total = F.HEAL_SCALE * sk.heal * coef * (sk.dur if sk.dur > 0 else 1.0)
             parts.append("回復 約{:,.0f}人".format(total))
     raw = sk_row.get("効果", "")
+    # 【§7.245】自分が受ける不利（反動・代償）は**利得と別の列**へ分ける。
+    # 反動は盤面では撃った本人へ乗るのに、画面では「反動」の字が落ちて
+    # 「攻撃力 -20%（102分間）」だけが残り、**敵の攻撃力を下げる良い効果に
+    # 読めていた**（しかも繋ぎが「＋」なので利得として並ぶ）。テストプレイの
+    # 報告「自分をデバフする効果が認識しにくい」。ここで先に取り出して
+    # raw から除く — 除かないと下の状態効果の正規表現が同じ節を拾う
+    # （`field._skill_mods` が同じ理由で先に除いているのと同型）。
+    costs = []
+    for m in _re.finditer(r"反動\s*(攻撃力|防御力)\s*-(\d+)%（(\d+)秒）", raw):
+        costs.append("反動: 自分の{} -{}%（{:.0f}分間・放つたびに自分が受ける）".format(
+            _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
+    raw = _re.sub(r"反動\s*(?:攻撃力|防御力)\s*-\d+%（\d+秒）", "", raw)
     # 畏怖（§7.64）は攻撃力マイナスの呼び名で、符号を文に持たない書式
     # （「畏怖 -12%（30秒・知力比）」）。**語彙から漏らすと二重に壊れる** —
     # 単独持ちは raw フォールバックで生の「秒」が出て、ダメージ兵法に付いた
@@ -337,7 +349,7 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             F.mins(float(m.group(1)))))
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
-        parts.append("代償 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
+        costs.append("代償: 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
     m = _re.search(r"兵法打消し(?:\s*(\d+)発)?（(\d+)秒）", raw)
     if m:
         # 「あわせて」が要る（§7.152）— 発数は1回の発動につきで、対象の隊で
@@ -350,7 +362,11 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
     m = _re.search(r"ゲージ付与", raw)
     if m:
         parts.append("味方のゲージを進める")
-    return " ＋ ".join(parts) if parts else raw
+    out = " ＋ ".join(parts) if parts else raw
+    # **不利は「＋」で繋がない。** 利得の列に混ぜると読み分けられない（§7.245）。
+    if costs:
+        out += "　／ただし" + "、".join(costs)
+    return out
 
 
 _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
