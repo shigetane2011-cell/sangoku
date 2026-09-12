@@ -282,6 +282,14 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             # 「守りで目減り」の注記は毎行に付けず、凡例に1回書く（冗長の指摘）
             parts.append("損害 約{:,.0f}人".format(
                 F.SKILL_SCALE * sk.power * coef))
+    if getattr(sk, "drain", 0.0) > 0.0:
+        # 吸収（§7.247）。**「損害」の行とは別に立てる** — 奪った兵がどこへ
+        # 行くかは一撃の意味そのもので、量も相手しだいなので「約N人」とは
+        # 書けない（割合で言い切る）。知力比は語尾で添える。
+        parts.append("吸収 与えた損害の{:g}%を自隊の兵として取り込む{}".format(
+            sk.drain * 100.0,
+            "（撃ち手と相手の知略の差で損害そのものが増減する）"
+            if getattr(sk, "drain_wits", False) else ""))
     if getattr(sk, "heal_pct", 0.0) > 0.0:
         # 割合回復（§7.129）。**対象の最大兵力**に対する割合なので、撃ち手の
         # 能力では実数にできない（畏怖と同じで、語彙から漏らすと生の文が

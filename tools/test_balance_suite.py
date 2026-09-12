@@ -56,8 +56,9 @@ class BalanceSuiteTest(unittest.TestCase):
         self.assertGreater(special["effective_cards"], 80)
         # 手数の段の枚数（名簿の形の見張り）。§7.155 で 顔良〔河北の驍〕 を大技から
         # 手数へ移して 8 → 9、§7.171 で 呂布〔飛将〕（轅門射戟）が手数へ 9 → 10。
-        # 段を動かしたらここも直す。
-        self.assertEqual(sum(C.cadence(c) == "手数" for c in self.cards), 10)
+        # 【§7.247】司馬懿〔冢虎〕（堅忍・吸収）と 文鴦〔単騎駆け〕 を早い周りへ
+        # 移して 10 → 12。段を動かしたらここも直す。
+        self.assertEqual(sum(C.cadence(c) == "手数" for c in self.cards), 12)
 
     def test_cadence_builder_keeps_cost_count_and_placement(self):
         # 上限は M.REGULATIONS から引く。数字を焼き込むと、上限を動かした日に

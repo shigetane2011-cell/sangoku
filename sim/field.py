@@ -1092,6 +1092,17 @@ def skill_mag(v: float) -> float:
 HEAL_SCALE = 1.482
 # 回復が最大兵力を超えられるか（§7.190）。False なら従来どおり満タンで切る。
 HEAL_OVERFLOW = True
+# 吸収（§7.247）: 打撃で**実際に奪った兵**のこの割合が、撃った隊の兵へ戻る。
+# 回復とは別の器にする理由は3つある。
+#   ・量が**自分の威力ではなく相手の残兵**で決まる（削れなければ戻らない）。
+#     回復兵法は盤面の状態に関係なく同じ量が入るので、性格が違う。
+#   ・戻る先は常に**撃った隊1つ**で、対象文の係数（敵全体 0.992 は敵1体（正面）
+#     1.286 より安い）では値段を引けない。値付けは「自分への回復」で別に払う。
+#   ・上限（men0）は `_ledger`/`_men_add` の両方が切るので、削りすぎても
+#     元の兵力より増えることはない（帳簿の恒等式・§7.174 はそのまま保たれる）。
+# 0.50 は仮の取り分ではなく**値札のある量**である（design.effect_value が
+# この割合ぶんの自己回復として請求する）ので、動かせば値段も動く。
+DRAIN_SHARE = 0.50
 # §6.5「1つの能力に対する補正合計は -50% 〜 +50% に丸める」。
 MOD_CAP = 0.50
 USE_TYPE_DEF = True
@@ -1152,6 +1163,24 @@ SUPPRESS_R = 60.0       # この距離まで近づかれると抑制が最大に
 # 兵法の直撃にも接敵抑制を掛けるか（§7.74）。弓の主砲は兵法なので、通常
 # 射撃だけ抑えても弱点にならない（兵法外80%でも騎兵44%止まりの実測）。
 SUPPRESS_SKILL = True
+# 吸収（§7.247）にも接敵抑制を掛けるか。**掛けない。**
+#
+# 実測（司馬懿〔冢虎〕・弓兵・敵全体・威力120%・手数）: 抑制ありだと直撃が
+# 1,575 → 219（0.14倍）に落ち、戻る兵は1発 109 ＝ 自隊の 0.7% になる。
+# 兵法の値段は抑制を知らないので満額を請求する — つまり「請求どおり払って
+# 盤面では 1/7 しか起きない器」になる。
+#
+# 抑制そのものは動かせない。上の注記どおり **弓の主砲は兵法**で、ここを緩めると
+# 騎兵→弓の辺が立たなくなる（§7.74-75 の三すくみは兵法込みの抑制で閉じている）。
+# そこで**新しい器の側で線を引く**: 吸収は矢ではなく知略の器（知力比で伸縮し、
+# `_skill_kind` も計略に落ちる）なので、「密着されたら撃てない」は当たらない。
+# **既存の札は1枚も動かない**（吸収を持つのは新設の堅忍だけ）ので、較正済みの
+# 辺も値札も触らずに済む。
+#
+# 代わりに払う対価: 司馬懿1枚については騎兵の詰めが効きにくくなる。これは
+# 「知略で吸う武将は取り付かれても吸う」という札の性格として引き受けたもので、
+# 測定の結果ではない（作り手の選択）。戻すならここを True にする。
+SUPPRESS_SKILL_DRAIN = False
 # 接近戦での弓の弱さ（§7.150・テストプレイの設計）。**既定 0.0 は挙動不変。**
 #
 # 現実で前線を失うと負けるのは、後ろの兵が**近接の装備と練度で劣る**からである
@@ -2724,6 +2753,16 @@ class Skill:
     # 前半の最も長い秒数（＝「その後」の意味そのもの）。同時に配ると意味が変わる
     # 兵法（守りを固めてから攻めに転じる、など）を**書いたとおりに**動かすための口。
     after_mods: Tuple[Tuple[str, float, float], ...] = ()
+    # 吸収（§7.247）: 打撃で奪った兵のこの割合が撃ち手へ戻る（0 なら吸収なし）。
+    # 量は威力ではなく**実際に削れた兵**で決まるので、器を回復とは分けている
+    # （DRAIN_SHARE の注記）。**打ち切りの打撃とだけ組める** — 継続ダメージに
+    # 付けると「燃えている間ずっと吸い続ける」別の器になるので `_parse_skill`
+    # が断る。
+    drain: float = 0.0
+    # 吸収が知力比で伸縮するか（§7.67 と同じ (撃ち手/受け手)^WITS_MOD）。
+    # 「知力差を見て兵を奪う」形をそのまま書けるようにするための印で、
+    # 掛かるのは**打撃そのもの**（したがって戻る量も同じ倍率で動く）。
+    drain_wits: bool = False
     # 予算の縮尺（§7.151）を受けるか。**兵法は True・固有特性と宝物は False**
     # （§7.152 の裁定）。秒数と量は読み込みのときに済んでいるが、打ち切りの
     # 威力・回復は実行時に掛かるので、その口が見る印をここで運ぶ。
@@ -2938,8 +2977,19 @@ def _parse_skill(effect: str, target: str) -> Skill:
     heal, hdur = _skill_heal(effect)
     m = re.search(r"代償\s*兵力(\d+)%", effect)
     hi = re.search(r"威力\d+〜(\d+)%", effect)
+    # 吸収（§7.247）。「吸収 威力800%（知力比）」— 威力は `_skill_power` が
+    # そのまま読む（打撃の器を共有している）。**組み合わせを黙って無視しない**:
+    # 継続ダメージや威力の無い文に付いても effect_value は値段を請求するので、
+    # 器の無い組みは読み込みで落とす（移動速度・気勢で踏んだ「値札の無い器」の裏返し）。
+    drain = DRAIN_SHARE if "吸収" in effect else 0.0
+    if drain > 0.0 and (p <= 0.0 or dur > 0.0):
+        raise SystemExit(
+            "吸収は**打ち切りの威力**とだけ組める（継続ダメージ・威力なしは器が無い）\n"
+            "  効果文: {}".format(effect))
     return Skill(power=p, kind=_skill_kind(effect, target), dur=dur or hdur,
                  heal=heal, heal_pct=_skill_heal_pct(effect),
+                 drain=drain,
+                 drain_wits=drain > 0.0 and "知力比" in effect,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
                  self_mods=_skill_self_mods(effect),
@@ -3157,17 +3207,25 @@ _CAST_BY_ID: Dict[int, dict] = {}
 
 
 def _is_opening_skill(rec) -> bool:
-    """この記録が**その戦いで最初に撃たれた兵法**か（§7.241）。
+    """この記録が**その隊のその戦い最初の兵法**か（§7.241 / §7.247）。
 
     開幕の1発は序盤ゆえに量が小さく、語る下限（NARRATE_FLOOR）に届かないことが
     ある（実測 132人＝対象兵力の1.3%）。「撃ったのに実況に何も出ない」のは
-    読者にとって不具合と区別できないので、**1発目だけは下限を通す**
+    読者にとって不具合と区別できないので、**初回だけは下限を通す**
     （テストプレイの決定）。測定の経路は記録を作らないので通らない。
+
+    【§7.247】以前ここは「戦い全体で最初の1発」だった。だが下限は
+    **対象の兵力の合計**に対して掛かるので、敵全体を薄く削る兵法（手数の段の
+    吸収など）は1発も届かない — 実測で司馬懿の【堅忍】が4発とも消え、
+    与ダメ2,565・吸収322 が実況に一行も出なかった。行の選抜（`_arrange`）は
+    §7.241 で**各隊の初回を必ず残す**ようになっているのに、その行そのものが
+    ここで作られていなかった。二か所の規則を「各隊の初回」に揃える。
     """
     if rec is None or _CASTS is None or rec.get("kind") != "兵法":
         return False
+    key = (rec.get("side", ""), rec.get("who", ""))
     for r in _CASTS:
-        if r["kind"] == "兵法":
+        if r["kind"] == "兵法" and (r.get("side", ""), r.get("who", "")) == key:
             return r["id"] == rec["id"]
     return False
 
@@ -3561,6 +3619,12 @@ def _finish_cast(p) -> None:
     adds = [x for x in adds if x]
     if adds:
         text += "　あわせて" + "、".join(adds) + "。"
+    if sk.drain > 0.0 and acc["heal"] > 0.0:
+        # 吸収（§7.247）。**代償・反動と同じ「添え書き」の口で出す。** 成分
+        # （comps）へ入れると主成分の取り合いに参加して、損害より小さいぶん
+        # 「あわせて…」へ回り、語る下限に当たって消えることがある — 奪った兵が
+        # どこへ行ったかは一撃の意味そのものなので、落としてはいけない。
+        text += "　奪った兵 {:,.0f} を自隊へ吸い込む。".format(acc["heal"])
     if acc["sac"] > 0.0:
         text += "　代償として自隊の兵 {:,.0f} を失う。".format(acc["sac"])
     for key, amt, secs in sk.self_mods:
@@ -3874,7 +3938,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             burst = ((SKILL_BURST_SCALE if sk.dur <= 0.0 else SKILL_MAG_SCALE)
                      if sk.scaled else 1.0)
             dmg = SKILL_SCALE * burst * p_eff * coef / n
-            if SUPPRESS_SKILL and u.typ == ARC:
+            if (SUPPRESS_SKILL and u.typ == ARC
+                    and (SUPPRESS_SKILL_DRAIN or sk.drain <= 0.0)):
                 # 接敵抑制を兵法にも（§7.74）。矢数の減衰は掛けない — 兵法はゲージの
                 # 資源であって矢筒ではない。距離だけの連続な形（§13）。弓兵のみ
                 # （槍の突きは密着で衰えない・§7.75）。
@@ -3884,6 +3949,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     dmg *= 1.0 - u.sup_max * smooth_gate(g, 0.0, SUPPRESS_R)
             done = 0.0
             got = []
+            drained = 0.0          # 吸収（§7.247）: 実際に奪えた兵の合計
             for f in tgts:
                 if sk.dur > 0.0:
                     # 継続ダメージ。**dmg は既に毎秒の量**（_skill_power が
@@ -3897,7 +3963,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     done += dmg
                     got.append(f)
                 else:
-                    pre = (dmg * (100.0 / (100.0 + f.dfn * f.def_mult))
+                    # 吸収の知力比（§7.247）: (撃ち手の知力/受け手の知力)^WITS_MOD。
+                    # 混乱・知力比の弱体と**同じ傾き**で、判定は置かない（量が
+                    # 連続に動く）。内部の知力で測る — 狙い撃ちが見る「知略」
+                    # （_fame_wits）ではないので、合成カードの測定でも同じ式で動く。
+                    wr = ((u.wits / max(f.wits, 1e-6)) ** WITS_MOD
+                          if sk.drain_wits else 1.0)
+                    pre = (dmg * wr * (100.0 / (100.0 + f.dfn * f.def_mult))
                            * (_cav_cover(u, f) if CAV_COVER_SKILL else 1.0)
                            * _amp_mult(u, f, "skill"))     # 増幅（§7.199）
                     eff = pre * f.scut_mult
@@ -3954,6 +4026,16 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                         _ledger("refl", f, u, back, acc)
                         _men_add(u, -back)
                     done += take                    # 防御ぶんを引いた実害を出す
+                    drained += take                 # 吸収の元（§7.247）
+            if sk.drain > 0.0 and drained > 0.0:
+                # 吸収（§7.247）。**戻るのは盤面へ入った量（take）の割合**で、
+                # 頭打ちの上（超過ダメージ）は吸えない — 残兵1の隊へ大技を
+                # 当てても1しか戻らない。帳簿は回復として積む（§7.174 の
+                # 恒等式「失った兵 = 被ダメ + … − 受けた回復」がそのまま保たれる）。
+                # 上限は `_ledger`/`_men_add` の両方が men0 で切る。
+                gain = drained * sk.drain
+                _ledger("heal", u, u, gain, acc)
+                _men_add(u, gain)
             if done > 0.0:
                 if sk.dur > 0.0:
                     note("dot", dmg, sk.dur, done * sk.dur, "", got)

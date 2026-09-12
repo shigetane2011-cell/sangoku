@@ -155,6 +155,28 @@ def total_power(cost: float) -> float:
     return POWER_BASE + POWER_SLOPE * cost
 
 
+def gross_cost(d: "Design") -> float:
+    """その札が**実際に持っている**強さを、コスト点で言い直す（§7.247）。
+
+    シートの `効果予算 + 能力値コスト` は作りかたから必ず `コスト` に一致するので、
+    **床調整は帳簿に出てこない。** 床調整は総合値を (1+調整) 倍するつまみなので、
+    見かけ 10 の札が実は 13 点ぶんの身体を持っていても、シートは 10.000 と書く。
+    テストプレイの「総合力をコスト 10.3〜10.5 の範囲に」という話はこの数字の
+    ことなので、**見える列にして出す**（`generals.csv` の「総合力」）。
+
+        総合力 = コスト + 床調整ぶんの総合値を買い直すのに要るコスト点
+
+    総合値はコストに対して一次（`total_power`）なので、逆算は割り算1回で済む。
+    **効果予算は動かさない**（兵法の値段はコストの内側の話で、床調整の外側とは
+    別の口）。切り取りは盤面と同じ FLOOR_ADJ_CAP で行う。
+    """
+    a = min(max(d.floor_adj, -F.FLOOR_ADJ_CAP), F.FLOOR_ADJ_CAP)
+    if a == 0.0:
+        return d.cost
+    e = min(d.effect, EFFECT_CAP * d.cost)
+    return d.cost + a * total_power(d.cost - e) / POWER_SLOPE
+
+
 # 効果予算に回せるコストの上限（表示コストに対する割合）。**これを外すと壊れる。**
 # 実測でコスト1の札の兵法は平均 0.41 点、最大 1.11 点あり、そのまま引くと能力値の
 # コストが負になる。上限に当たった札は「値段どおりに払えていない」ので、
@@ -1141,6 +1163,13 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     if power_hi > skill.power:
         skill = skill.__class__(**{**skill.__dict__,
                                    "power": (skill.power + power_hi) / 2.0})
+    # 知力比の傾き（§7.67）: 相手の知力はプールの平均（≒中庸）と見なし、撃ち手の
+    # 傾きぶんだけ効き目が伸びる。弱体（下の wits_mods）では値段側に掛けるが、
+    # 吸収（§7.247）は**打撃そのものが伸びる**器なので、威力へ掛けて下流
+    # （damage_price・吸収の戻り・討ち取りの割増）へ一度で通す。
+    wk = tilt_k(tilt) ** F.WITS_MOD
+    if getattr(skill, "drain_wits", False):
+        skill = skill.__class__(**{**skill.__dict__, "power": skill.power * wk})
     if skill.dur > 0.0 and skill.power > 0.0:
         # 継続ダメージ（§7.180）: **同じ総量の1発として払う**。§7.179 で測ったとおり
         # 盤面へ入る量は同じ総量の1発と変わらず（固定の的では与ダメが完全に一致）、
@@ -1153,6 +1182,16 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
         v += damage_price(skill.power * tc) * target_dmg_f(target)
     v += EFFECT_PRICE["heal"] * skill.heal * tc * target_heal_f(target) \
         * HEAL_TYPE_MULT.get(typ, 1.0)
+    # 吸収（§7.247）: 打撃で奪った兵の DRAIN_SHARE ぶんが撃ち手へ戻る。
+    # **戻りは「自分への回復」として払う。** 敵側の対象係数で請求すると抜け道が
+    # できる — 打撃の係数は 敵全体 0.992 が 敵1体（正面）1.286 より**安い**ので、
+    # 対象を広げるほど同じ戻りが安く買えてしまう（総ダメージは対象数で割るので
+    # 戻る量は対象を広げても変わらない）。戻る先は常に撃ち手1隊なので、
+    # target_heal_f("自分") で固定して敵の対象文から切り離す。
+    drain = getattr(skill, "drain", 0.0)
+    if drain > 0.0:
+        v += (EFFECT_PRICE["heal"] * skill.power * drain * tc
+              * target_heal_f("自分") * HEAL_TYPE_MULT.get(typ, 1.0))
     v += mods_value(skill.mods, target, fx)
     # 【§7.200】「→ その後」で遅れて始まる状態効果は、**待った秒数のぶん割り引く**。
     # 待ちは前半のいちばん長い秒数（＝engine の `_apply_skill` と同じ規則）。
@@ -1160,10 +1199,9 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     if after:
         wait = max([secs for _k, _a, secs in skill.mods] or [0.0])
         v += mods_value(after, target, fx) * after_f(wait)
-    # 知力比の弱体（§7.67）: 素の弱体の値段 × (知力傾き)^WITS_MOD。
+    # 知力比の弱体（§7.67）: 素の弱体の値段 × (知力傾き)^WITS_MOD（wk は上で算出）。
     # 相手の知力はプールの平均（≒中庸）と見なす — 智将が使えば効き、
     # 脳筋が使えば効かれにくい、という差を撃ち手側の傾きで払わせる。
-    wk = tilt_k(tilt) ** F.WITS_MOD
     for key, amt, secs in getattr(skill, "wits_mods", ()):
         if key in ("atk", "def"):
             v += EFFECT_PRICE[key] * abs(amt) * 100.0 * secs * fx * wk
