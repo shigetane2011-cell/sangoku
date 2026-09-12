@@ -76,7 +76,9 @@ def _run(job):
         c = dataclasses.replace(c, **patch)
         cards[name] = c
     base = [cards[n] for n in opt["base"]]
-    rear = (c.typ == F.ARC or (c.typ == F.INF and c.spear))
+    pos = opt.get("pos", "auto")
+    rear = (c.typ == F.ARC or (c.typ == F.INF and c.spear)) if pos == "auto" \
+        else (pos == "rear")
     order = base + [c] if rear else [c] + base[1:3] + [base[0]] + base[3:]
     army = F.Army(tuple(order), F.FORM_STANDARD)
     errs = M.placement_errors(army)
@@ -104,9 +106,11 @@ def _col(a, b, ks, i):
 def main():
     spec = json.load(open(sys.argv[1], encoding="utf-8"))
     opt = dict(seeds=spec.get("seeds", 20), base=spec.get("base", BASE),
-               cap_name=spec.get("cap_name", "官渡"), cap=spec.get("cap", 30.0))
+               cap_name=spec.get("cap_name", "官渡"), cap=spec.get("cap", 30.0),
+               pos=spec.get("pos", "auto"))
     routs = spec.get("routs", [None])
-    jobs = [(v["card"], v["label"], v.get("patch"), opt, r)
+    jobs = [(v["card"], v["label"], v.get("patch"),
+             dict(opt, pos=v.get("pos", opt["pos"])), r)
             for v in spec["variants"] for r in routs]
     with Pool(spec.get("workers", 4), maxtasksperchild=1) as p:
         got = dict(p.imap_unordered(_run, jobs))
