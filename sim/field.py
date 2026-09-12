@@ -1137,6 +1137,17 @@ DUEL_SKILL_SAFE = False   # True にすると兵法からも守る（既定は�
 # 斉射も悪化しない。絵としても筋が通る —— 名乗りに応じて前へ出た者は、
 # 自陣の援護を離れたぶん晒される。
 DUEL_SHIELD_BOTH = False
+# 薙ぎ払い（§7.252）: 通常攻撃が**同時に N 体まで、それぞれ満額で**入る。
+#
+# 【なぜ器が要るか】いまの通常攻撃は**総量が「いちばん良い的の重み」で決まり、
+# それを的の数で分け合う**形である（`gate = max(ws)` → `hit = base × w`）。
+# だから「対象を増やす」だけでは総量が増えず、**薄まって弱くなる**
+# （ランチェスターでは分散は集中に負ける）。テストプレイの「通常攻撃の対象を
+# 増やす」を意味のある器にするには、**増えたぶん総量も増える**必要がある。
+#
+# 上限を置くのは、的が6枚いるときに6倍まで伸びると「囲まれるほど強い」が
+# 際限なくなるため。N は効果文で決める（`薙ぎ払い N体（M秒）`）。
+CLEAVE_CAP = 4           # 効果文で書ける最大の同時体数（読み込みが検める）
 # 【測って却下・§7.250】**敵中突破は作って測って外した。**
 #
 # 「発動した隊が敵の戦列を突き抜けて後衛の隣へ出る」器を実装し（経路をその場で
@@ -2206,6 +2217,8 @@ class Unit:
         "later", "stunned", "amp", "edge_deal", "edge_take", "sup_max", "ammo",
         # 一騎討ち（§7.249）。相手の隊と、終わる時刻。
         "duel_with", "duel_until", "duel_secs", "duel_host",
+        # 薙ぎ払い（§7.252）。同時に入る体数と、終わる時刻。
+        "cleave_n", "cleave_until",
     )
 
     def __init__(self, side: int, card: Card, form: Formation,
@@ -2408,6 +2421,8 @@ class Unit:
         self.duel_with = None
         self.duel_until = 0.0
         self.duel_host = False  # 挑んだ側か（挑まれた側と守られ方が違う）
+        self.cleave_n = 0       # 薙ぎ払い（§7.252）: 同時に入る体数
+        self.cleave_until = 0.0
         self.duel_secs = 0.0    # 討ち合った通算の秒数（表示専用）
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
         # 隊が壊滅した時刻（ANNIHIL_UNIT を割った t）。**付いた隊は兵力 0**
@@ -2666,6 +2681,21 @@ def _screen(u: Unit, f: Unit, foes: List[Unit]) -> float:
         sum(b.men for b in foes if b.is_front))
 
 
+def _gate(u: Unit, ws: List[float], t: float) -> float:
+    """通常攻撃の**総量**を決める門（§7.252）。
+
+    既定は `max(ws)` —— 「いちばん良い的の重み」で総量が決まり、下の `hit = base × w`
+    が的の数で分け合う。だから**対象が増えても総量は増えない**（増やすと薄まる）。
+
+    薙ぎ払いは**そこを外す器**で、上位 N 体ぶんの重みを足す ＝ N 体まで
+    **それぞれ満額で**入る。N=1 は既定と同じなので、持っていない隊は挙動不変。
+    """
+    n = u.cleave_n if (u.cleave_n > 1 and t < u.cleave_until) else 1
+    if n <= 1:
+        return max(ws)
+    return sum(sorted(ws, reverse=True)[:n])
+
+
 def _weights(u: Unit, foes: List[Unit], gaps: List[float]) -> List[float]:
     """射撃の重み。射程は縁からの距離で測り、射線が通るぶんだけ当たる。
 
@@ -2845,6 +2875,9 @@ class Skill:
     # 「知力差を見て兵を奪う」形をそのまま書けるようにするための印で、
     # 掛かるのは**打撃そのもの**（したがって戻る量も同じ倍率で動く）。
     drain_wits: bool = False
+    # 薙ぎ払い（§7.252）: 通常攻撃が同時に入る体数と、その秒数（0 なら無し）。
+    cleave: int = 0
+    cleave_secs: float = 0.0
     # 一騎討ち（§7.249）: 名指しした敵1体と二人だけの盤面を作る秒数（0 なら無し）。
     # **対象が敵1体の兵法にしか付けられない**（`_parse_skill` が断る）。
     duel: float = 0.0
@@ -3068,6 +3101,20 @@ def _parse_skill(effect: str, target: str) -> Skill:
     # 器の無い組みは読み込みで落とす（移動速度・気勢で踏んだ「値札の無い器」の裏返し）。
     # 一騎討ち（§7.249）。「一騎討ち 12秒」。**対象が敵1体でなければ断る** ——
     # 二人だけの盤面を作る器なので、相手が複数だと意味が定まらない。
+    # 薙ぎ払い（§7.252）。「薙ぎ払い 3体（25秒）」。**自分に掛かる器**なので
+    # 対象が味方側でなければ断る（敵に薙ぎ払わせる形は作らない）。
+    mc = re.search(r"薙ぎ払い\s*(\d+)体（(\d+)秒）", effect)
+    cleave = int(mc.group(1)) if mc else 0
+    cleave_secs = skill_dur(float(mc.group(2))) if mc else 0.0
+    if cleave:
+        if not ("自分" in target or "味方" in target):
+            raise SystemExit(
+                "薙ぎ払いは**自分・味方**の対象にだけ付けられる（いまの対象: {}）\n"
+                "  効果文: {}".format(target, effect))
+        if not 2 <= cleave <= CLEAVE_CAP:
+            raise SystemExit(
+                "薙ぎ払いの体数は 2〜{} まで（いまの指定: {}体）\n"
+                "  効果文: {}".format(CLEAVE_CAP, cleave, effect))
     md = re.search(r"一騎討ち\s*(\d+)秒", effect)
     duel = skill_dur(float(md.group(1))) if md else 0.0
     if duel > 0.0 and "敵1体" not in target:
@@ -3084,6 +3131,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  drain=drain,
                  drain_wits=drain > 0.0 and "知力比" in effect,
                  duel=duel,
+                 cleave=cleave, cleave_secs=cleave_secs,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
                  self_mods=_skill_self_mods(effect),
@@ -3258,6 +3306,12 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         # 読める。実量は記録（hot_actual）に持ち、合戦詳録が出す。
         return "{}の【{}】！　{}に継続回復。{:.0f}分のあいだ兵力を回復する（毎分{:,.0f}）。".format(
             who, name, where, mins(secs), per_min(amount))
+    if kind == "cleave":
+        # 薙ぎ払い（§7.252）。**「対象が増える」ではなく「同時に満額で入る」**と
+        # 書く —— 前者だと1体あたりが薄まるように読める（実際は薄まらない）。
+        return ("{}の【{}】！　{}の一振りが同時に{:.0f}体を捉える"
+                "——それぞれに満額の刃が入る。（{:.0f}分）".format(
+                    who, name, where, amount, mins(secs)))
     if kind == "duel":
         # 一騎討ち（§7.249）。**どちらがどう守られるか**を書き分ける
         # （DUEL_SHIELD_BOTH の注記。挑まれた側は晒されたままである）。
@@ -3350,6 +3404,7 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
            "reflected": 0.0, "heal": 0.0, "hot": None, "hot_actual": 0.0,
            "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
            "duel": None,          # 一騎討ち（§7.249）: {"with": 相手, "secs": 秒}
+           "cleave": None,        # 薙ぎ払い（§7.252）: {"n": 体数, "secs": 秒}
            "decisive": False}
     _CASTS.append(rec)
     _CAST_BY_ID[rec["id"]] = rec
@@ -3987,6 +4042,17 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
     if sk.mods or sk.self_mods or sk.wits_mods:
         _expire(own + foe, t)
 
+    if sk.cleave:
+        # 薙ぎ払い（§7.252）。対象（自分・味方）へ配る。**重ね掛けは強いほうを残す**
+        # （秒も体数も max）——「同じ器を2枚積んだら6体」を作らないため。
+        for f in tgts:
+            if f.side != u.side or f.men <= 0.0:
+                continue
+            f.cleave_n = max(f.cleave_n, sk.cleave)
+            f.cleave_until = max(f.cleave_until, t + sk.cleave_secs)
+        note("cleave", float(sk.cleave), sk.cleave_secs, 0.0, "", list(tgts))
+        if rec is not None:
+            rec["cleave"] = {"n": sk.cleave, "secs": sk.cleave_secs}
     if sk.duel > 0.0:
         # 一騎討ち（§7.249）。対象は**敵1体**に限られている（読み込みで検めた）。
         # 相手が既に誰かと討ち合っているなら**割り込まない** — 先に名乗った側の
@@ -4214,6 +4280,9 @@ def _skill_extra(item) -> str:
     where = ("{}隊".format(n) if n > 1 else (_who(hit[0]) if hit else ""))
     if kind == "damage":
         return "{}に {:,.0f} の損害".format(where, amount)
+    if kind == "cleave":
+        return "{}の一振りが同時に{:.0f}体へ満額で入る（{:.0f}分）".format(
+            where, amount, mins(secs))
     if kind == "duel":
         return "{}を一騎討ちへ引きずり出す（{:.0f}分・その間ほかの敵は手が出せない）".format(
             where, mins(secs))
@@ -4958,7 +5027,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 tot = sum(ws)
                 if tot <= 1e-12:
                     continue
-                gate = max(ws)
+                gate = _gate(u, ws, t)
                 sup, fire = _suppress(u, gap[i], ub, ua, parts=True)
                 if AMMO_MODE == "shots" and u.typ == ARC and u.men0 > 0.0:
                     # 放った量だけ矢が減る（§7.186）。的がいない・射程外の
@@ -5032,7 +5101,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                 tot = sum(ws)
                 if tot <= 1e-12:
                     continue
-                gate = max(ws)
+                gate = _gate(u, ws, t)
                 sup, fire = _suppress(u, col, ua, ub, parts=True)
                 if AMMO_MODE == "shots" and u.typ == ARC and u.men0 > 0.0:
                     # 放った量だけ矢が減る（§7.186）。的がいない・射程外の

@@ -1202,6 +1202,18 @@ def effect_value(skill, target: str = "", gauge_cost: float = 100.0,
     duel = getattr(skill, "duel", 0.0)
     if duel > 0.0:
         v += EFFECT_PRICE["duel"] * duel * fx
+    # 薙ぎ払い（§7.252）: 同時に N 体へ**満額で**入る ＝ 通常攻撃の総量が最大 N 倍。
+    # **攻撃力バフと同じ単価で払う** —— 「1体増える」は「攻撃力 +100%」と同じ量の
+    # 出力を作るからで、器を新しく較正するより既にある単価へ乗せるほうが安全。
+    # ただし**上限（MOD_CAP ±50%）の外側**なので、攻撃力では買えない量が買える。
+    # 対象係数は自分・味方なので `fx`（状態効果と同じ表）を通す。
+    # 【注意】盤面では**満額 N 倍にはならない**（的が N 体いて、全部が射程内で、
+    # どれも同じくらい良い的、のときだけ N 倍）。実測で下振れするぶんは
+    # **高く請求する側**に外れるので、安全な向きである。
+    cleave = getattr(skill, "cleave", 0)
+    if cleave > 1:
+        v += (EFFECT_PRICE["atk"] * (cleave - 1) * 100.0
+              * getattr(skill, "cleave_secs", 0.0) * fx)
     drain = getattr(skill, "drain", 0.0)
     if drain > 0.0:
         v += (EFFECT_PRICE["heal"] * skill.power * drain * tc

@@ -282,6 +282,12 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             # 「守りで目減り」の注記は毎行に付けず、凡例に1回書く（冗長の指摘）
             parts.append("損害 約{:,.0f}人".format(
                 F.SKILL_SCALE * sk.power * coef))
+    if getattr(sk, "cleave", 0) > 1:
+        # 薙ぎ払い（§7.252）。**「同時に」「それぞれ満額」**を書かないと、
+        # 「対象が増える＝1体あたりが薄まる」と読まれる（実際は薄まらない）。
+        parts.append("薙ぎ払い 通常攻撃が同時に{}体へ入る（{:.0f}分間・"
+                     "それぞれに満額）".format(
+                         sk.cleave, F.mins(getattr(sk, "cleave_secs", 0.0))))
     if getattr(sk, "duel", 0.0) > 0.0:
         # 一騎討ち（§7.249）。**どちらがどう守られるか**を言い切る —
         # 「一騎討ち」の字だけだと「相手も守られる」と読まれる。
