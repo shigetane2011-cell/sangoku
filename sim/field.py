@@ -2114,6 +2114,7 @@ class Unit:
         "null_blocked", "null_names", "scut_saved",
         "null_cap", "null_pool", "glock", "ff_pair", "ff_taken",
         "over_dealt", "over_taken", "ff_over", "sac_paid", "heal_taken", "collapse_lost",
+        "wiped_lost",
         "guard_casts", "guard_idle", "guard_watch", "fire_times",
         "spill_over", "spill_dealt", "spill_n", "foe_offense_n",
         "wiped_at", "hidden_traits", "covered",
@@ -2317,7 +2318,9 @@ class Unit:
         self.null_cap = 0.0
         self.null_pool = None   # 分け合う残り回数 [n]。発動のたびに作り直す
         self.fell_at = None     # 隊が崩れた時刻（ROUT_UNIT を割った t。表示用）
-        self.wiped_at = None    # 隊が真に壊滅した時刻（ANNIHIL_UNIT を割った t。表示用）
+        # 隊が壊滅した時刻（ANNIHIL_UNIT を割った t）。**付いた隊は兵力 0**
+        # （§7.239 で盤面から降ろすようにした。以前は表示用の印だった）。
+        self.wiped_at = None
         self.covered = 0.0      # 馬前で代わりに受けた被害（表示専用・§7.144）
         # 【§7.199】「→ その後」で**遅れて始まる**効果の待ち行列。
         # (始まる時刻, 効果の組) で持ち、_expire が時刻を過ぎたものを effects へ移す。
@@ -2358,6 +2361,10 @@ class Unit:
         self.sac_paid = 0.0      # 代償で実際に失った兵
         self.heal_taken = 0.0    # 実際に受けた回復（満タンで余った分は入れない）
         self.collapse_lost = 0.0 # 本陣の崩壊で失った兵（§7.52）
+        # 壊滅して隊が解けたときに残っていた兵（§7.239）。**誰の戦果でもない**
+        # 損失なので、本陣崩壊と同じく独立の口で持つ（帳簿の恒等式
+        # 「失った兵 = 被ダメ + 代償 + 本陣崩壊 + 壊滅解隊 − 回復」を保つ）。
+        self.wiped_lost = 0.0
 
     # -- 経路 -------------------------------------------------------------
     def set_path(self, pts: Sequence[Tuple[float, float]]) -> None:
@@ -3009,7 +3016,10 @@ def _skill_targets(target: str, u, foe, own, dead_ok: bool = False):
     if not alive:
         return []
     if "全体" in target:
-        return list(foe)
+        # **倒れた隊は数に入れない**（§7.239）。ここだけ `foe` を丸ごと返して
+        # いたので、ダメージを頭数で割る分母に死体が混じり、生きている敵の
+        # ぶんが薄まっていた（「味方全体」は最初から生存で絞っている）。
+        return alive
     if "正面2体" in target:
         # 正面の前衛1 + 後衛1（最も近いもの）。ダメージは均等に案分される
         # （engine は対象数で割る）。
@@ -4920,16 +4930,21 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             _overtime(ua + ub, t + dt, dt)
 
         t += dt
-        for u in ua:
+        for u in ua + ub:
             if u.fell_at is None and u.ratio() < ROUT_UNIT:
                 u.fell_at = t
             if u.wiped_at is None and u.ratio() < ANNIHIL_UNIT:
                 u.wiped_at = t
-        for u in ub:
-            if u.fell_at is None and u.ratio() < ROUT_UNIT:
-                u.fell_at = t
-            if u.wiped_at is None and u.ratio() < ANNIHIL_UNIT:
-                u.wiped_at = t
+                # **壊滅した隊は盤面から降りる**（§7.239）。ANNIHIL_UNIT を
+                # 割った隊は実況が「ついに壊滅」と告げるが、以前は兵力が
+                # まだ 0 でないので盤面では生きたままだった。残り 30 人の
+                # 隊が兵法を打ち消し、範囲兵法の頭数に入って生きた味方の
+                # ぶんのダメージを薄めていた（実測: 打消しの 8/10 が
+                # 壊滅告知済みの隊）。ここで 0 にすれば、既にある
+                # `men > 0` の門番が全部そのまま効く。
+                if WIPE_RETIRE:
+                    u.wiped_lost += u.men      # 帳簿（§7.174）
+                    u.men = 0.0
         # 陣頭指揮（§7.52）: 指揮官の隊が COMMAND_ROUT を割ったら全軍が動揺
         # し、現在兵力の COMMAND_COLLAPSE を一度に失う。**両側の条件を見て
         # から両方へ適用する**（先に崩れた側の動揺が相手の判定を変えない）。
@@ -5012,8 +5027,9 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
             # 末尾4つは §7.126 の構えの帳簿（打消し数と兵法名・兵法だけの軽減・
             # 構えの空振り「張った/空振り」）
             # §7.173 で同士討ちの内訳（ff_pair・ff_taken）、§7.174 で帳簿の精算
-            # （超過損害の与・受、同士討ちの超過、代償、受けた回復、本陣崩壊）を
-            # wiped_at・covered の**前**に挿入（末尾の covered は動かさない）
+            # （超過損害の与・受、同士討ちの超過、代償、受けた回復、本陣崩壊）を、
+            # §7.239 で壊滅解隊（wiped_lost）を wiped_at・covered の**前**に挿入
+            # （末尾の covered は動かさない）
             "dealt_a": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
                          u.dealt_skill, u.fell_at,
                          u.ff_dealt, u.refl_back, u.cut_saved,
@@ -5026,7 +5042,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          (u.spill_over, u.spill_dealt, u.spill_n),
                          dict(u.ff_pair), u.ff_taken,
                          u.over_dealt, u.over_taken, u.ff_over,
-                         u.sac_paid, u.heal_taken, u.collapse_lost,
+                         u.sac_paid, u.heal_taken, u.collapse_lost, u.wiped_lost,
                          u.wiped_at, u.covered)
                         for u in ua],
             "dealt_b": [(u.name or u.typ, u.typ, u.dealt, u.men, u.men0,
@@ -5041,7 +5057,7 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                          (u.spill_over, u.spill_dealt, u.spill_n),
                          dict(u.ff_pair), u.ff_taken,
                          u.over_dealt, u.over_taken, u.ff_over,
-                         u.sac_paid, u.heal_taken, u.collapse_lost,
+                         u.sac_paid, u.heal_taken, u.collapse_lost, u.wiped_lost,
                          u.wiped_at, u.covered)
                         for u in ub],
             # 固有特性の発動回数と、潰走した札の数。**特性の測定はここを先に見る。**
@@ -5176,7 +5192,8 @@ def _army_name(army: "Army", fallback: str) -> str:
 # 補助兵法が勝ってダメージ兵法が一行も出なくなる（実測: 火計も無双乱舞も消えた）。
 # 大きさの単位が違うもの（人数 と %×秒×枚数）を1つの物差しで比べていたのが原因で、
 # 係数を調整して釣り合わせるより、枠を分けるほうが素直である。
-# 「苦戦」（ROUT_UNIT=15%）と「壊滅」（ANNIHIL_UNIT=0.5%）は別種の行にする
+# 「苦戦」（ROUT_UNIT=15%。表示だけ）と「壊滅」（ANNIHIL_UNIT=0.5%。**盤面でも
+# 隊が降りる**・§7.239）は別種の行にする
 # （テストプレイの指摘・§7.49後記）。以前は両方とも種別名"壊滅"・同じ文言
 # 「支えきれず崩れ立つ」で、ペナルティのない15%到達が「もう戦えない」ふうに
 # 読めてしまい、実際にまだ動ける隊が兵法を撃つたび「バグでは」と誤解された。
@@ -5202,7 +5219,9 @@ LINE_ORDER = {"兵法": 1, "計略": 1, "誘発": 1, "同士討ち": 2, "結果"
 LINE_BUDGET = 20
 FF_SHOW = 300.0         # 同士討ちを実況の行にする損害の下限（人・表示のみ）
 ROUT_UNIT = 0.15        # 一枚が「苦戦」に陥ったと見なす残存率（表示のみ）
-ANNIHIL_UNIT = 0.005    # 一枚が真に「壊滅」したと見なす残存率（表示のみ）
+ANNIHIL_UNIT = 0.005    # 一枚が真に「壊滅」したと見なす残存率（実況と盤面の両方）
+# 壊滅した隊を盤面から降ろすか（§7.239）。False は旧挙動（残兵が戦い続ける）。
+WIPE_RETIRE = True
 SUPPRESS_SHOW = 0.87    # 抑制がこの値を下回ったら1行にする（表示のみ）
 # 実況の時間表現。**盤面の1ティックを戦場の 1.35 分として読ませる。**
 #

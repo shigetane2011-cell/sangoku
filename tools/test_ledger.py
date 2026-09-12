@@ -289,10 +289,12 @@ class WholeBattle(unittest.TestCase):
         rows = r["dealt_a"] + r["dealt_b"]
         for row in rows:
             n, t, d, m, m0, sd, fa, ff, rf, cs, hl, al, tk = row[:13]
-            od, ot, fo, sc, ht, cl = row[-8:-2]
-            # 実損失 = 被ダメ + 代償 + 本陣崩壊 − 受けた回復
-            self.assertAlmostEqual(m0 - m, tk + sc + cl - ht, delta=1e-6 * max(m0, 1.0),
-                                   msg=str(n))
+            od, ot, fo, sc, ht, cl, wl = row[-9:-2]
+            # 実損失 = 被ダメ + 代償 + 本陣崩壊 + 壊滅解隊 − 受けた回復
+            # （壊滅解隊は §7.239。ANNIHIL_UNIT を割った隊は戦場から降りるので、
+            #   そのとき残っていた兵は**誰の戦果でもない**損失として別に持つ）
+            self.assertAlmostEqual(m0 - m, tk + sc + cl + wl - ht,
+                                   delta=1e-6 * max(m0, 1.0), msg=str(n))
             # 与ダメ = 矛先の合計
             self.assertAlmostEqual(d, sum(row[16].values()), delta=1e-6 * max(d, 1.0), msg=str(n))
             self.assertGreaterEqual(od, 0.0)

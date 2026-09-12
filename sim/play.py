@@ -1722,7 +1722,7 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
         out = []
         for (n, t, d, m, m0, sd, _fa, ff, rf, cs, hl, al,
              tk, fi, st, sp, pair, det, nb, nn, ss, gw, ft, sv, ffp, fft,
-             od, ot, fo, sc_, ht, cl,
+             od, ot, fo, sc_, ht, cl, wl,
              wp, cv), where in zip(xs, pos + [""] * len(xs)):
             person = M.person_of(F.Card(0, t, name=n)) or F.TYPE_JP[t]
             out.append({
@@ -1748,7 +1748,8 @@ def replay_data(ua, ub, dt: float, seed: int, me_first: bool) -> dict:
                 # 帳簿の精算（§7.174）: 与ダメ・被ダメは実損害だけ。超過は別に持つ
                 "over": round(od), "over_taken": round(ot), "ff_over": round(fo),
                 "sac_paid": round(sc_), "heal_taken": round(ht),
-                "collapse_lost": round(cl),
+                # 壊滅解隊（§7.239）: 隊が解けたとき残っていた兵。誰の戦果でもない
+                "collapse_lost": round(cl), "wiped_lost": round(wl),
                 "heal": round(hl), "lost": round(al),
                 # 合戦詳録（§7.94）
                 "taken": round(tk), "fires": fi,
