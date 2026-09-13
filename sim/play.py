@@ -1234,7 +1234,8 @@ def red_team_entries(cards) -> List[Tuple[int, str, M.Entry]]:
     path = os.path.join(root, RED_TEAM_FILE)
     if os.path.exists(path):
         try:
-            data = json.load(open(path, encoding="utf-8"))
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
         except (OSError, ValueError):
             data = {}
         for row in data.get("results", []):
@@ -1247,7 +1248,8 @@ def red_team_entries(cards) -> List[Tuple[int, str, M.Entry]]:
     solves = sorted(glob.glob(os.path.join(root, RED_TEAM_SOLVE_DIR, RED_TEAM_SOLVE_PREFIX + "*.json")))
     if solves:
         try:
-            rep = json.load(open(solves[-1], encoding="utf-8"))
+            with open(solves[-1], encoding="utf-8") as fh:
+                rep = json.load(fh)
         except (OSError, ValueError):
             rep = {}
         for k, sm in enumerate(rep.get("final", {}).get("summaries", []), 1):

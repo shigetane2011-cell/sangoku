@@ -203,7 +203,8 @@ def board_fingerprint() -> str:
         F.TRAITS_ON = True          # _init と同じ。値付けは必ず特性ありで測る
         h = hashlib.sha1()
         for f in ("generals.csv", "skills.csv", "traits.csv", "treasures.csv"):
-            h.update(open(os.path.join(R.DATA, f), "rb").read())
+            with open(os.path.join(R.DATA, f), "rb") as fh:
+                h.update(fh.read())
         # **数値だけでは足りない。** 勢力の宝（TREASURE_FACTION）や相性表（TYPE_ATK）は
         # 辞書で持っているので、数値だけ拾うと「玉璽の気勢を +8%→+2% にした」が
         # 指紋に出ず、古い控えを掴む。並べられるものは全部入れる。

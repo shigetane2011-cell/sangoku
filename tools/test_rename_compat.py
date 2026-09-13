@@ -74,8 +74,10 @@ class Aliases(unittest.TestCase):
             text = fh.read()
         for old in R.CARD_ALIASES:
             self.assertNotIn(old, text)
-        fx = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                         "docs", "balance", "fixtures-v1.json"), encoding="utf-8"))
+        with open(os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))),
+                "docs", "balance", "fixtures-v1.json"), encoding="utf-8") as fh:
+            fx = json.load(fh)
         txt = json.dumps(fx, ensure_ascii=False)
         for old in R.CARD_ALIASES:
             self.assertNotIn(old, txt)

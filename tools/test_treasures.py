@@ -598,6 +598,7 @@ def http_checks() -> bool:
           str(D["entry_errors"]))
 
     app.shutdown()
+    app.server_close()      # 差込口を閉じる（閉じないと ResourceWarning が出る）
     return not FAIL
 
 
