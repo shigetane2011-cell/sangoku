@@ -788,16 +788,59 @@ def tier_of(skill) -> str:
 
 TIER_NAMES = ("手数", "標準", "大技")
 
+# 段の**プレイヤーへの呼び名**（§7.260）。画面（`web._TIER_JP`）と効果文はこちらを使う。
+# **内部の「大技」という語は札の文面に出さない** —— 画面に出ていない語で条件を
+# 書くと、プレイヤーは自分の札がその条件に当たるのか確かめようがない。
+TIER_JP = {"手数": "連発型", "標準": "標準型", "大技": "決戦型"}
+TIER_BY_JP = {v: k for k, v in TIER_JP.items()}
+
 
 def tier_for(row, sk) -> str:
     """段の解決（§7.127）。skills.csv の「発動型」が明示されていればそれを使い、
     空欄なら従来どおり中身から決める（tier_of）。ダメージ兵法を手数へ置くのは
-    明示のときだけ — 自動判定は従来の分類を守る。消費ゲージの数値から段を
-    推測する経路（design.GAUGE_TIER_NAME）は値段側の後方互換にとどめる。"""
+    明示のときだけ — 自動判定は従来の分類を守る。
+
+    【§7.260】**段は盤面の規則になった。** 馬良〔白眉〕が「次に味方が放つ決戦型を
+    写す」という形で**効果文から段を参照する**ので、ここは設計の内部ラベルではなく
+    **札を見れば分かる区分**でなければならない。解決の道が2つある（この関数と
+    `design.GAUGE_TIER_NAME`＝消費ゲージからの逆引き）ので、
+    **食い違ったら読み込みで死ぬ**ようにしてある（`_check_tiers`）。
+    """
     t = ((row.get("発動型") or "").strip() if row else "")
     if t in TIER_NAMES:
         return t
     return tier_of(sk) if sk is not None else "標準"
+
+
+def _check_tiers() -> int:
+    """段の2つの解決が全札で一致していることを見張る（§7.260）。
+
+    - `tier_for`   … 発動型の列。空欄なら中身から（画面と盤面が使う）
+    - `design.GAUGE_TIER_NAME[消費ゲージ%]` … 値段が使う逆引き
+
+    いまは139枚すべてで一致しているが、**構造上は割れる**（発動型を明示せずに
+    消費ゲージだけ動かす、あるいはその逆）。割れると「画面では決戦型なのに
+    値段は標準」という札ができ、馬良の写しが**画面と違う判定**で動く。
+    黙って通さない。
+    """
+    from . import design as D
+    from . import field as F
+    rows = {r["兵法名"]: r for r in skills()}
+    bad = []
+    for g in generals():
+        row = rows.get(g["兵法"])
+        if not row:
+            continue
+        seen = tier_for(row, F.SKILL_INFO.get(g["兵法"]))
+        priced = D.GAUGE_TIER_NAME.get(float(g["消費ゲージ%"]))
+        if priced is not None and seen != priced:
+            bad.append("{}（{}）: 画面と盤面は {}・値段は {}（消費{}）".format(
+                g["名前"], g["兵法"], seen, priced, g["消費ゲージ%"]))
+    if bad:
+        raise SystemExit(
+            "段の解決が食い違っている（§7.260）。効果文が段を参照するので"
+            "黙って通せない:\n  " + "\n  ".join(bad))
+    return len(rows)
 
 
 def _scale_effect(text: str, m: float) -> str:
@@ -1170,6 +1213,8 @@ def load_skills_into_field() -> int:
         # 足し忘れると、その器**だけ**を持つ兵法（打撃も状態効果も無い札）が
         # 「書式ちがい」で撥ねられる。薙ぎ払い・一騎討ちは相方の節があったので
         # 露見しなかったが、引き延ばし（§7.259）は単独で持つので当たった。
+        # **写し取り（§7.260）でもう一度当たった** —— 落とし穴79 を書いた翌日に
+        # 同じ穴を踏んだので、器を足す手順の一部として扱うこと。
         if eff.strip() and not (parsed.power or parsed.heal or parsed.mods
                                 or getattr(parsed, "wits_mods", ())
                                 or getattr(parsed, "sac", 0.0)
@@ -1177,13 +1222,23 @@ def load_skills_into_field() -> int:
                                 or getattr(parsed, "drain", 0.0)
                                 or getattr(parsed, "duel", 0.0)
                                 or getattr(parsed, "cleave", 0)
-                                or getattr(parsed, "stretch", 0.0)):
+                                or getattr(parsed, "stretch", 0.0)
+                                or getattr(parsed, "mimic_secs", 0.0)):
             raise SystemExit(
                 "skills.csv: 効果文が1つも読めていない（書式ちがい）: {} … {}"
                 .format(sk["兵法名"], eff))
         F.SKILL_INFO[sk["兵法名"]] = parsed
         F.SKILL_TARGET[sk["兵法名"]] = sk["対象"]
         n += 1
+    # 段は効果文から参照される盤面の規則になった（§7.260）。2つある解決が
+    # 食い違ったまま走らせない。**SKILL_INFO を積んだ後**でないと中身から
+    # 決める枝（tier_of）が引けないので、ここが置き場所。
+    _check_tiers()
+    # 段から兵法名を引く表（§7.260）。写し取り（馬良）が「決戦型だけ」を選ぶのに使う。
+    F.SKILL_TIER.clear()
+    rows = {r["兵法名"]: r for r in skills()}
+    for name, row in rows.items():
+        F.SKILL_TIER[name] = tier_for(row, F.SKILL_INFO.get(name))
     return n
 
 

@@ -2231,7 +2231,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour", "pike",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_secs", "chaos_floor", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_secs", "chaos_floor", "mimic_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
@@ -2417,6 +2417,7 @@ class Unit:
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
         self.chaos_secs = 0.0   # 元の長さ（§7.259 の引き延ばしが読む）
+        self.mimic_until = 0.0  # 写し取り（§7.260）の窓が閉じる時刻
         self.chaos_floor = 0.0  # 酒乱（§7.146）: 失効しても戻る床
         if TRAITS_ON and "drunk" in self.traits:      # 酒乱（§7.146）: 常に少し酔っている
             self.chaos_floor = DRUNK_CHAOS
@@ -2910,6 +2911,17 @@ class Skill:
     # 一騎討ち（§7.249）: 名指しした敵1体と二人だけの盤面を作る秒数（0 なら無し）。
     # **対象が敵1体の兵法にしか付けられない**（`_parse_skill` が断る）。
     duel: float = 0.0
+    # 写し取り（§7.260）: **次に味方が放つ「その段」の兵法**を、この武将が
+    # もう一度放つ。窓の秒数（0 なら無し）と、待ち構える段。
+    #
+    # **写しは馬良自身の武力・知力で解く。** 打撃は撃ち手の能力に比例するので、
+    # 支援の身体で写しても本家ほどは出ない（諸葛亮の一撃を写して4割ほど）。
+    # 能力に依らない器（バフ・足止め・混乱）は満額で写る —— 怖いのはそちら。
+    #
+    # **写しから写しは生まれない**（`_MIMIC_ON` が見張る）。そうしないと
+    # 写し持ちを2枚積んだだけで際限がなくなる。
+    mimic_secs: float = 0.0
+    mimic_tier: str = ""
     # 引き延ばし（§7.259）: **いま掛かっている**混乱・延焼・足止めの寿命を
     # 「元の長さ × これ」へ伸ばす（1.0 か 0 なら無し）。1.5 なら +0.5×元の長さ。
     #
@@ -3159,6 +3171,17 @@ def _parse_skill(effect: str, target: str) -> Skill:
         raise SystemExit(
             "一騎討ちは**敵1体**の対象にだけ付けられる（いまの対象: {}）\n"
             "  効果文: {}".format(target, effect))
+    # 写し取り（§7.260）。「写し取り 決戦型（35秒）」。**段の呼び名で書く** ——
+    # 内部の「大技」は画面に出ていない語なので、札の文面に使うとプレイヤーが
+    # 自分の札が当たるのか確かめられない（呼び名の正は `rosterdata.TIER_JP`）。
+    # **自分の対象にだけ付けられる**（他人に写させる形は別の器になる）。
+    mm = re.search(r"写し取り\s*(連発型|標準型|決戦型)（(\d+)秒）", effect)
+    mimic_secs = skill_dur(float(mm.group(2))) if mm else 0.0
+    mimic_tier = TIER_BY_JP.get(mm.group(1), "") if mm else ""
+    if mimic_secs > 0.0 and "自分" not in target:
+        raise SystemExit(
+            "写し取りは**自分**の対象にだけ付けられる（いまの対象: {}）\n"
+            "  効果文: {}".format(target, effect))
     # 引き延ばし（§7.259）。「引き延ばし 150%」＝**元の長さの 150% まで**。
     # **いま掛かっている**混乱・延焼・足止めの寿命だけを伸ばす。
     #
@@ -3189,6 +3212,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  drain=drain,
                  drain_wits=drain > 0.0 and "知力比" in effect,
                  duel=duel, stretch=stretch,
+                 mimic_secs=mimic_secs, mimic_tier=mimic_tier,
                  cleave=cleave, cleave_secs=cleave_secs,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
@@ -4157,6 +4181,13 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             note("duel", sk.duel, sk.duel, 0.0, "", [f])
             if rec is not None:
                 rec["duel"] = {"with": _who(f), "secs": sk.duel}
+    if sk.mimic_secs > 0.0:
+        # 写し取り（§7.260）。**構えるだけ**で、ここでは何も起きない。
+        # 窓の間に味方が「その段」を放ったら `_mimic_after` が写す。
+        u.mimic_until = max(u.mimic_until, t + sk.mimic_secs)
+        note("mimic", 0.0, sk.mimic_secs, 0.0, TIER_JP_OF.get(sk.mimic_tier, ""), [u])
+        if rec is not None:
+            rec["mimic"] = {"tier": sk.mimic_tier, "secs": sk.mimic_secs}
     if sk.stretch > 0.0:
         # 引き延ばし（§7.259）。**いま掛かっている**混乱・延焼・足止めの寿命を
         # 「元の長さ × sk.stretch」まで伸ばす。3つとも入れ物が違うので3回なぞる。
@@ -4462,6 +4493,49 @@ def _is_guard(sk) -> bool:
     return any(k in GUARD_KINDS for k, _, _ in sk.mods)
 
 
+# 写し取り（§7.260）の再入防止。**写しから写しは生まれない。**
+# 写しも `_apply_skill` を通るので、印を立てずに呼ぶと写し持ちが2枚いるだけで
+# 互いを写し合って際限がなくなる。
+_MIMIC_ON = False
+
+
+def _mimic_after(caster, sk, own, foe, t: float, ev, seen, resolved,
+                 src_name: str) -> None:
+    """味方が兵法を放った直後に、構えている隊がそれを写す（§7.260）。
+
+    写すのは**段が一致したときだけ**（いまは決戦型）。写しは
+
+      ・**写した本人の武力・知力で解ける**（`_apply_skill` が撃ち手を見るので自然に
+        そうなる）。支援の身体で写しても本家ほどは出ない
+      ・**ゲージを消費しない**（構えたときに払い済み）
+      ・**このティックで撃った札の集合に入らない** ——「味方が兵法を放った時」の
+        固有特性（鼓舞・呼応）を二度鳴らさないため。`_fire_skills` の `fired` は
+        本物の発動だけを入れる
+      ・**写しから写しは生まれない**（`_MIMIC_ON`）
+    """
+    global _MIMIC_ON
+    if _MIMIC_ON or not SKILL_TIER:
+        return
+    tier = SKILL_TIER.get(src_name, "")
+    if not tier:
+        return
+    waiting = [x for x in own
+               if x is not caster and x.men > 0.0 and x.mimic_until > t
+               and SKILL_INFO.get(x.skill) is not None
+               and SKILL_INFO[x.skill].mimic_tier == tier]
+    if not waiting:
+        return
+    _MIMIC_ON = True
+    try:
+        for x in waiting:
+            x.mimic_until = 0.0          # 1回写したら構えは解ける
+            _apply_skill(x, sk, SKILL_TARGET.get(src_name, ""), own, foe, t,
+                         src=src_name, ev=ev, seen=seen,
+                         name="{}（写し）".format(src_name), resolved=resolved)
+    finally:
+        _MIMIC_ON = False
+
+
 def _fire_skills(own, foe, t: float, ev, seen, guard=None,
                  resolved=None) -> set:
     """ゲージが消費量に達した札の兵法を発動する（§7.2）。
@@ -4497,6 +4571,8 @@ def _fire_skills(own, foe, t: float, ev, seen, guard=None,
             _apply_skill(u, sk, SKILL_TARGET.get(u.skill, ""), own, foe, t,
                          src=u.skill, ev=ev, seen=seen,
                          name=u.skill, resolved=resolved)
+            # 写し取り（§7.260）。**本物の発動の直後にだけ**呼ぶ。
+            _mimic_after(u, sk, own, foe, t, ev, seen, resolved, u.skill)
             if _is_guard(sk):
                 # 構えの帳簿（§7.126・表示専用）。窓が閉じるまでに一度も
                 # 仕事をしなかった構えを「空振り」として数える。
@@ -5635,6 +5711,16 @@ def _legacy_repulse(units: List[Unit], dt: float, strength: float) -> None:
 # 固定にすると 蜀 対 魏 の戦いが「曹軍 対 孫軍」と表示される（実際に出た）。
 SKILL_INFO = {}     # 兵法名 -> (威力, 種別)   rosterdata が埋める
 SKILL_TARGET = {}   # 兵法名 -> 対象文字列
+# 兵法名 → 段（"手数" / "標準" / "大技"）。`rosterdata.load_skills_into_field` が積む。
+# 【§7.260】段が**効果文から参照される盤面の規則**になったので、盤面の側でも
+# 引けなければならない（馬良〔白眉〕の写し取りが「決戦型だけ」を選ぶ）。
+# 名簿を持たない計器の盤面（合成カード）では空のまま＝どれも決戦型ではない。
+SKILL_TIER = {}
+# 段の**プレイヤーへの呼び名** → 内部名（§7.260）。効果文がこの呼び名で段を指す。
+# **正は `rosterdata.TIER_JP`**（CSV の語彙が住んでいる側）。盤面は読み込みに
+# 依らず効果文を解けなければならないのでここにも置く。一致は試験で見張る。
+TIER_BY_JP = {"連発型": "手数", "標準型": "標準", "決戦型": "大技"}
+TIER_JP_OF = {v: k for k, v in TIER_BY_JP.items()}
 
 _JP = {"A": "曹", "B": "孫"}
 # 両軍に同じ武将がいるとき、その名にだけ軍名を冠する（「魏軍の満寵〔剛毅〕」）。

@@ -288,6 +288,14 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         parts.append("薙ぎ払い 通常攻撃が同時に{}体へ入る（{:.0f}分間・"
                      "それぞれに満額）".format(
                          sk.cleave, F.mins(getattr(sk, "cleave_secs", 0.0))))
+    if getattr(sk, "mimic_secs", 0.0) > 0.0:
+        # 写し取り（§7.260）。**段の呼び名で書く**（画面に出ている語でないと、
+        # プレイヤーは自分の札が当たるのか確かめられない）。「1回だけ」「自分の
+        # 能力で解ける」の2つを落とすと、本家と同じ威力が何度も出ると読まれる。
+        parts.append("写し取り 次に味方が放つ**{}**の兵法を、この武将がもう一度放つ"
+                     "（{:.0f}分以内・1回だけ・威力はこの武将の能力で決まる）".format(
+                         F.TIER_JP_OF.get(sk.mimic_tier, sk.mimic_tier),
+                         F.mins(sk.mimic_secs)))
     if getattr(sk, "stretch", 0.0) > 1.0:
         # 引き延ばし（§7.259）。**「新しく掛ける器ではない」**が肝。ここを書かないと
         # 「足止めの兵法」と読まれ、味方に撒き手がいない編成で腐る理由が分からない。
