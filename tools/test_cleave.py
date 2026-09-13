@@ -173,7 +173,7 @@ class Wenyang(unittest.TestCase):
         row = {r["兵法名"]: r for r in R.skills()}["単騎駆け"]
         txt = W._skill_display(g, row)
         self.assertIn("薙ぎ払い", txt)
-        self.assertIn("満額", txt)
+        self.assertIn("同じ重さ", txt)   # §7.266 で「満額」→「同じ重さ」
 
 
 if __name__ == "__main__":

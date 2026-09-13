@@ -232,15 +232,17 @@ def _trait_names():
     return {t["キー"]: t["名前"] for t in R.traits()}
 
 
+# 【§7.266】画面に出す語は**実況と同じ言葉**に揃える。以前は札が「兵法防御」、
+# 実況が「兵法への備え」と別の名で呼んでいて、同じものだと分からなかった。
+# 備え・刃返しの3つは「何が何%」が一言では書けないので、下で専用の行を出す
+# （ここには置かない）。
 _MOD_JP = {"攻撃力": "攻撃力", "防御力": "防御力",
            "移動速度": "移動速度", "気勢": "気勢",
-           "兵法防御": "兵法防御", "兵法反射": "兵法反射",
-           "通常攻撃防御": "通常攻撃防御",
-           # 畏怖は攻撃力マイナスの呼び名（§7.64）。札の文言は「畏怖」の
-           # ままにし、括弧で機構を添える — 名前で雰囲気、括弧で読める量
-           "畏怖": "畏怖（敵の攻撃力）",
+           # 畏怖は攻撃力マイナスの呼び名（§7.64）。**括弧で機構を添えない** ——
+           # 「畏怖（敵の攻撃力） -15%」は札というより仕様書の書き方だった。
+           "畏怖": "畏怖 敵の攻撃力",
            # 見切り（§7.232）は防御力プラスの呼び名。畏怖と同じ扱い
-           "見切り": "見切り（自分の防御力）"}
+           "見切り": "見切り 自分の防御力"}
 
 
 def _skill_display(g, sk_row, scaled: bool = True) -> str:
@@ -283,38 +285,37 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             parts.append("損害 約{:,.0f}人".format(
                 F.SKILL_SCALE * sk.power * coef))
     if getattr(sk, "cleave", 0) > 1:
-        # 薙ぎ払い（§7.252）。**「同時に」「それぞれ満額」**を書かないと、
-        # 「対象が増える＝1体あたりが薄まる」と読まれる（実際は薄まらない）。
-        parts.append("薙ぎ払い 通常攻撃が同時に{}体へ入る（{:.0f}分間・"
-                     "それぞれに満額）".format(
+        # 薙ぎ払い（§7.252）。**「同時に」「どれにも同じ重さで」**を書かないと、
+        # 「相手が増える＝1体あたりが薄まる」と読まれる（実際は薄まらない）。
+        parts.append("薙ぎ払い 一振りが同時に{}体を薙ぐ（{:.0f}分間・"
+                     "どの相手にも同じ重さで入る）".format(
                          sk.cleave, F.mins(getattr(sk, "cleave_secs", 0.0))))
     if getattr(sk, "mimic_secs", 0.0) > 0.0:
         # 写し取り（§7.260）。**段の呼び名で書く**（画面に出ている語でないと、
         # プレイヤーは自分の札が当たるのか確かめられない）。「1回だけ」「自分の
         # 能力で解ける」の2つを落とすと、本家と同じ威力が何度も出ると読まれる。
-        parts.append("写し取り 次に味方が放つ**{}**の兵法を、この武将がもう一度放つ"
-                     "（{:.0f}分以内・1回だけ・威力はこの武将の能力で決まる）".format(
+        parts.append("写し取り 次に味方が放つ{}の兵法を、この武将がもう一度放つ"
+                     "（{:.0f}分以内・1度だけ）".format(
                          F.TIER_JP_OF.get(sk.mimic_tier, sk.mimic_tier),
                          F.mins(sk.mimic_secs)))
     if getattr(sk, "stretch", 0.0) > 1.0:
         # 引き延ばし（§7.259）。**「新しく掛ける器ではない」**が肝。ここを書かないと
         # 「足止めの兵法」と読まれ、味方に撒き手がいない編成で腐る理由が分からない。
-        parts.append("引き延ばし すでに掛かっている混乱・延焼・足止めを"
-                     "**元の長さの{:.0f}%**まで延ばす（新しくは掛けない）".format(sk.stretch * 100.0))
+        parts.append("引き延ばし 敵に掛かっている混乱・延焼・足止めが、"
+                     "元の{:.0f}%まで長引く".format(sk.stretch * 100.0))
     if getattr(sk, "duel", 0.0) > 0.0:
         # 一騎討ち（§7.249）。**どちらがどう守られるか**を言い切る —
         # 「一騎討ち」の字だけだと「相手も守られる」と読まれる。
-        parts.append("一騎討ち {:.0f}分間（相手を引きずり出し、その間この武将には"
-                     "ほかの敵が手を出せない。相手はほかの味方から狙われ続ける）"
+        parts.append("一騎討ち {:.0f}分間（名指しの敵を乱軍から引きずり出す。"
+                     "その間、ほかの敵はこの武将に手が出せない）"
                      .format(F.mins(sk.duel)))
     if getattr(sk, "drain", 0.0) > 0.0:
         # 吸収（§7.247）。**「損害」の行とは別に立てる** — 奪った兵がどこへ
         # 行くかは一撃の意味そのもので、量も相手しだいなので「約N人」とは
         # 書けない（割合で言い切る）。知力比は語尾で添える。
-        parts.append("吸収 与えた損害の{:g}%を自隊の兵として取り込む{}".format(
+        parts.append("吸収 削った兵の{:g}%が、そのままこちらの陣へ流れ込む{}".format(
             sk.drain * 100.0,
-            "（撃ち手と相手の知略の差で損害そのものが増減する）"
-            if getattr(sk, "drain_wits", False) else ""))
+            "（知略が高いほど深く削る）" if getattr(sk, "drain_wits", False) else ""))
     if getattr(sk, "heal_pct", 0.0) > 0.0:
         # 割合回復（§7.129）。**対象の最大兵力**に対する割合なので、撃ち手の
         # 能力では実数にできない（畏怖と同じで、語彙から漏らすと生の文が
@@ -338,7 +339,7 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
     # （`field._skill_mods` が同じ理由で先に除いているのと同型）。
     costs = []
     for m in _re.finditer(r"反動\s*(攻撃力|防御力)\s*-(\d+)%（(\d+)秒）", raw):
-        costs.append("反動: 自分の{} -{}%（{:.0f}分間・放つたびに自分が受ける）".format(
+        costs.append("反動 放つたび自分の{} -{}%（{:.0f}分間）".format(
             _MOD_JP[m.group(1)], m.group(2), F.mins(float(m.group(3)))))
     raw = _re.sub(r"反動\s*(?:攻撃力|防御力)\s*-\d+%（\d+秒）", "", raw)
     # 畏怖（§7.64）は攻撃力マイナスの呼び名で、符号を文に持たない書式
@@ -348,14 +349,26 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
     # 「・知力比」の接尾（§7.67）も両方の書式で受ける。
     # 【§7.262】通常攻撃反射は**ここに入れない** —— 専用の「返し討ち」の行を
     # 下で出すので、入れると同じことが2行に出る。`_MOD_JP` にも足さない。
-    for m in _re.finditer(r"(攻撃力|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃防御|畏怖|見切り)"
+    for m in _re.finditer(r"(攻撃力|防御力|移動速度|気勢|畏怖|見切り)"
                           r"\s*([+-]?\d+)%（(\d+)秒(・知力比)?）", raw):
         # 符号の無い書式は畏怖（常に弱体）と見切り（常に強化）。他は CSV が必ず符号を持つ
         sign = (m.group(2) if m.group(2)[0] in "+-"
                 else ("-" if m.group(1) == "畏怖" else "+") + m.group(2))
         parts.append("{} {}%（{:.0f}分間{}）".format(
             _MOD_JP[m.group(1)], sign, F.mins(float(m.group(3))),
-            "・撃ち手の知略しだいで効き目が変わる" if m.group(4) else ""))
+            "・知略しだいで効き目が変わる" if m.group(4) else ""))
+    # 【§7.266】備えと刃返しは「+30%」だけでは**何が30%なのか**が読めない
+    # （受ける被害が減るのか、備えという数字が増えるのか）。専用の行で言い切る。
+    for pat, fmt in (
+            (r"兵法防御\s*\+(\d+)%（(\d+)秒）",
+             "兵法への備え 受ける兵法の被害 -{}%（{:.0f}分間）"),
+            (r"通常攻撃防御\s*\+(\d+)%（(\d+)秒）",
+             "矢と刃への備え 矢・斬り合いで受ける被害 -{}%（{:.0f}分間）"),
+            (r"兵法反射\s*\+(\d+)%（(\d+)秒）",
+             "刃返し 受けた兵法の{}%を撃ち手へ返す（{:.0f}分間）")):
+        mm = _re.search(pat, raw)
+        if mm:
+            parts.append(fmt.format(mm.group(1), F.mins(float(mm.group(2)))))
     # 上書き（§7.263）。**「解除」と読ませない**のがこの行の仕事 —— 強化を消すのでは
     # なく、上がっている相手ほど深く沈む。合わせていくつになるかも出す（素の節と
     # 足し算するのを読み手の宿題にしない・§7.47）。
@@ -363,8 +376,8 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
     if m:
         base = _re.search(r"攻撃力\s*-(\d+)%（\d+秒）", raw)
         parts.append(
-            "上書き 相手の攻撃力が**上がっているとき**だけ、その相手にはさらに"
-            " -{}%{}（強化を消すのではなく、より深く沈める）".format(
+            "上書き 勢いづいた敵ほど深く沈む —— 攻めが上がっている相手には"
+            "さらに -{}%{}".format(
                 m.group(1),
                 "（合わせて -{}%）".format(int(m.group(1)) + int(base.group(1)))
                 if base else ""))
@@ -381,7 +394,8 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         # 出力が落ちることと、与ダメージの一部が味方へ向くこと。**式から
         # 実数を出して括弧へ入れる**（§7.47: 読めない内部の数字を見せない）。
         c = float(m.group(1)) / 100.0
-        parts.append("混乱 {}%（出力 -{:.0f}%・同士討ち {:.0f}%／{:.0f}分間）".format(
+        parts.append("混乱 {}%（隊の働きが -{:.0f}%・与える損害の {:.0f}% が"
+                     "味方へ向く／{:.0f}分間）".format(
             m.group(1), 100.0 * (1.0 - 1.0 / (1.0 + c)),
             100.0 * F.CHAOS_FF * c / (1.0 + c), F.mins(float(m.group(2)))))
     m = _re.search(r"行動阻害\s*(\d+)秒", raw)
@@ -392,26 +406,28 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
             F.mins(float(m.group(1)))))
     m = _re.search(r"ゲージ阻害\s*(\d+)秒", raw)
     if m:
-        parts.append("兵法ゲージ停止 {:.0f}分間（相手の兵法ゲージが一切溜まらない）".format(
+        parts.append("気勢封じ {:.0f}分間（その間、相手は兵法を溜められない）".format(
             F.mins(float(m.group(1)))))
     m = _re.search(r"代償\s*兵力(\d+)%", raw)
     if m:
-        costs.append("代償: 放つたびに自隊の残り兵力の{}%を失う".format(m.group(1)))
+        costs.append("代償 放つたび自隊の残り兵の{}%を失う".format(m.group(1)))
     m = _re.search(r"兵法打消し(?:\s*(\d+)発)?（(\d+)秒）", raw)
     if m:
         # 「あわせて」が要る（§7.152）— 発数は1回の発動につきで、対象の隊で
         # 分け合う。隊ごとにN発と読まれると、前衛3隊なら3倍だと誤解される。
         # 発数を書かない旧表記は「窓の中なら何発でも」。
-        parts.append("打消し 構えた隊を狙う敵の兵法を{}丸ごと無効化（{:.0f}分間）"
-                     .format("あわせて{}発まで".format(m.group(1))
+        parts.append("兵法打消し 構えを受けた隊を狙う敵の兵法を、{}丸ごと退ける"
+                     "（{:.0f}分間）"
+                     .format("あわせて{}度まで".format(m.group(1))
                              if m.group(1) else "",
                              F.mins(float(m.group(2)))))
     m = _re.search(r"通常攻撃反射\s*\+(\d+)%（(\d+)秒）", raw)
     if m:
         # 返し討ち（§7.262）。**兵法反射と取り違えられないように**「通常攻撃の」と
         # 明示する。返るのは受けた通常攻撃のぶんだけで、兵法の被害は返らない。
-        parts.append("返し討ち 受けた**通常攻撃**の{}%を撃ち手へ返す（{:.0f}分間・"
-                     "兵法の被害は返らない）".format(m.group(1), F.mins(float(m.group(2)))))
+        parts.append("返し討ち 斬りかかってきた者へ、受けた刃の{}%をそのまま返す"
+                     "（{:.0f}分間・兵法の被害は返らない）".format(
+                         m.group(1), F.mins(float(m.group(2)))))
     m = _re.search(r"ゲージ付与", raw)
     if m:
         parts.append("味方のゲージを進める")
@@ -420,20 +436,23 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
     # 「対象 味方全体（同じ勢力）」の字だけでは読み落とされる（混ぜた編成では
     # 半分にしか届かない、が読めない）。効果の列の末尾に1行で添える。
     if "同じ勢力" in (sk_row.get("対象") or ""):
-        out += "　／届くのは同じ勢力の味方だけ（勢力で固めるほど多くに届く）"
+        out += "　／号令が届くのは同じ勢力の味方だけ"
     # **不利は「＋」で繋がない。** 利得の列に混ぜると読み分けられない（§7.245）。
     if costs:
         out += "　／ただし" + "、".join(costs)
     return out
 
 
+# 【§7.266】**いつ鳴るのかを数で言い切る。** 「兵が減った時」では、遊ぶ人は
+# どこで鳴るのか確かめようがなかった（閾値は `field.LOW_HP`／`ROUT_RATIO`）。
+_LOW = "{:.0%}".format(F.LOW_HP)
 _TRAIT_CONDS = {"ally_retreat": "味方の隊が崩れた時",
                 "enemy_retreat": "敵の隊が崩れた時",
-                "self_low_hp": "自身の兵が減った時",
+                "self_low_hp": "自身の兵が" + _LOW + "を割った時",
                 # 味方が瀕死（§7.190）。**`ally_retreat`（潰走した後）とは別物**で、
                 # 崩れる前に効く。ここが表に無かったせいで救護8枚の条件が
                 # **空欄のまま出ていた**（§7.201）。閾値は self_low_hp と同じ。
-                "ally_low_hp": "味方の兵が減った時",
+                "ally_low_hp": "味方の兵が" + _LOW + "を割った時",
                 "ally_skill": "味方が兵法を放った時",
                 # 自身の**全滅**（§7.113）。「崩れた」（残存30%割れ）とは別で、
                 # 兵が一人も残らなかった時。書き分けないと self_low_hp と
@@ -480,24 +499,33 @@ def _trait_brief(g, key, t):
                 "（自分の防御で受け直す。歩兵の隣・後衛では働かない）").format(F.COVER_SHARE)
     elif key == "hakuba":
         # 白馬（§7.155）。馬上回避（兵種の規則）に上乗せ。数字は field.py から
-        desc = ("矢を馬で避ける割合が {:.0%} 増える（騎兵の馬上回避 {:.0%} に上乗せ・"
-                "射手が遠いあいだだけ・構えた槍には効かない）").format(
-                    F.HAKUBA_COVER, F.CAV_COVER)
+        # 【§7.266】**内部の定数（馬上回避 45%）を画面へ出さない。**
+        # 調整の数字であって、遊ぶ人が知る必要のない値である。
+        desc = ("遠くから射かけられる矢を、馬でさらに {:.0%} 多くかわす"
+                "（取り付くまでのあいだ。構えた槍はかわせない）").format(F.HAKUBA_COVER)
     elif key == "command":
-        desc = ("全軍の兵力 +{:.0%}。ただしこの隊の残存が{:.0%}を"
-                "割ると全軍が総崩れ（弓兵専用・デッキに1人まで）"
+        desc = ("本陣として全軍の兵力 +{:.0%}。ただしこの隊が兵を{:.0%}まで"
+                "減らせば全軍が総崩れになる（弓兵だけが担え、登録に1人まで）"
                 ).format(F.COMMAND_MEN, F.COMMAND_ROUT)
     elif key == "drunk":
         # 酒乱（§7.146）。負の特性 — 値段はマイナスで能力値へ返っている
-        desc = ("常に混乱 {:.0%} を抱えている（同士討ちが出て出力も落ちる。"
-                "そのぶん能力値が高い）").format(F.DRUNK_CHAOS)
+        desc = ("酔いが醒めぬまま、常に混乱 {:.0%} を抱える"
+                "（隊の働きが落ち、同士討ちも出る）").format(F.DRUNK_CHAOS)
     elif key == "restraint":
-        desc = ("自身が初めて兵法を放った後、敵味方の各武将は"
-                "初回発動後の自然ゲージ増加 -{:.0%}"
-                "（一発目・初期・与ダメージ・被弾の獲得は不変）"
+        desc = ("この将が初めて兵法を放つと、盤上のすべての将が二度目からの"
+                "気勢の溜まりを -{:.0%} 失う（敵も味方も。初撃には掛からない）"
                 .format(1.0 - F.RESTRAINT_NATURAL_MULT))
+    elif key == "vs_inf":
+        # 【§7.266】矢衾（§7.237）。**説明が空のままだった** —— `_trait_brief` は
+        # 対勢力（FACTION_OF）しか見ていなかったので、この札だけ画面が無言になる。
+        desc = "密集した歩兵に与える損害 +{:.0%}（矢の的になる）".format(F.VS_INF)
+    elif key == "insight":
+        # 【§7.266】「増幅 行動阻害中の敵への損害」は効果文の文法の語で、
+        # 画面の語ではない（画面では「足止め」と呼んでいる）。
+        desc = "味方全体が、立ちすくんだ敵へ与える損害 +{:.0%}".format(
+            F.INSIGHT_BONUS if hasattr(F, "INSIGHT_BONUS") else 0.10)
     elif key in F.FACTION_OF:
-        desc = "{}の武将への与ダメージ +{:.0%}（群雄にも当たる）".format(
+        desc = "{}の旗を掲げる敵に与える損害 +{:.0%}（群雄にも当たる）".format(
             F.FACTION_OF[key], F.VS_FACTION)
     return desc, cond
 
@@ -537,7 +565,8 @@ def _treasure_brief(key, row):
         desc, cond = _trait_brief(None, key, row)
         return desc + ("（{}）".format(cond) if cond else "")
     if key == "t_sekitoba":
-        return "武力 +{:.0f}、自分の隊の兵力 +{:.0%}、速度寄せ +0.3（騎兵のみ）".format(
+        # 【§7.266】「速度寄せ」は設計のつまみの名で、画面の語ではない。
+        return "武力 +{:.0f}、隊の兵力 +{:.0%}、足が速くなる（騎兵のみ）".format(
             PL.TREASURE_CARD_MODS[key]["might"], F.TREASURE_SEKITOBA_MEN)
     if key == "t_motoku":
         return "兵法の被害 -{:.0%}（敵の手を書物で見抜く）".format(
@@ -552,18 +581,18 @@ def _treasure_brief(key, row):
         return "同じ部隊に{}の武将が{}人以上いるときだけ、全軍の{} +{}%".format(
             fac, F.TREASURE_FACTION_NEED, what, pct)
     if key == "t_seiryu":
-        return "武力 +{:.0f}（通常も兵法も出力が少し上がる）".format(
+        return "武力 +{:.0f}（斬り合いも兵法も、いくらか重くなる）".format(
             PL.TREASURE_CARD_MODS[key]["might"])
     if key == "t_hakuusen":
         return "知力 +{:.0f}（知略の兵法の効きと混乱への耐えが上がる）".format(
             PL.TREASURE_CARD_MODS[key]["wits"])
     if key == "t_gentetsu":
-        return "防御寄せ +{:g} — 鎧が厚くなり、そのぶん兵が薄くなる".format(
-            PL.TREASURE_CARD_MODS[key]["def_lean"])
+        # 【§7.266】「防御寄せ」も設計のつまみの名。何が起きるかだけを書く。
+        return "鎧が厚くなり守りが増すが、そのぶん連れられる兵が減る"
     if key == "t_keiki":
-        return ("矢を馬で避ける割合が {:.0%} 増える（騎兵の馬上回避 {:.0%} に上乗せ・"
-                "射手が遠いあいだだけ・構えた槍には効かない／騎兵のみ）").format(
-                    F.TREASURE_KEIKI_COVER, F.CAV_COVER)
+        return ("遠くから射かけられる矢を、馬でさらに {:.0%} 多くかわす"
+                "（取り付くまでのあいだ。構えた槍はかわせない／騎兵のみ）").format(
+                    F.TREASURE_KEIKI_COVER)
     if key == "t_shichisei":
         return "この武将の兵法は打消しの構えに阻まれない"
     # 相性を1枚だけ捻じる3つ（§7.202）。**どちらの向きかを必ず書く** —
@@ -577,12 +606,11 @@ def _treasure_brief(key, row):
                 "（騎兵のみ）").format(F.TREASURE_BAGAI_TAKE_INF,
                                    F.TREASURE_BAGAI_DEAL_ARC)
     if key == "t_tankyu":
-        return ("接敵されても射撃の {:.0%} を保つ（ふだんは {:.0%}）、"
+        return ("肉薄されても射撃の {:.0%} を保つ（ふつうの弓はもっと鈍る）、"
                 "代わりに通常攻撃 {:.0%}（弓兵のみ）").format(
-                    1.0 - F.TREASURE_TANKYU_SUPPRESS, 1.0 - F.SUPPRESS_MAX,
-                    F.TREASURE_TANKYU_ATK)
+                    1.0 - F.TREASURE_TANKYU_SUPPRESS, F.TREASURE_TANKYU_ATK)
     if key == "t_mokgyu":
-        return "持ち矢 +{:.0%}（輜重の余裕。弓兵にだけ意味がある）".format(
+        return "持ち矢 +{:.0%}（輜重の余裕。矢を射る者にだけ意味がある）".format(
             F.TREASURE_MOKGYU_AMMO)
     if key == "t_toko":
         # 酒乱（§7.146）の発動条件は機構で書かず、逸話で匂わせる（テストプレイの文言）

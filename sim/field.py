@@ -3473,7 +3473,7 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         what = {"def": "守り", "spd": "足", "rate": "気勢",
                 "scut": "兵法への備え", "refl": "刃返しの構え",
                 "nrefl": "返し討ちの構え",
-                "ncut": "矢弾への備え",
+                "ncut": "矢と刃への備え",
                 "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
         up = {"spd": "速まる", "scut": "固まる", "refl": "整う"}.get(stat, "上がる")
         # 恒久（§7.235）は秒を持たない。「0分」と出さず「以後ずっと」と言う。
@@ -4490,7 +4490,7 @@ _MOD_JP_KEY = {"atk": "攻撃力", "def": "防御力", "spd": "移動速度", "r
 def _stat_down_jp(key: str) -> str:
     """弱体の言い分け（§7.173: 速度や気勢まで「刃が鈍る」と語らない）。"""
     return {"def": "守りが乱れる", "spd": "足が鈍る", "rate": "気勢が削がれる",
-            "scut": "兵法への備えが崩れる", "ncut": "矢弾への備えが崩れる"}.get(
+            "scut": "兵法への備えが崩れる", "ncut": "矢と刃への備えが崩れる"}.get(
                 key, "刃が鈍る")
 
 
@@ -4524,7 +4524,7 @@ def _skill_extra(item) -> str:
     if kind == "buff":
         what = {"def": "守り", "spd": "足", "rate": "気勢", "scut": "兵法への備え",
                 "refl": "刃返しの構え", "nrefl": "返し討ちの構え",
-                "ncut": "矢弾への備え", "null": "打消しの構え",
+                "ncut": "矢と刃への備え", "null": "打消しの構え",
                 "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
         if stat in ("perm_def", "perm_atk"):     # 恒久（§7.235）
             return "{}の{}が上がる（{:+.0%}・以後ずっと）".format(where, what, amount)

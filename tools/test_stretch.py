@@ -195,7 +195,7 @@ class WangPing(unittest.TestCase):
         row = {x["兵法名"]: x for x in R.skills()}["無当飛軍"]
         txt = W._skill_display(g, row)
         self.assertIn("引き延ばし", txt)
-        self.assertIn("新しくは掛けない", txt)
+        self.assertIn("掛かっている", txt)   # §7.266: すでに掛かっている物に効く、と読めること
 
 
 if __name__ == "__main__":

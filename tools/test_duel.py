@@ -239,7 +239,7 @@ class Guanyu(unittest.TestCase):
         row = {r["兵法名"]: r for r in R.skills()}["青龍偃月"]
         txt = W._skill_display(g, row)
         self.assertIn("一騎討ち", txt)
-        self.assertIn("手を出せない", txt)
+        self.assertIn("手が出せない", txt)
 
 
 if __name__ == "__main__":

@@ -239,7 +239,7 @@ class MaLiang(unittest.TestCase):
         txt = W._skill_display(g, row)
         self.assertIn("決戦型", txt)
         self.assertNotIn("大技", txt)
-        self.assertIn("1回だけ", txt)
+        self.assertIn("1度だけ", txt)
 
 
 if __name__ == "__main__":
