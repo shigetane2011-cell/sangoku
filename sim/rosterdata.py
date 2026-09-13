@@ -853,6 +853,12 @@ def _scale_effect(text: str, m: float) -> str:
     def pw(mo):
         return "威力{:.0f}%".format(float(mo.group(1)) * m)
 
+    def pw_band(mo):
+        # 威力幅（§7.219・孫尚香／王允）。**両端をそろって伸ばす** —— 片側だけ
+        # 伸ばすと幅の比（値付けは中央値で見る）が変わってしまう。
+        return "威力{:.0f}〜{:.0f}%".format(float(mo.group(1)) * m,
+                                           float(mo.group(2)) * m)
+
     def hp(mo):
         return "回復 攻撃力の{:.0f}%".format(float(mo.group(1)) * m)
 
@@ -875,6 +881,20 @@ def _scale_effect(text: str, m: float) -> str:
         return "混乱 {:g}%（{:.0f}秒）".format(float(mo.group(1)),
                                              float(mo.group(2)) * m)
 
+    from . import field as _F
+
+    def stretch(mo):
+        # 引き延ばし（§7.259）。値打ちは**1倍を超えたぶん**に比例する（150% なら
+        # 0.5ぶん）。だから伸ばすのは超過ぶんだけ —— 150% をそのまま m 倍して
+        # 209% にすると、値打ちが 2倍以上になってしまう。上限（STRETCH_CAP）で止める。
+        v = 1.0 + (float(mo.group(1)) / 100.0 - 1.0) * m
+        return "引き延ばし {:.0f}%".format(100.0 * min(v, _F.STRETCH_CAP))
+
+    def mimic(mo):
+        # 写し取り（§7.260）。値段は窓の秒数に比例して置いてある。
+        return "写し取り {}（{:.0f}秒）".format(mo.group(1),
+                                            float(mo.group(2)) * m)
+
     def mod(mo):
         # **量ではなく秒数を伸ばす。** §6.5 の同名規則で、同じ兵法を何度撃っても
         # 効果は重ならず「大きい方」だけが残る。だから回数を減らしたぶん量を
@@ -884,15 +904,31 @@ def _scale_effect(text: str, m: float) -> str:
                                 float(mo.group(3)), float(mo.group(4)))
         return "{} {}{:.0f}%（{:.0f}秒）".format(stat, sign, val, sec * m)
 
+    # 【§7.264】**自分が受ける不利（反動）は伸ばさない。** 下の mod の正規表現は
+    # 「反動 攻撃力 -20%（60秒）」の後半に当たるので、素通しすると
+    # **不利だけが長くなる**（`field._skill_mods` が同じ理由で先に除いているのと
+    # 同型の踏み方）。先に伏せて、最後に戻す。代償（兵力N%）はどの口にも
+    # 当たらないので何もしなくてよい。
+    keep = []
+
+    def _hide(mo):
+        keep.append(mo.group(0))
+        return "\x00{}\x00".format(len(keep) - 1)
+
+    text = re.sub(r"反動\s*(?:攻撃力|防御力|移動速度)\s*[+-]\d+%（\d+秒）",
+                  _hide, text)
+    text = re.sub(r"威力(\d+)〜(\d+)%", pw_band, text)
     text = re.sub(r"威力(\d+)%", pw, text)
     text = re.sub(r"回復\s*攻撃力の(\d+)%", hp, text)
     text = re.sub(r"行動阻害\s*(\d+)秒", stun, text)
     text = re.sub(r"ゲージ付与\s*自然増加の(\d+)秒ぶん", gauge, text)
     text = re.sub(r"気勢\s*([+-])(\d+)%（(\d+)秒）", kisei, text)
     text = re.sub(r"混乱\s*(\d+(?:\.\d+)?)%（(\d+)秒）", chaos, text)
+    text = re.sub(r"引き延ばし\s*(\d+)%", stretch, text)
+    text = re.sub(r"写し取り\s*(\S+?)（(\d+)秒）", mimic, text)
     text = re.sub(r"(攻撃力|防御力|移動速度)\s*([+-])(\d+)%（(\d+)秒）",
                   mod, text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda mo: keep[int(mo.group(1))], text)
 
 
 def retier() -> int:

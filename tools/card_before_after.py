@@ -103,7 +103,9 @@ def main():
         pos, b = got[(x, "before")]; _, n = got[(x, "now")]
         ks = sorted(set(b) & set(n)); d = [n[k] - b[k] for k in ks]
         m = statistics.mean(d); se = statistics.pstdev(d) / max(1, len(d) - 1) ** 0.5
-        tag = "同水準" if abs(m) < 2 * se else ("強く" if m > 0 else "弱く")
+        # **等号を含める。** 差も誤差も 0（＝1戦も動かなかった）とき
+        # `abs(m) < 2*se` は偽になり、「弱く」と読めてしまう（§7.264 で踏んだ）。
+        tag = "同水準" if abs(m) <= 2 * se else ("強く" if m > 0 else "弱く")
         wb = statistics.mean(b[k] for k in ks); wn = statistics.mean(n[k] for k in ks)
         print(f"{x:12s} {'後衛' if pos == 'rear' else '前衛'} {wb:7.1%} {wn:7.1%} {m:+8.2%} {se:6.2%}  {tag}")
 

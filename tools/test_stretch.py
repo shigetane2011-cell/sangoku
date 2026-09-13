@@ -158,7 +158,10 @@ class Price(unittest.TestCase):
 
     def test_it_fits_wang_ping(self):
         gc, gi = D.GAUGE_TIER["大技"]
-        v = D.effect_value(F._parse_skill("引き延ばし 150%", EF), EF,
+        # 【§7.264】段の重みを 0.479 → 0.350 へ下げ、決戦型の効果文をそのぶん
+        # 太らせた（身体は不変）。王平の引き延ばしも 150% → 168% になっている。
+        # **請求は前と同じ 0.49** —— 値打ちの置き方（弱体1本ぶん）は変えていない。
+        v = D.effect_value(F._parse_skill("引き延ばし 168%", EF), EF,
                            gauge_cost=gc, gauge_init=gi, cost=5.0, typ=F.INF,
                            tilt="中庸")
         self.assertLess(v, D.EFFECT_CAP * 5.0)
@@ -166,7 +169,7 @@ class Price(unittest.TestCase):
         # 2本ぶんで作って測ったら、組んだ編成でも −2.50% とただ弱くなった
         # （STRETCH_PRICE の表）。大技は1戦1回・遅いので、その時点で生きている
         # 弱体は平均1本、というのが実測の言っていること。
-        self.assertAlmostEqual(v, 0.496, places=2)
+        self.assertAlmostEqual(v, 0.493, places=2)
 
 
 class WangPing(unittest.TestCase):
@@ -174,7 +177,7 @@ class WangPing(unittest.TestCase):
 
     def test_the_card_carries_it(self):
         sk = F.SKILL_INFO["無当飛軍"]
-        self.assertAlmostEqual(sk.stretch, 1.5)
+        self.assertAlmostEqual(sk.stretch, 1.68)   # §7.264 で 1.5 → 1.68
         self.assertEqual(F.SKILL_TARGET["無当飛軍"], EF)
 
     def test_the_stun_overlap_is_gone(self):
