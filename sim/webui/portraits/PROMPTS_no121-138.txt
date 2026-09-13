@@ -1,0 +1,72 @@
+三国布陣 武将顔絵 No.121〜138 生成記録
+
+生成日: 2026-09-06
+サービス: OpenAI built-in image generation
+出力原寸: 1086×1448 PNG
+
+【全画像共通プロンプト】
+Use case: historical-scene
+Asset type: portrait for a Three Kingdoms strategy game UI.
+Style/medium: bold black sumi ink outlines, large simplified watercolor color fields, aged-paper pigment texture, graphic silhouette, restrained detail. Original visual language; do not imitate any existing game, artist, or franchise.
+Composition: one person only, vertical 3:4 bust portrait, chest-up, near-front three-quarter view, eyes toward viewer. Eyes at 30–35% from top, at least 8% headroom, all headwear inside frame. Large readable face and silhouette for a 20 px circular crop.
+Background: MOST IMPORTANT — a bright faction-color field must remain continuous from above the head around both sides and behind both shoulders. In the center square crop, visible bright faction color or pale ivory must remain outside both shoulders. No black wedges or dark cavities behind shoulders. Dark sumi only at outer corners; about 70% of center square is bright.
+Lighting/mood: quiet composure, a moment before action; one upper-side light; subtle rim light.
+Constraints: no text, no letters, no numbers, no seal, no calligraphy, no logo, no signature, no watermark, no frame, no second person, no horse head, no extra limbs, no modern objects, no photoreal living-person likeness, no anime exaggeration. Props simplified and never cover the face.
+
+各画像は、上の共通プロンプトに次の個別指定を連結して生成した。
+
+【121 陳琳.png】
+No.121 Chen Lin, epithet "The Proclamation". Faction: warlords; ochre #8a7640. Infantry/support, martial 20, intellect 78. A Chinese male literary official in his fifties, slim upright build, distinctly long narrow face, high cheekbones, long pointed jaw, narrow incisive eyes, thin straight nose, fine long chin beard and sparse moustache. Ochre official cap and deep robe with a minimal leather chest guard. Holding a brush and a partly unrolled completely blank scroll with absolutely no marks. He has just finished a fierce political proclamation: restrained intellectual sharpness, not a warrior. Keep his facial anatomy unique and unlike the other portraits.
+
+【122 祖茂.png】
+No.122 Zu Mao, "Red Headcloth". Faction: Wu; vermilion #a04343. Cavalry/balanced, martial 62, intellect 35. Chinese male cavalry officer in his early thirties, compact athletic build, distinctly broad oval face, blunt nose, open earnest eyes, short stubble beard, slightly weathered cheeks. Prominent plain vermilion red headcloth tied around his head, red-brown light cavalry armor, flowing vermilion cloak, simple curved saber hilt or reins low in frame. Quiet courage and a faint accepting smile from volunteering as a decoy. He must not resemble Sun Jian or Sun Ce; avoid aristocratic facial features.
+
+【123 霍峻.png】
+No.123 Huo Jun, "Jiameng". Faction: Shu; green #47825a. Infantry/endurance, martial 39, intellect 36. Chinese male defensive commander in his mid-thirties, short but thick-boned and broad-shouldered, distinctly low wide square face, sun-darkened skin, heavy jaw, small steady eyes, short boxed beard, slightly flattened nose. Practical green heavy armor with thick shoulder plates, plain low helmet or tied cloth. Only the upper rim of a large shield or fortress parapet appears low in frame. No flashy weapon. An immovable gaze of a commander who held a fort with a few hundred men.
+
+【124 曹性.png】
+No.124 Cao Xing, "Shot the Eye". Faction: warlords; ochre #8a7640. Cavalry/burst, martial 68, intellect 40. Chinese male mounted archer in his thirties, lean and quick, distinctly sharp inverted-triangle face, prominent cheekbones, narrow chin, thin arched brows, intense sanpaku eyes, thin moustache and very sparse beard. Ochre light cavalry armor, leather bracers, short cloak. Bow held just before full draw, arrow fully inside frame, no enemy. Tense stillness. He is the archer who shot Xiahou Dun, so absolutely no eyepatch and no injured eye.
+
+【125 高覧.png】
+No.125 Gao Lan, "One of the Four Pillars". Faction: warlords; ochre #8a7640. Cavalry/firepower, martial 78, intellect 50. Chinese male northern cavalry general in his forties, imposing tall powerful build, distinctly large rectangular face, thick straight eyebrows, broad bridge nose, deep-set eyes, dense square beard and moustache, prominent cheekbones. Ochre cavalry lamellar armor edged with northern fur, wind-swept cloak. Long spear or broad saber kept low and diagonal. Quiet heavyweight authority. He must not resemble Yan Liang, Wen Chou, or Zhang He; give him a uniquely long rectangular head and trimmed square beard rather than a round fierce face.
+
+【126 許攸.png】
+No.126 Xu You, "Wuchao". Faction: warlords; ochre #8a7640. Archer/support, martial 15, intellect 82. Chinese male strategist in his fifties, very thin slouching build, distinctly narrow heart-shaped face, receding hairline, small close-set calculating eyes, thin hooked nose, thin lips, sparse wispy moustache and patchy beard, slightly untidy collar suggesting arrogance. Ochre scholar robe with very light chest protection; only a sliver of short bow at far edge. A tiny torch flame at the extreme lower edge as a symbol of the Wuchao plan, safely away from face and clothing. Condescending half-smile. No writing anywhere.
+
+【127 孫桓.png】
+No.127 Sun Huan, "Yiling". Faction: Wu; vermilion #a04343. Cavalry/balanced, martial 72, intellect 60. Chinese male young general in his mid-twenties, lean upright athletic build, distinctly smooth diamond-shaped face, straight narrow nose, calm almond eyes, defined but not heavy jaw, no beard. Vermilion light cavalry armor, long spear kept at edge and a hint of reins low in frame. Young yet composed, natural balanced guard. He must not resemble Sun Ce, Sun Quan, or Sun Jian: no royal crown, no broad heroic face, no moustache; give him a narrow youthful diamond face and understated plain helmet.
+
+【128 兀突骨.png】
+No.128 Wutugu, "Rattan Armor". Faction: southern warlord; ochre #8a7640. Infantry/endurance, martial 84, intellect 12. A human king from the southern frontier, enormous powerful adult man whose shoulders nearly fill the frame, deep brown sun-weathered skin, massive neck, distinctly wide trapezoid face, heavy brow, broad flat nose, small calm eyes, thick lips, shaved sides with coarse tied hair, no fantasy-monster features. The defining armor is woven rattan hardened with oil, clearly basket-like interlaced bands in ochre and amber over chest and shoulders; animal-tooth necklace; large southern saber kept low. Immovable human dignity and physical weight. No fetishized costume, no magic, no glyphs or talismans.
+
+【129 周魴.png】
+No.129 Zhou Fang, "Cut Hair". Faction: Wu; vermilion #a04343. Infantry/support, martial 50, intellect 72. Chinese male governor in his forties with a distinctly rounded rectangular scholarly face, broad forehead, calm intelligent eyes, medium nose, neatly trimmed moustache and rounded beard. His hair is visibly cut short and uneven rather than tied in a topknot; absolutely no crown or cap. Vermilion official robe with a thin practical leather vest. No weapon. Quiet resolve behind a feigned surrender. A small lock of cut hair may be held low, but no severed-body implication.
+
+【130 関興.png】
+No.130 Guan Xing, "Anguo". Faction: Shu; green #47825a. Cavalry/firepower, martial 85, intellect 62. Chinese male young warrior in his early twenties, tall and proud, distinctly long youthful face with high brow, straight nose, strong chin, alert slightly upturned eyes, only a very short neat moustache and tiny chin beard. Green cavalry lamellar armor and flowing green cloak. A recognizable crescent blade of the Green Dragon guandao appears only at the far edge. Forward-driving intensity and tension of inheriting a famous name. He may echo Guan Yu in stature only, but must not duplicate Guan Yu: much younger, shorter beard, slimmer jaw, different eyes and helmet.
+
+【131 華佗.png】
+No.131 Hua Tuo, "Divine Physician". Faction: warlords; ochre #8a7640. Archer/support classification but NONCOMBATANT. Chinese male physician age 65–75, slim yet straight posture, distinctly gentle long oval face, high forehead, soft clear eyes, fine narrow nose, serene mouth, flowing white moustache and long white beard, white eyebrows. Plain white-to-ivory robe with an ochre sash, absolutely no armor and no bow. Simple ancient wooden medicine case and a small bundle of recognizable herbs low in frame, or a few ancient acupuncture needles in a cloth roll. Healing calm, utterly uninterested in warfare. Absolutely no modern medical tools, no cross symbol, no writing or labels.
+
+【132 司馬師.png】
+No.132 Sima Shi, "King Jing". Faction: Wei; blue #46689c. Infantry/balanced, martial 60, intellect 88. Chinese male statesman-general in his early forties, cold controlled presence, distinctly narrow angular face, sharply sloping eyebrows, high straight nose, compressed lips, short precise moustache and neatly pointed beard. His LEFT EYE is completely covered by a plain dark-blue cloth patch or bandage tied around the head because of an eye tumor; the right eye is sharp and visible. Heavy blue lamellar armor under a formal court collar, restrained gold fittings. Sword or broad saber kept low. Younger and leaner than Sima Yi; not his duplicate. One eye covered, not both, no blood or wound gore.
+
+【133 司馬昭.png】
+No.133 Sima Zhao, "King of Jin". Faction: Wei; blue #46689c. Cavalry/support, martial 55, intellect 90. Chinese male power-broker in his late forties, broad heavy build and the most imposing of his family. Distinctly full round-square face, fleshy cheeks, broad nose, hooded knowing eyes, rich full moustache and rounded beard. Regal ancient Chinese crown and blue court robe; armor minimal, only a few gold horse-tack fittings and riding-cut lower garment at bottom. Holds a command baton or completely plain ceremonial tablet with no marks. Openly ambitious contained smile. Must not resemble Sima Yi or Sima Shi: no eyepatch, fuller face, richer beard, greater relaxed authority.
+
+【134 黄月英.png・採用版】
+REPLACEMENT No.134 Huang Yueying, "Wooden Ox and Gliding Horse". Faction: Shu; green #47825a. Archer/firepower classification, martial 30, intellect 92. Chinese woman engineer in her late thirties. She must be deliberately plain and ordinary-looking rather than conventionally beautiful or glamorous: broad slightly asymmetrical face, strong blunt nose with a subtle bend, uneven eyebrows, sun-browned weathered skin, faint work lines around eyes, firm practical mouth, focused intelligent gaze. Hair tightly and simply tied back with stray working strands; no cosmetics, no jewelry, no ornate hair ornaments. Green utilitarian work robe with rolled sleeves and worn thin leather apron. A compact ancient repeating-crossbow mechanism and a plain wooden straightedge low in frame; any paper is completely blank with no diagram, no marks. Serious maker at work. Respectful and capable, not ugly caricature. No sexualization, no cute or delicate anime beauty.
+
+【135 徐庶.png】
+No.135 Xu Shu, "Yuanzhi". Faction: Shu; green #47825a. Infantry/support, martial 45, intellect 85. Chinese male scholar in his early forties with the lean conditioned body of a former wandering swordsman. Distinctly long hexagonal face, high temples, straight slightly broken nose, honest deep-set eyes, firm mouth, tidy narrow moustache and medium pointed beard. Green scholar's robe over a light leather chest guard; sword worn at the waist with only hilt visible; a blank bamboo bundle or closed book low in frame. Quiet sorrow for his mother and intelligence held back. Not a frail court official, not a copy of Zhuge Liang.
+
+【136 曹休.png】
+No.136 Cao Xiu, "Thousand-Li Colt". Faction: Wei; blue #46689c. Cavalry/firepower, martial 80, intellect 65. Chinese male cavalry commander in his late thirties, taut athletic build, distinctly short angular face, pronounced brow ridge, slightly crooked aquiline nose, sharp wide-set eyes, thin short moustache and clipped jaw beard, faint old cheek scar. Blue cavalry armor edged with dark fur, one small abstract tiger-shaped gold fitting, wind-swept blue cloak, horsewhip held low. Forward lean implies speed. Must not resemble Cao Cao or Cao Pi: no ruler crown, younger rugged face, asymmetrical scar and crooked nose.
+
+【137 羊祜.png】
+No.137 Yang Hu, "Benevolent Rule". Faction: Wei; blue #46689c. Infantry/support, martial 55, intellect 88. Chinese male Confucian general in his fifties, medium build, distinctly soft pear-shaped face, gently arched brows, broad calm eyes, rounded nose, dignified mouth, salt-and-pepper moustache and medium rounded beard. No armor. Loose blue scholar's robe under a light pale fur outer cloak with relaxed belt, evoking effortless command. Holds a closed blank book or plain walking staff; no weapon except perhaps a sheathed sword barely visible at waist. Warm compassion joined with quiet authority toward an enemy. Must not resemble other Wei strategists: softer cheeks, greying rounded beard, relaxed posture.
+
+【138 文鴦.png】
+No.138 Wen Yang, "Single-Rider Charge". Faction: Wei; blue #46689c. Cavalry/burst, martial 96, intellect 50. Chinese male warrior about eighteen years old, unmistakably youthful adult, no beard or moustache, lean and extremely athletic rather than bulky. Distinctly sharp youthful wedge-shaped face, high cheekbones, narrow fierce eyes, short straight nose, taut jaw, a small nick in one eyebrow. Blue light cavalry armor and streaming cloak. Torso twisted in pre-charge tension; a steel whip and long spear appear only as small cropped diagonals at opposite frame edges. Quiet explosive focus just before a lone charge. Not a child and not an older bearded hero; no crown, no ornate general beard.
+
+備考: 黄月英は初稿を検品後、上記の採用版プロンプトで全面再生成した。初稿は納品物に含めていない。

@@ -1,0 +1,262 @@
+{
+  "profile": "standard",
+  "restraint_natural_mult": 0.4,
+  "rapid_split": [
+    3,
+    3,
+    2
+  ],
+  "rapid_cards": [
+    "夏侯淵〔神速〕",
+    "李典〔慎重〕",
+    "韓当〔老弓〕",
+    "高順〔陥陣〕",
+    "楽綝〔揚州〕",
+    "全琮〔護軍〕",
+    "陳武〔廬江〕",
+    "紀霊〔三尖刀〕"
+  ],
+  "swaps": [
+    {
+      "regulation": "汜水関",
+      "base": "賈詡〔毒士〕",
+      "counter": "沮授〔監軍〕",
+      "label": "持重"
+    },
+    {
+      "regulation": "官渡",
+      "base": "貂蝉〔傾国〕",
+      "counter": "田豊〔剛直〕",
+      "label": "打消し"
+    },
+    {
+      "regulation": "赤壁",
+      "base": "張飛〔当陽橋〕",
+      "counter": "陸抗〔羊陸之交〕",
+      "label": "節制"
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "sides": [
+    "defense-A",
+    "defense-B"
+  ],
+  "by_mask": {
+    "000": {
+      "coverage": 0,
+      "counters": [],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.2882,
+      "mean_match_diff": -0.212911,
+      "single_win_rate_by_reg": [
+        0.3715,
+        0.0,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        -0.016001,
+        -0.164147,
+        -0.032764
+      ]
+    },
+    "001": {
+      "coverage": 1,
+      "counters": [
+        "持重"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.309,
+      "mean_match_diff": -0.171615,
+      "single_win_rate_by_reg": [
+        0.5729,
+        0.0,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        0.025295,
+        -0.164147,
+        -0.032764
+      ]
+    },
+    "010": {
+      "coverage": 1,
+      "counters": [
+        "打消し"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.2951,
+      "mean_match_diff": -0.182583,
+      "single_win_rate_by_reg": [
+        0.3715,
+        0.0486,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        -0.016001,
+        -0.133819,
+        -0.032764
+      ]
+    },
+    "011": {
+      "coverage": 2,
+      "counters": [
+        "持重",
+        "打消し"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.316,
+      "mean_match_diff": -0.141287,
+      "single_win_rate_by_reg": [
+        0.5729,
+        0.0486,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        0.025295,
+        -0.133819,
+        -0.032764
+      ]
+    },
+    "100": {
+      "coverage": 1,
+      "counters": [
+        "節制"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.2882,
+      "mean_match_diff": -0.21494,
+      "single_win_rate_by_reg": [
+        0.3715,
+        0.0,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        -0.016001,
+        -0.164147,
+        -0.034793
+      ]
+    },
+    "101": {
+      "coverage": 2,
+      "counters": [
+        "持重",
+        "節制"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.309,
+      "mean_match_diff": -0.173644,
+      "single_win_rate_by_reg": [
+        0.5729,
+        0.0,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        0.025295,
+        -0.164147,
+        -0.034793
+      ]
+    },
+    "110": {
+      "coverage": 2,
+      "counters": [
+        "打消し",
+        "節制"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.2917,
+      "mean_match_diff": -0.184612,
+      "single_win_rate_by_reg": [
+        0.3715,
+        0.0486,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        -0.016001,
+        -0.133819,
+        -0.034793
+      ]
+    },
+    "111": {
+      "coverage": 3,
+      "counters": [
+        "持重",
+        "打消し",
+        "節制"
+      ],
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.3125,
+      "mean_match_diff": -0.143316,
+      "single_win_rate_by_reg": [
+        0.5729,
+        0.0486,
+        0.434
+      ],
+      "mean_diff_by_reg": [
+        0.025295,
+        -0.133819,
+        -0.034793
+      ]
+    }
+  },
+  "by_coverage": {
+    "0": {
+      "subsets": 1,
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.2882,
+      "mean_match_diff": -0.212911
+    },
+    "1": {
+      "subsets": 3,
+      "bo3_games": 864,
+      "defense_bo3_win_rate": 0.2975,
+      "mean_match_diff": -0.189713
+    },
+    "2": {
+      "subsets": 3,
+      "bo3_games": 864,
+      "defense_bo3_win_rate": 0.3056,
+      "mean_match_diff": -0.166514
+    },
+    "3": {
+      "subsets": 1,
+      "bo3_games": 288,
+      "defense_bo3_win_rate": 0.3125,
+      "mean_match_diff": -0.143316
+    }
+  },
+  "restraint_causal": {
+    "1.00": {
+      "games": 288,
+      "defense_win_rate": 0.3333,
+      "mean_diff": -0.065106,
+      "rapid_hand_fires": 9.365,
+      "rapid_all_fires": 17.677,
+      "defense_all_fires": 14.34
+    },
+    "0.40": {
+      "games": 288,
+      "defense_win_rate": 0.4236,
+      "mean_diff": -0.036912,
+      "rapid_hand_fires": 5.16,
+      "rapid_all_fires": 10.281,
+      "defense_all_fires": 8.625
+    }
+  }
+}

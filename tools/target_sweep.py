@@ -1,0 +1,174 @@
+# -*- coding: utf-8 -*-
+"""対象の値段を**対戦の集まり**で測る（§7.99）。
+
+    python3 tools/target_sweep.py            # 全対象を18通りの相手で測る
+    python3 tools/target_sweep.py --new      # 新しい選択子と錨だけ（速い）
+
+なぜ「代表的な1戦」で測らないか。§7.20 で段ごとの値段を測ったときと同じ理由で、
+**同じ兵法が相手しだいで何倍も開く**。特に狙い撃ちの選択子（知略が最高／最低・
+兵力が最少）は、相手に突出した札が居るかどうかで値打ちが変わる——1戦で測って
+決め打つと、いちばん値付けしたい相手のときにいちばん外れる。
+
+**振る軸は3つ**: 相手の性格（耐久寄り／均衡／火力寄り）・陣形（鶴翼・魚鱗・
+雁行）・知力の散らばり（平ら／軍師が1人）。3×3×2 = 18通り。
+
+**布陣は規則どおりに組む**（前衛は歩兵・騎兵、後衛は弓兵）。§7.96 で
+`matchup_cost` が登録できない布陣を測っていたのを踏んだので、ここでも
+`match.placement_errors` に通してから測る。
+
+**既存の対象も同じ掃引で測る。** 新しい行だけを別の較正で入れると、表の中で
+単位が混ざる。既存の錨（敵1体（正面）・敵1列・敵前衛・敵全体）を同じ run で
+測り、そこからの比で新しい行を置けるようにする。
+"""
+import sys, os, statistics
+from dataclasses import replace
+from multiprocessing import Pool
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+TEST = "＿試験兵法"
+NF = {"鶴翼": 4, "魚鱗": 3, "雁行": 2}
+# 相手の性格（前衛に置く役割の並び）
+PERSONA = {
+    "耐久寄り": ("tank", "tank", "tank", "bal"),
+    "均衡":     ("tank", "bal", "bal", "dps"),
+    "火力寄り": ("bal", "dps", "dps", "dps"),
+}
+FOE_TARGETS = ["敵1体（前衛の主力）", "敵1体（兵力が最少）", "敵1体（正面）",
+               "敵1体（残兵力が最少）", "敵1体（知略が最高）", "敵1体（知略が最低）",
+               "敵正面2体", "敵1列", "敵前衛", "敵後衛", "敵後列", "敵全体"]
+OWN_TARGETS = ["自分", "味方1体（残兵力が最少）", "味方1体（攻撃力が最高）",
+               "味方1列", "味方前衛", "味方後衛", "味方全体",
+               "自分と前衛1体", "自分と後衛1体"]
+NEW = ("敵1体（兵力が最少）", "敵1体（知略が最高）", "敵1体（知略が最低）")
+ANCHOR = ("敵1体（兵力が最多）", "敵1体（正面）", "敵1列", "敵前衛", "敵全体")
+
+
+def _army(G, persona, form_name, wise, with_skill, target):
+    """規則どおりの布陣を組む。wise=True なら後衛の1枚だけ知力を突出させる。"""
+    nf = NF[form_name]
+    roles = PERSONA[persona]
+    front, rear = [], []
+    for i in range(nf):
+        r = {"tank": G.TANK, "bal": G.BAL, "dps": G.DPS}[roles[i % len(roles)]]
+        front.append(G._synth(G.BASE_COST, G.INF if i % 2 == 0 else G.CAV, r))
+    for i in range(6 - nf):
+        rear.append(G._synth(G.BASE_COST, G.ARC, G.DPS if i else G.BAL))
+    cards = front + rear
+    # 知力の散らばりが狙い撃ちの値打ちを決めるので、そこを軸にする。
+    # **平らを「全員同値」にしてはいけない。** 同値だと max も min も先頭を
+    # 返すだけで、「知略が最高」と「最低」が同じ隊を指す——測定ではなく
+    # 引き分けになる（初版がこれで、両者の値が小数3桁まで一致した）。
+    # 平らは「なだらかに散る」、軍師入りは「1人だけ突出」で対比させる。
+    #
+    # **知略（カード表記）も一緒に振る。** 狙い撃ちの選択子は §7.106 から
+    # 内部の知力ではなく知略で引く。合成カードの知略を 0 のままにすると
+    # `_fame_wits` が知力へ落ちるので、**選択子だけ古い挙動で測ってしまう**。
+    # 実カードでは知力と知略が食い違う（6体から選ぶとき一致は 42.2%）ので、
+    # ここを揃えないと値段が実戦とずれる。知略は 1〜100 の量なので、
+    # 知力と同じ並び順で 1〜100 の範囲へ写す。
+    if wise:
+        cards = [replace(c, might=80.0,
+                         wits=(220.0 if i == len(cards) - 1 else 70.0),
+                         fame_wits=(98.0 if i == len(cards) - 1 else 40.0))
+                 for i, c in enumerate(cards)]
+    else:
+        cards = [replace(c, might=80.0, wits=85.0 + 6.0 * i,
+                         fame_wits=35.0 + 11.0 * i)
+                 for i, c in enumerate(cards)]
+    # **対照は「兵法なし」でなければならない。** 合成カードは既定で標準兵法を
+    # 持っているので、撃ち手だけ差し替えるときに対照側の兵法を消し忘れると、
+    # 「試験兵法 対 標準兵法」を測ることになる（実際それで弱体の値段が負に出た）。
+    # 能力値の払い（stat_cost）も両方 0 に揃える。
+    cards[0] = replace(cards[0], skill=(TEST if with_skill is not None else ""),
+                       stat_cost=0.0)
+    if with_skill is not None:
+        G.SKILL_INFO[TEST] = with_skill
+        G.SKILL_TARGET[TEST] = target
+    form = G.Formation(n_front=nf, frontage=G.BASE_FRONTAGE)
+    return G.Army(tuple(cards), form)
+
+
+EFFECTS = {
+    # 敵向け
+    "打撃": lambda G: G.Skill(power=5.0, kind="melee"),
+    "弱体": lambda G: G.Skill(mods=(("atk", -0.10, 30.0),)),
+    # 味方向け（符号が向き先を決めるので、味方対象はプラスで書く・§7.93）
+    "回復": lambda G: G.Skill(heal=1.5, kind="melee"),
+    "強化": lambda G: G.Skill(mods=(("atk", 0.10, 30.0),)),
+}
+
+
+def cell(job):
+    persona, form_name, wise, target, effect = job
+    from sim import field as G
+    from sim import match as MM
+    G.SKILLS_ON = True
+    G.TRAITS_ON = False
+    sk = EFFECTS[effect](G)
+    a = _army(G, persona, form_name, wise, sk, target)
+    b = _army(G, persona, form_name, wise, None, target)
+    for army in (a, b):
+        errs = MM.placement_errors(army)
+        assert not errs, "規則に反する布陣: {}".format(errs)
+    dt = 0.5
+    ys = G.cost_yardstick(dt)
+    # 左右を入れ替えて反対称化（席順の偏りを消す）
+    v = (G.margin(a, b, dt) - G.margin(b, a, dt)) / 2.0 / ys
+    return target, effect, wise, v
+
+
+def main():
+    if "--new" in sys.argv:
+        foe, own = list(NEW + ANCHOR), []
+    else:
+        foe, own = FOE_TARGETS, OWN_TARGETS
+    jobs = ([(p, f, w, t, e)
+             for p in PERSONA for f in NF for w in (False, True)
+             for t in foe for e in ("打撃", "弱体")]
+            + [(p, f, w, t, e)
+               for p in PERSONA for f in NF for w in (False, True)
+               for t in own for e in ("回復", "強化")])
+    targets = foe + own
+    print("測る: 敵{} + 味方{} 対象 × 相手{}通り = {} 局".format(
+        len(foe), len(own), len(PERSONA) * len(NF) * 2, len(jobs)), flush=True)
+    res = Pool(4).map(cell, jobs, chunksize=4)
+
+    from collections import defaultdict
+    agg = defaultdict(list)
+    split = defaultdict(list)
+    for t, e, w, v in res:
+        agg[(t, e)].append(v)
+        split[(t, e, w)].append(v)
+
+    for effect in ("打撃", "弱体", "回復", "強化"):
+        if not any((t, effect) in agg for t in targets):
+            continue
+        print("\n── {}（コスト点。18通りの相手で）──".format(effect))
+        print("  {:<22}{:>8}{:>8}{:>8}{:>8}{:>7}   {:>8}{:>8}".format(
+            "対象", "平均", "中央", "最小", "最大", "幅", "知力平ら", "軍師入り"))
+        for t in targets:
+            if (t, effect) not in agg:
+                continue
+            v = agg[(t, effect)]
+            flat = split[(t, effect, False)]
+            wise = split[(t, effect, True)]
+            print("  {:<22}{:>8.3f}{:>8.3f}{:>8.3f}{:>8.3f}{:>6.1f}x   {:>8.3f}{:>8.3f}".format(
+                t, statistics.mean(v), statistics.median(v), min(v), max(v),
+                (max(v) / min(v)) if min(v) > 0.01 else float("inf"),
+                statistics.mean(flat), statistics.mean(wise)))
+
+    print("\n── 生の平均（表へ入れる前の素の値）──")
+    for effect in ("打撃", "弱体", "回復", "強化"):
+        rows = [(t, statistics.mean(agg[(t, effect)]))
+                for t in targets if (t, effect) in agg]
+        if not rows:
+            continue
+        print("  {}:".format(effect))
+        for t, v in rows:
+            print("    {!r}: {:.4f},".format(t, v))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

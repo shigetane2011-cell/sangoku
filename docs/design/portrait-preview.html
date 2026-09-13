@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>顔絵の見え方くらべ — 三国布陣</title>
+<style>
+  :root { --bg:#14100c; --panel:#211a13; --line:#423625; --line2:#5a4a30;
+          --ink:#f0e5cf; --sub:#ab9a7e; --gold:#d9ac4f; }
+  body { margin:0; background:var(--bg); color:var(--ink); padding:22px 26px 60px;
+         font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif; }
+  h1 { font-size:19px; letter-spacing:.1em; margin:0 0 6px; }
+  p.lead { color:var(--sub); font-size:13px; margin:0 0 18px; max-width:52em; }
+  #drop { border:2px dashed var(--line2); border-radius:14px; padding:26px;
+          text-align:center; color:var(--sub); margin-bottom:24px; }
+  #drop.hot { border-color:var(--gold); color:var(--ink); }
+  .row { display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start;
+         border-bottom:1px solid #241d12; padding:18px 0; }
+  .who { width:9em; font-size:13px; color:var(--sub); word-break:break-all; }
+  .cell { text-align:center; font-size:11px; color:var(--sub); }
+  .cell b { display:block; color:var(--ink); font-size:11.5px; margin-bottom:5px;
+            font-weight:600; }
+  /* 実物と同じ切り抜き（app.css より） */
+  .card { width:128px; background:linear-gradient(180deg,var(--panel),#1c150e);
+          border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+  .card .face { position:relative; aspect-ratio:4/3.4; overflow:hidden; }
+  .card .face img { width:100%; height:100%; object-fit:cover; object-position:top; }
+  .card .nm { font-size:11.5px; padding:5px 4px 7px; }
+  .slot img { width:30px; height:38px; object-fit:cover; border-radius:5px;
+              border:1px solid var(--line2); }
+  .foe img { width:42px; height:42px; object-fit:cover; border-radius:8px;
+             border:1px solid var(--line2); }
+  .chip img { width:20px; height:20px; object-fit:cover; border-radius:50%; }
+  .big img { width:64px; aspect-ratio:3/4; object-fit:cover; border-radius:8px;
+             border:1px solid var(--line2); }
+  .strip { display:flex; gap:6px; align-items:center; }
+  .note { color:var(--sub); font-size:12px; margin-top:14px; }
+  .warn { color:#ef6b3f; }
+</style>
+<h1>顔絵の見え方くらべ</h1>
+<p class="lead">候補の画像をここに放り込むと、<b>ゲームで実際に使われる5つの寸法</b>（武将カード128px・
+詳細64px・編成枠30×38・敵陣42px正方形・登用チップ20px円）で並べて表示します。地の色も本物と同じ。
+<b>いちばん右の20px円で誰か分かるか</b>が、120枚ぶん作る前に決めておきたい一点です。</p>
+<div id="drop">ここに画像をドラッグ＆ドロップ（複数可）／ <input type="file" id="pick" multiple accept="image/*"></div>
+<div id="out"></div>
+<p class="note">※ カード枠は<b>上から64%だけ</b>が見える切り抜き（頭が切れていないか確認）。
+20px円と42px正方形は<b>中央</b>の切り抜き（顔が中央帯から外れていないか確認）。<br>
+<span class="warn">ドット絵は要注意</span>: 480px などの中途半端な倍率から128pxへ縮めると、
+ドットの格子が潰れて眠い絵になります（等倍で作るなら別途相談を）。</p>
+<script>
+const out = document.getElementById("out"), drop = document.getElementById("drop");
+function add(file) {
+  const url = URL.createObjectURL(file);
+  out.insertAdjacentHTML("beforeend", `
+    <div class="row">
+      <div class="who">${file.name}</div>
+      <div class="cell"><b>武将カード 128px</b>
+        <div class="card"><div class="face"><img src="${url}"></div>
+        <div class="nm">関羽〔漢寿亭侯〕</div></div></div>
+      <div class="cell"><b>詳細 64px</b><div class="big"><img src="${url}"></div></div>
+      <div class="cell"><b>編成枠 30×38</b><div class="slot"><img src="${url}"></div></div>
+      <div class="cell"><b>敵陣 42px</b><div class="foe"><img src="${url}"></div></div>
+      <div class="cell"><b>登用チップ 20px</b>
+        <div class="strip chip"><img src="${url}"><img src="${url}"><img src="${url}"></div></div>
+    </div>`);
+}
+document.getElementById("pick").onchange = (e) => [...e.target.files].forEach(add);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("hot"); };
+drop.ondragleave = () => drop.classList.remove("hot");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("hot");
+  [...e.dataTransfer.files].forEach(add); };
+</script>
