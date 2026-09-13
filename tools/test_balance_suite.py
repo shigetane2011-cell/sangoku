@@ -44,7 +44,9 @@ class BalanceSuiteTest(unittest.TestCase):
         # **その登録に勝つために探した相手**（§7.205・12シリーズ 12勝0敗）。
         # 【§7.236】80 → 82 → 84。汜水関の上限を18→20にして王者と破陣を取り直した
         # とき、旧版を chappy_prev_20260910 / counter_prev_20260910 として控えに残した。
-        self.assertEqual(seen, 84)
+        # 【§7.256】84 → 85。赤チームの #1 が**雁行＋弓4の別系統**（王者と1枚しか
+        # 重ならない）で出たので、差し替えずに `archer` として3本目を足した。
+        self.assertEqual(seen, 85)
 
     def test_distribution_reproduces_saved_sample_shape(self):
         report = B.distribution_report(self.data, self.cards)

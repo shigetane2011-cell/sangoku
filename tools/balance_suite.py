@@ -107,6 +107,11 @@ def _timed_module_check(module: str) -> dict:
 
 
 # 名簿の形（§7.170・2026-09-05 に 18枚足して 139枚＝138人・呂布は2版）。札を足したらここも直す。
+# battle の「候補」＝この登録を、他の見張っている登録・在野・special48 へ当てる。
+# 破陣（`counter`）を候補に置いているのは §7.194 からの続きで、**基線の連続性**のため
+# （王者は探索のたびに差し替わるが、破陣は据え置いてある）。
+CANDIDATE = "counter"
+
 ROSTER_PERSONS = 138
 EXPECTED_COST_COUNTS = {1: 14, 2: 14, 3: 14, 4: 14, 5: 14, 6: 14, 7: 14, 8: 14, 9: 14, 10: 13}
 
@@ -283,7 +288,7 @@ def distribution_report(data: Mapping, cards: Sequence[F.Card]) -> dict:
     for key in ("official24", "special48"):
         pools[key] = _pool_distribution(C.pool_entries(data, key, idx), cards)
         pools[key]["status"] = data["pools"][key]["status"]
-    strong = [C.named_set(data, key, idx) for key in ("chappy", "counter")]
+    strong = [C.named_set(data, key, idx) for key in C.STRONG_SETS]
     pools["strong_sets"] = _pool_distribution(strong, cards, apply_thresholds=False)
     pools["strong_sets"]["status"] = "diagnostic_only"
     return {"pools": pools}
@@ -336,15 +341,18 @@ def _run_pool(pool: str, candidate: M.Entry,
 def battle_report(data: Mapping, cards: Sequence[F.Card], profile: Mapping,
                   jobs_n: int) -> dict:
     idx = C.card_index(cards)
-    candidate_name, candidate = C.named_set(data, "counter", idx)
-    chappy_name, chappy = C.named_set(data, "chappy", idx)
-    pools = {
-        "chappy": ([(chappy_name, chappy)], list(profile["target_seeds"])),
+    candidate_name, candidate = C.named_set(data, CANDIDATE, idx)
+    # 見張っている登録は**それぞれ別の的**にする（まとめて平均しない）。
+    # §7.256 で 3本目（雁弓）が増えたのは、**同じ高さの峰が2つあった**から ——
+    # 平均すると「どちらにも中くらいに勝つ」が「片方に完敗している」を隠す。
+    pools = {key: ([C.named_set(data, key, idx)], list(profile["target_seeds"]))
+             for key in C.STRONG_SETS if key != CANDIDATE}
+    pools.update({
         "official24": (C.pool_entries(data, "official24", idx),
                        list(profile["pool_seeds"])),
         "special48": (C.pool_entries(data, "special48", idx),
                       list(profile["pool_seeds"])),
-    }
+    })
     if data["pools"]["final_blind"]["entries"]:
         pools["final_blind"] = (C.pool_entries(data, "final_blind", idx),
                                 list(profile["pool_seeds"]))
@@ -825,7 +833,8 @@ def build_report(command: str, profile_name: str, jobs_n: int,
         "battle_target_seeds": list(profile["target_seeds"]) if "battle" in sections else [],
         "battle_pool_seeds": list(profile["pool_seeds"]) if "battle" in sections else [],
         "sides": ["A", "B"] if sections & {"battle", "archetype", "cadence"} else [],
-        "opponent_pools": ["chappy", "official24", "special48"] if "battle" in sections else [],
+        "opponent_pools": ([k for k in C.STRONG_SETS if k != CANDIDATE]
+                           + ["official24", "special48"]) if "battle" in sections else [],
         # §7.175: BO3 は本番の sim.match.play をそのまま使う。旧方式（play_one を同じ種で
         # 束ねて2勝判定）の基線とは勝率を比べない（compare_reports が拒む）
         "bo3_protocol": B.PROTOCOL if "battle" in sections else None,

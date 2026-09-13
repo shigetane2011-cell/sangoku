@@ -94,6 +94,20 @@ def entry_from_spec(spec: Mapping, cards: Mapping[str, F.Card]) -> M.Entry:
     return entry
 
 
+# **いま見張っている登録**（fixtures の `sets` のうち「生きている」もの）。
+# 他の `sets` は控え（`*_prev_*`）か、テストプレイ本人が組んだ記録で、ここには入れない。
+#
+# `chappy` 王者・`counter` 破陣・`archer` 雁弓（§7.256）。3本目を足したのは、
+# **同じ高さの峰が2つあった**から —— 赤チームの #1（雁行＋弓4・検証 BO3 89.4%）から
+# 司馬懿〔冢虎〕だけを禁じて同じ種で回し直すと、高さは 0.6pt しか落ちないのに
+# 形は歩＋槍へ総取り替えになった。つまり「いちばん強い18人」は1本では代表できない。
+# **登録は最強の1本ではなく、いまの盤面が許す形を代表する何本か**（§7.194 ②）。
+#
+# ここを増やすと `balance_suite` の battle と distribution、`bo3_goodstuff_search` の
+# 初期個体・殿堂の種・重複の報告・`--solve` の候補が**まとめて**増える（全部この1つを読む）。
+STRONG_SETS = ("chappy", "counter", "archer")
+
+
 def named_set(data: Mapping, key: str, cards: Mapping[str, F.Card]) -> Tuple[str, M.Entry]:
     spec = data["sets"][key]
     return spec.get("name", key), entry_from_spec(spec, cards)

@@ -25,7 +25,8 @@
     適応度 = 各群の BO3 勝率の重み付き平均 + 0.03·tanh(2·残兵差)
 
 報告:
-    - 上位候補どうしの **18人中の重複枚数** と **戦場別6人の重複枚数**、chappy／counter との重複
+    - 上位候補どうしの **18人中の重複枚数** と **戦場別6人の重複枚数**、
+      **見張っている登録すべて**（`balance_common.STRONG_SETS`＝王者・破陣・雁弓）との重複
     - 最終候補は「上位から順に、既出と 18人中 max_overlap 枚以下の重なりのものだけ」を採る
       （同系統の微修正が並ぶのを避ける。省いた数も出す）
     - special48 は検証用だが**盲検ではない**（過去の調整に使用済み）。final_blind は空なので
@@ -45,7 +46,7 @@
 --solve（§7.149・メタ解析）:
     python3 tools/bo3_goodstuff_search.py --solve --profile quick
     「固定相手への勝率最大化」ではなく、強い18人登録どうしが当たったときの**混合均衡・最良応答・
-    搾取可能性**を測る。候補集合（chappy・counter・赤チーム上位・殿堂・在野の一部・性格パネル）の
+    搾取可能性**を測る。候補集合（見張っている登録・赤チーム上位・殿堂・在野の一部・性格パネル）の
     BO3 利得行列（両側×複数種の平均・反対称・対角 0）→ regret matching で混合均衡 → その均衡に対する
     最良応答を探索器（同じ変異・同じ合法性・M.play）で探す → 十分強ければ候補へ足して解き直す
     （Double Oracle / PSRO 型のループ）。exploitability は**探索器が見つけた最良応答に対する値**で、
@@ -395,7 +396,8 @@ def _load():
     data = C.load_fixtures()
     cards = C.roster()
     idx = C.card_index(cards)
-    named = {k: C.named_set(data, k, idx)[1] for k in ("chappy", "counter") if k in data.get("sets", {})}
+    named = {k: C.named_set(data, k, idx)[1]
+             for k in C.STRONG_SETS if k in data.get("sets", {})}
     official = [e for _n, e in C.pool_entries(data, "official24", idx)]
     special = [e for _n, e in C.pool_entries(data, "special48", idx)]
     final = [e for _n, e in C.pool_entries(data, "final_blind", idx)]
@@ -446,7 +448,7 @@ def search(args) -> dict:
     weights = GROUP_WEIGHT_VS if targets else GROUP_WEIGHT
     rng = random.Random(args.seed)
     # --ban: 使えない札（王者の18枚を禁じて「二番目の種」を探す・§7.163）。相手（在野・殿堂・性格）は
-    # 全札のままで、**探索する側だけ**が使えない。--fresh: chappy／破陣を初期個体にしない。
+    # 全札のままで、**探索する側だけ**が使えない。--fresh: 見張っている登録を初期個体にしない。
     ban = {x.strip() for x in (getattr(args, "ban", "") or "").split(",") if x.strip()}
     pool_cards = [c for c in cards if c.name not in ban]
     def _clean(e):
@@ -465,7 +467,7 @@ def search(args) -> dict:
         population = _dedupe(population + [child])
     population = population[: cfg["population"]]
 
-    # Hall of Fame: 初期は chappy／counter。以後は各世代の上位を積む（HALL_CAP まで）。
+    # Hall of Fame: 初期は見張っている登録（STRONG_SETS）。以後は各世代の上位を積む（HALL_CAP まで）。
     hall: Dict[Tuple, Tuple[M.Entry, Metrics]] = {}
     hall_seed = list(named.values())
     history = []
@@ -606,7 +608,8 @@ def markdown(report: Mapping) -> str:
              "- 同系統として省いた候補: {}（18人中 {} 枚超の重なり）".format(
                  report["skipped_as_same_lineage"], report["max_overlap"]),
              "- 禁止札: {}".format("、".join(report.get("ban", [])) or "なし"),
-             "- 初期個体: {}".format("在野だけ（chappy・破陣を種にしない）" if report.get("fresh") else "chappy・破陣・在野"), ""]
+             "- 初期個体: {}".format("在野だけ（登録を種にしない）" if report.get("fresh")
+                                     else "・".join(C.STRONG_SETS) + "・在野"), ""]
     lines += ["## 世代ごとの最良（適応度＝重み付き得点率・引き分け半勝）", "",
               "| 世代 | 適応（得点率） | BO3勝率 | 在野 | 殿堂 | 性格 | 交代 | 陣形 |", "|---|---|---|---|---|---|---|---|"]
     for h in report["history"]:
@@ -909,7 +912,8 @@ def solve(args) -> dict:
     protocol = {"bo3_protocol": B.PROTOCOL, "treasures": "none", "sides": list(B.SIDES),
                 "solve_profile": cfg, "search_profile": scfg, "seeds": list(seeds), "dt": 0.5,
                 "br_threshold": threshold, "br_min_gain": BR_MIN_GAIN, "support_eps": SUPPORT_EPS, "eq_iters": EQ_ITERS,
-                "candidate_sources": ["chappy", "counter", "red(goodstuff.json)", "hall(goodstuff.json)", "official24 subset", "persona panel"]}
+                "candidate_sources": list(C.STRONG_SETS) + [
+                    "red(goodstuff.json)", "hall(goodstuff.json)", "official24 subset", "persona panel"]}
     report = {
         "tool": "bo3_goodstuff_search --solve", "profile": args.profile, "seed": args.seed, "jobs": args.jobs,
         "manifest": C.manifest("bo3_goodstuff_search --solve", args.profile, protocol, data),
@@ -974,7 +978,7 @@ def solve_markdown(rep: Mapping) -> str:
               "- 兵種: " + "／".join("歩{歩}騎{騎}弓{弓}槍{槍}".format(**a["types"]) for a in sp["armies"]),
               "- 段: " + "／".join("手{手数}標{標準}大{大技}".format(**a["cadence"]) for a in sp["armies"]),
               "- 対策札: " + ("・".join(sp["watch_cards"]) or "なし"),
-              "- support 内の平均共通枚数 {}・chappy/counter との重複 {}".format(
+              "- support 内の平均共通枚数 {}・見張っている登録との重複 {}".format(
                   sm["mean_overlap_in_support"], "/".join("{}:{}".format(k, v) for k, v in sm["overlap_with_named"].items()))]
         for a in sp["armies"]:
             L.append("- {} {} {:g}点: 前 {} ／ 後 {}".format(a["regulation"], a["formation"], a["cost"], " / ".join(a["front"]), " / ".join(a["rear"])))
@@ -991,7 +995,7 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--output", type=Path, default=None)
     ap.add_argument("--ban", default="", help="探索する側が使えない札（読点区切り・王者の18枚を禁じて二番目の種を探す）")
-    ap.add_argument("--fresh", action="store_true", help="chappy・破陣を初期個体にしない（在野だけから始める）")
+    ap.add_argument("--fresh", action="store_true", help="見張っている登録を初期個体にしない（在野だけから始める）")
     ap.add_argument("--vs", default="", help="この登録に勝てるものを探す（fixtures の sets の鍵・読点区切り）。"
                                              "狙いの相手は毎世代かならず当たり、群の重みが GROUP_WEIGHT_VS になる")
     ap.add_argument("--solve", action="store_true", help="メタ解析（§7.149）: 利得行列→混合均衡→最良応答のループ")
