@@ -19037,7 +19037,10 @@ hall_opps = [e for e, _m in hall_ranked[: cfg["train_hall"]]] or hall_seed
 #### ⑥ 検証と、これからの宿題
 
 回帰35本（`test_tier_scale.py` 新設）・検算 OK・零点 0.00・画面の煙検査・
-`balance_suite quick`。**名簿の身体は1人も動いていない**（前後の `generals.csv` で
+`balance_suite quick`（**`quick` は8種なので軽い**。前後比較には使えるが、
+絶対値は §7.265 ④ で取り直した `standard`＝100種の基準値を見ること —— たとえば
+7型の幅は quick で 50.0pt・standard で **39.6pt** と出る）。
+**名簿の身体は1人も動いていない**（前後の `generals.csv` で
 兵力・攻撃力・防御力・総合値が全139枚一致。効果予算だけ5枚が丸めで 0.5〜1.3% 動いた）。
 
 - **馬良〔白眉〕の写し取りを測り直すこと。** 写す相手（決戦型）が 1.39倍になったので、
