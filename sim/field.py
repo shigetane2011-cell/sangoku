@@ -1169,7 +1169,13 @@ DUEL_SHIELD_BOTH = False
 #
 # 上限を置くのは、的が6枚いるときに6倍まで伸びると「囲まれるほど強い」が
 # 際限なくなるため。N は効果文で決める（`薙ぎ払い N体（M秒）`）。
-CLEAVE_CAP = 4           # 効果文で書ける最大の同時体数（読み込みが検める）
+CLEAVE_CAP = 4
+
+# 引き延ばし（§7.259）の上限。「いま掛かっている弱体の寿命を元の長さの N 倍へ」。
+# **2.0 を超えさせない。** 伸ばす秒数は元の長さに比例するので、長い弱体
+# （張角の延焼・龐統の1列足止め）と組むと1枚で戦況が決まる量になる。
+# 1.5 なら延焼12秒が +6秒、足止め3秒が +1.5秒。
+STRETCH_CAP = 2.0           # 効果文で書ける最大の同時体数（読み込みが検める）
 # 【測って却下・§7.250】**敵中突破は作って測って外した。**
 #
 # 「発動した隊が敵の戦列を突き抜けて後衛の隣へ出る」器を実装し（経路をその場で
@@ -2225,7 +2231,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour", "pike",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_floor", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_secs", "chaos_floor", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
@@ -2410,6 +2416,7 @@ class Unit:
         self.disrupt = 0.0  # 受けている混乱の量（弓の斉射ぶん。いまは未使用）
         self.chaos = 0.0        # 計略で受けた混乱。同士討ちを起こす
         self.chaos_until = 0.0  # その失効時刻
+        self.chaos_secs = 0.0   # 元の長さ（§7.259 の引き延ばしが読む）
         self.chaos_floor = 0.0  # 酒乱（§7.146）: 失効しても戻る床
         if TRAITS_ON and "drunk" in self.traits:      # 酒乱（§7.146）: 常に少し酔っている
             self.chaos_floor = DRUNK_CHAOS
@@ -2903,6 +2910,15 @@ class Skill:
     # 一騎討ち（§7.249）: 名指しした敵1体と二人だけの盤面を作る秒数（0 なら無し）。
     # **対象が敵1体の兵法にしか付けられない**（`_parse_skill` が断る）。
     duel: float = 0.0
+    # 引き延ばし（§7.259）: **いま掛かっている**混乱・延焼・足止めの寿命を
+    # 「元の長さ × これ」へ伸ばす（1.0 か 0 なら無し）。1.5 なら +0.5×元の長さ。
+    #
+    # **残り時間ではなく元の長さに掛ける。** 残りに掛けると「味方が入れた直後に
+    # 撃つほど得」になって、撃つ時刻で値打ちが何倍にも振れる（値付けが立たない）。
+    # 元の長さなら**伸びる秒数が撃つ時刻に依らない**ので、単価 × 秒 で請求できる。
+    # 副産物として「長い弱体ほど多く伸びる」（延焼12秒は +6秒・足止め3秒は +1.5秒）
+    # という向きが出る —— 組む相手を選ぶ器になる。
+    stretch: float = 0.0
     # 予算の縮尺（§7.151）を受けるか。**兵法は True・固有特性と宝物は False**
     # （§7.152 の裁定）。秒数と量は読み込みのときに済んでいるが、打ち切りの
     # 威力・回復は実行時に掛かるので、その口が見る印をここで運ぶ。
@@ -3143,6 +3159,26 @@ def _parse_skill(effect: str, target: str) -> Skill:
         raise SystemExit(
             "一騎討ちは**敵1体**の対象にだけ付けられる（いまの対象: {}）\n"
             "  効果文: {}".format(target, effect))
+    # 引き延ばし（§7.259）。「引き延ばし 150%」＝**元の長さの 150% まで**。
+    # **いま掛かっている**混乱・延焼・足止めの寿命だけを伸ばす。
+    #
+    # **「1.5倍」と書かない。** 効果文に小数を入れると `rosterdata` の検算が撥ねる
+    # （読み手は整数しか拾わないので、その節が黙って消える）。名簿の他の量と同じく
+    # 百分率で書く（威力600%・混乱25%・攻撃力+14% と同じ流儀）。
+    #
+    # **敵対象にだけ付けられる** —— 味方の強化を伸ばす形は「同じ字で別の器」に
+    # なるので、混ぜない。
+    ms = re.search(r"引き延ばし\s*(\d+)%", effect)
+    stretch = float(ms.group(1)) / 100.0 if ms else 0.0
+    if stretch > 0.0:
+        if "敵" not in target:
+            raise SystemExit(
+                "引き延ばしは**敵**の対象にだけ付けられる（いまの対象: {}）\n"
+                "  効果文: {}".format(target, effect))
+        if not 1.0 < stretch <= STRETCH_CAP:
+            raise SystemExit(
+                "引き延ばしは 100% より大きく {:.0f}% まで（いまの指定: {:.0f}%）\n"
+                "  効果文: {}".format(STRETCH_CAP * 100, stretch * 100, effect))
     drain = DRAIN_SHARE if "吸収" in effect else 0.0
     if drain > 0.0 and (p <= 0.0 or dur > 0.0):
         raise SystemExit(
@@ -3152,7 +3188,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  heal=heal, heal_pct=_skill_heal_pct(effect),
                  drain=drain,
                  drain_wits=drain > 0.0 and "知力比" in effect,
-                 duel=duel,
+                 duel=duel, stretch=stretch,
                  cleave=cleave, cleave_secs=cleave_secs,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
@@ -3346,6 +3382,12 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
         return ("{}の【{}】！　{}の一振りが同時に{:.0f}体を捉える"
                 "——それぞれに満額の刃が入る。（{:.0f}分）".format(
                     who, name, where, amount, mins(secs)))
+    if kind == "stretch":
+        # 引き延ばし（§7.259）。**「新しく掛ける」ではない**と分かる言い方にする ——
+        # 「足止めした」と読まれると、何も掛かっていない相手にも効くと思われる。
+        return ("{}の【{}】！　{}を覆う乱れ・炎・足枷が、抜ける寸前で締め直される"
+                "——いま掛かっている崩れが元の{:.0f}%まで長引く。".format(
+                    who, name, where, amount))
     if kind == "duel":
         # 一騎討ち（§7.249）。**どちらがどう守られるか**を書き分ける
         # （DUEL_SHIELD_BOTH の注記。挑まれた側は晒されたままである）。
@@ -3439,6 +3481,7 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
            "dot": None, "dot_actual": 0.0, "mods": [], "sac": 0.0, "recoil": [],
            "duel": None,          # 一騎討ち（§7.249）: {"with": 相手, "secs": 秒}
            "cleave": None,        # 薙ぎ払い（§7.252）: {"n": 体数, "secs": 秒}
+           "stretch": None,       # 引き延ばし（§7.259）: {"mult": 倍率, "hit": 伸ばせた隊数}
            "decisive": False}
     _CASTS.append(rec)
     _CAST_BY_ID[rec["id"]] = rec
@@ -3521,7 +3564,13 @@ def _fx_add_duel(a: Unit, b: Unit, until: float, host: bool) -> None:
 
 
 def _fx_add(f: Unit, eff) -> None:
-    """状態効果を積む。兵法のフェーズ中なら蓄積器へ回す。"""
+    """状態効果を積む。兵法のフェーズ中なら蓄積器へ回す。
+
+    山の1つは `(切れる時刻, 種別, 量, 出どころ, **元の長さ**)`。最後の「元の長さ」は
+    §7.259 の引き延ばしが読む —— 山は切れる時刻しか持っていなかったので、
+    「元の長さの1.5倍へ」を計算できなかった。位置で読む所（`e[0]`・`e[1]`・`e[3]`）は
+    そのままなので、足したのは**末尾1つだけ**である。
+    """
     if _SKILL_FX is None:
         f.effects.append(eff)
     else:
@@ -3549,12 +3598,19 @@ def _pool_set(f: Unit, pool) -> None:
         _SKILL_FX.append((f, "pool", pool))
 
 
-def _chaos_add(f: Unit, amt: float, until: float) -> None:
+def _chaos_add(f: Unit, amt: float, until: float, secs: float = 0.0) -> None:
+    """混乱を積む。`secs` は**元の長さ**（§7.259 の引き延ばしが読む）。
+
+    混乱だけは山ではなく2つのスカラ（`chaos` と `chaos_until`）で持っているので、
+    元の長さも `chaos_secs` というスカラで持つ。重ね掛けは「強いほうを残す」
+    規約なので、**長さも長いほうを残す**（伸ばす量が短いほうに引きずられない）。
+    """
     if _SKILL_FX is None:
         f.chaos = max(f.chaos, amt)
         f.chaos_until = max(f.chaos_until, until)
+        f.chaos_secs = max(f.chaos_secs, secs)
     else:
-        _SKILL_FX.append((f, "chaos", (amt, until)))
+        _SKILL_FX.append((f, "chaos", (amt, until, secs)))
 
 
 # 帳簿の精算（§7.174）。**盤面の計算には一切触れない。** 同時解決の単位
@@ -3732,6 +3788,8 @@ def _flush_men() -> None:
             else:
                 f.chaos = max(f.chaos, v[0])
                 f.chaos_until = max(f.chaos_until, v[1])
+                if len(v) > 2:
+                    f.chaos_secs = max(f.chaos_secs, v[2])
         _SKILL_FX = None
     if _SKILL_DELTA is None:
         return
@@ -3972,7 +4030,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
                 r = (u.wits / max(f.wits, 1e-6)) ** CHAOS_WITS
-                _chaos_add(f, amt * r, t + secs)
+                _chaos_add(f, amt * r, t + secs, secs)
             if hit:
                 note("chaos", amt, secs, amt * secs * len(hit), "", hit)
                 if rec is not None:
@@ -3981,7 +4039,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         if key == "stun":
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
-                _fx_add(f, (t + secs, "stun", amt, src))
+                _fx_add(f, (t + secs, "stun", amt, src, secs))
             if hit:
                 note("stun", 1.0, secs, secs * len(hit) * 10.0, "", hit)
                 if rec is not None:
@@ -3990,7 +4048,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         if key == "glock":      # ゲージ阻害（§7.171）。敵にだけ掛かる
             hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
             for f in hit:
-                _fx_add(f, (t + secs, "glock", amt, src))
+                _fx_add(f, (t + secs, "glock", amt, src, secs))
             if hit:
                 note("glock", 1.0, secs, secs * len(hit) * 10.0, "", hit)
                 if rec is not None:
@@ -4033,7 +4091,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 # 載った時点で「入れ物なし＝何発でも」になっていた（実戦では回数が
                 # 一度も効いていなかった。単体テストは蓄積器を通らないので見えず）。
                 _pool_set(f, pool)
-            _fx_add(f, (t + secs, key, amt, src))
+            _fx_add(f, (t + secs, key, amt, src, secs))
         if hit:
             note("buff" if amt > 0.0 else "debuff", amt, secs,
                  abs(amt) * secs * len(hit), key, hit)
@@ -4052,7 +4110,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
             hit = [f for f in dst if f.men > 0.0]
             for f in hit:
-                _fx_later(f, t + wait, (t + wait + secs, key, amt, src))
+                _fx_later(f, t + wait, (t + wait + secs, key, amt, src, secs))
             if hit and rec is not None:
                 rec["mods"].append(["その後 " + _MOD_JP_KEY.get(key, key),
                                     amt, secs, [_who(f) for f in hit]])
@@ -4062,7 +4120,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
         hit = [f for f in ([] if ally else tgts) if f.men > 0.0]
         for f in hit:
             r = (u.wits / max(f.wits, 1e-6)) ** WITS_MOD
-            _fx_add(f, (t + secs, key, amt * r, src))
+            _fx_add(f, (t + secs, key, amt * r, src, secs))
         if hit:
             note("debuff", amt, secs, abs(amt) * secs * len(hit), key, hit)
             if rec is not None:
@@ -4070,7 +4128,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                                     [_who(f) for f in hit]])
     # 反動: 撃った本人への一定時間の弱体（§7.64）
     for key, amt, secs in sk.self_mods:
-        _fx_add(u, (t + secs, key, amt, src))
+        _fx_add(u, (t + secs, key, amt, src, secs))
         if rec is not None:
             rec["recoil"].append([_MOD_JP_KEY.get(key, key), amt, secs])
     if sk.mods or sk.self_mods or sk.wits_mods:
@@ -4099,6 +4157,49 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             note("duel", sk.duel, sk.duel, 0.0, "", [f])
             if rec is not None:
                 rec["duel"] = {"with": _who(f), "secs": sk.duel}
+    if sk.stretch > 0.0:
+        # 引き延ばし（§7.259）。**いま掛かっている**混乱・延焼・足止めの寿命を
+        # 「元の長さ × sk.stretch」まで伸ばす。3つとも入れ物が違うので3回なぞる。
+        #
+        # **新しく掛けはしない。** 何も掛かっていない相手には**何も起きない**器で、
+        # そこが値打ちの条件（味方が先に撒く編成でだけ働く）。
+        # **元の長さに掛ける**ので、伸びる秒数は撃った時刻に依らない
+        # （残り時間に掛ける形だと「直後に撃つほど得」になって値付けが立たない）。
+        n_stretched = 0
+        for f in tgts:
+            if f.side == u.side or f.men <= 0.0:
+                continue
+            hit = False
+            # ① 足止め・その他の時限効果（山）。**元の長さを末尾に持っている**。
+            grown = []
+            for e in f.effects:
+                secs = e[4] if len(e) > 4 else 0.0
+                if e[1] == "stun" and secs > 0.0 and e[0] > t:
+                    grown.append((e[0] + secs * (sk.stretch - 1.0),) + tuple(e[1:]))
+                    hit = True
+                else:
+                    grown.append(e)
+            f.effects = grown
+            # ② 混乱（スカラ2つ＋元の長さ）
+            if f.chaos > f.chaos_floor and f.chaos_until > t and f.chaos_secs > 0.0:
+                f.chaos_until += f.chaos_secs * (sk.stretch - 1.0)
+                hit = True
+            # ③ 延焼（別の山）。回復（heal）は伸ばさない —— 敵に掛かった延焼だけ。
+            ot = []
+            for e in f.overtime:
+                secs = e[5] if len(e) > 5 else 0.0
+                if e[1] == "dot" and secs > 0.0 and e[0] > t:
+                    ot.append((e[0] + secs * (sk.stretch - 1.0),) + tuple(e[1:]))
+                    hit = True
+                else:
+                    ot.append(e)
+            f.overtime = ot
+            if hit:
+                n_stretched += 1
+                _recalc_mods(f)
+        note("stretch", sk.stretch * 100.0, 0.0, 0.0, "", list(tgts))
+        if rec is not None:
+            rec["stretch"] = {"mult": sk.stretch, "hit": n_stretched}
     if sk.heal_pct > 0.0:
         # 割合回復（§7.129・持重）。**解決後の兵力**で選び直す — 特性は兵法の
         # 後・遅延窓を流す前に撃つので、`men` のままだと「いま討たれた隊」を
@@ -4187,8 +4288,11 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                     # 増幅（§7.199）は**火が点いた時点の状態**で決まる（毎秒の量に
                     # 織り込む）。燃えている最中に阻害が切れても弱まらない —
                     # 「延焼はもう始まっている」という読みで、実装も帳簿も単純になる。
+                    # 末尾の `sk.dur` は**元の長さ**（§7.259 の引き延ばしが読む）。
+                    # `_overtime` の分解は `*rid` で余りを飲むので、`rid[0]`（記録の
+                    # id）の位置は動かない。
                     f.overtime.append((t + sk.dur, "dot", dmg * _amp_mult(u, f, "dot"),
-                                       u, rec["id"] if rec else 0))
+                                       u, rec["id"] if rec else 0, sk.dur))
                     done += dmg
                     got.append(f)
                 else:
@@ -4317,6 +4421,8 @@ def _skill_extra(item) -> str:
     if kind == "cleave":
         return "{}の一振りが同時に{:.0f}体へ満額で入る（{:.0f}分）".format(
             where, amount, mins(secs))
+    if kind == "stretch":
+        return "{}に掛かっている乱れ・炎・足枷が元の{:.0f}%まで延びる".format(where, amount * 100.0)
     if kind == "duel":
         return "{}を一騎討ちへ引きずり出す（{:.0f}分・その間ほかの敵は手が出せない）".format(
             where, mins(secs))
@@ -4491,7 +4597,7 @@ def _recalc_mods(u: Unit) -> None:
     best: Dict[Tuple[str, str], float] = {}
     stun = False
     glock = False
-    for _, kind, amt, src in u.effects:
+    for _, kind, amt, src, *_rest in u.effects:
         if kind == "stun":
             stun = True
             continue

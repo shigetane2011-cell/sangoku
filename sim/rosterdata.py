@@ -1166,9 +1166,18 @@ def load_skills_into_field() -> int:
                 "skills.csv: 効果文に小数が入っている（読み手は整数しか拾わないので"
                 "その節が消える）: {} … {}".format(sk["兵法名"], eff))
         parsed = F._parse_skill(eff, sk["対象"])
+        # 「何か1つでも読めたか」の見張り。**器を新設したらここへ足す** ——
+        # 足し忘れると、その器**だけ**を持つ兵法（打撃も状態効果も無い札）が
+        # 「書式ちがい」で撥ねられる。薙ぎ払い・一騎討ちは相方の節があったので
+        # 露見しなかったが、引き延ばし（§7.259）は単独で持つので当たった。
         if eff.strip() and not (parsed.power or parsed.heal or parsed.mods
                                 or getattr(parsed, "wits_mods", ())
-                                or getattr(parsed, "sac", 0.0)):
+                                or getattr(parsed, "sac", 0.0)
+                                or getattr(parsed, "heal_pct", 0.0)
+                                or getattr(parsed, "drain", 0.0)
+                                or getattr(parsed, "duel", 0.0)
+                                or getattr(parsed, "cleave", 0)
+                                or getattr(parsed, "stretch", 0.0)):
             raise SystemExit(
                 "skills.csv: 効果文が1つも読めていない（書式ちがい）: {} … {}"
                 .format(sk["兵法名"], eff))

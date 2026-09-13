@@ -288,6 +288,11 @@ def _skill_display(g, sk_row, scaled: bool = True) -> str:
         parts.append("薙ぎ払い 通常攻撃が同時に{}体へ入る（{:.0f}分間・"
                      "それぞれに満額）".format(
                          sk.cleave, F.mins(getattr(sk, "cleave_secs", 0.0))))
+    if getattr(sk, "stretch", 0.0) > 1.0:
+        # 引き延ばし（§7.259）。**「新しく掛ける器ではない」**が肝。ここを書かないと
+        # 「足止めの兵法」と読まれ、味方に撒き手がいない編成で腐る理由が分からない。
+        parts.append("引き延ばし すでに掛かっている混乱・延焼・足止めを"
+                     "**元の長さの{:.0f}%**まで延ばす（新しくは掛けない）".format(sk.stretch * 100.0))
     if getattr(sk, "duel", 0.0) > 0.0:
         # 一騎討ち（§7.249）。**どちらがどう守られるか**を言い切る —
         # 「一騎討ち」の字だけだと「相手も守られる」と読まれる。
