@@ -3209,6 +3209,18 @@ def _skill_targets(target: str, u, foe, own, dead_ok: bool = False):
             # dead_ok は self_dead の特性（§7.171 不撓）だけ。倒れた本人が自分を
             # 回復して立ち直る口で、それ以外の「自分」は生きている時だけ。
             return [u] if (u.men > 0.0 or dead_ok) else []
+        if "同じ勢力" in target:
+            # 【§7.258】勢力で縛る号令（司馬昭〔晋王〕）。**「全体」より先に見る。**
+            # 撃った本人と同じ勢力の味方だけが受ける。編成の軸をひとつ増やすための器で、
+            # 「魏で固めると号令が全員に届く／混ぜると半分にしか届かない」を作る。
+            #
+            # **勢力の無い隊（合成カードなど）は本人だけ。** 空文字どうしを同じ勢力と
+            # 見なすと、名簿を持たない計器の盤面で「味方全体」と同じ挙動になり、
+            # 値付けの測定が黙って全体の値になる（踏みかけた）。
+            if not u.faction:
+                return [u] if u.men > 0.0 else []
+            return [x for x in pool if x.faction == u.faction] or (
+                [u] if u.men > 0.0 else [])
         if "全体" in target:
             return pool
         if "前衛" in target:
