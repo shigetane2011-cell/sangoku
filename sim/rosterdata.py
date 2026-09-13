@@ -827,15 +827,16 @@ def _check_tiers() -> int:
     from . import field as F
     rows = {r["兵法名"]: r for r in skills()}
     bad = []
-    for g in generals():
-        row = rows.get(g["兵法"])
-        if not row:
-            continue
-        seen = tier_for(row, F.SKILL_INFO.get(g["兵法"]))
-        priced = D.GAUGE_TIER_NAME.get(float(g["消費ゲージ%"]))
+    for name, row in rows.items():
+        # **skills.csv の中だけで突き合わせる。** generals.csv の消費ゲージ% は
+        # sync が skills.csv から写している**派生**なので、そちらと比べると
+        # 「段を直す → 見張りが読み込みで落ちる → sync が写せない」と
+        # **自分で自分を塞ぐ**（実際に踏んだ）。正は同じ行に並んでいる2つの列。
+        seen = tier_for(row, F.SKILL_INFO.get(name))
+        priced = D.GAUGE_TIER_NAME.get(float(row["消費ゲージ%"]))
         if priced is not None and seen != priced:
-            bad.append("{}（{}）: 画面と盤面は {}・値段は {}（消費{}）".format(
-                g["名前"], g["兵法"], seen, priced, g["消費ゲージ%"]))
+            bad.append("{}: 発動型は {}・消費ゲージ{} は {}".format(
+                name, seen, row["消費ゲージ%"], priced))
     if bad:
         raise SystemExit(
             "段の解決が食い違っている（§7.260）。効果文が段を参照するので"

@@ -2231,7 +2231,7 @@ class Unit:
         "side", "typ", "cost", "men", "men0", "atk", "dfn", "interval",
         "speed", "rng", "width", "depth", "x", "y", "path", "seg_len",
         "total_len", "progress", "is_front", "x0", "detour", "pike",
-        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_secs", "chaos_floor", "mimic_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "ncut_mult", "nullify",
+        "name", "quote", "traits", "atk_mult", "def_mult", "fired", "effects", "shot", "melee", "disrupt", "gauge", "fires", "gauge_cost", "gauge_rate", "skill", "might", "wits", "overtime", "spd_mult", "faction", "rate_mult", "chaos", "chaos_until", "chaos_secs", "chaos_floor", "mimic_until", "surge", "rand", "dealt", "dealt_skill", "fell_at", "scut_mult", "refl", "nrefl", "ncut_mult", "nullify",
         "ff_dealt", "refl_back", "cut_saved", "healed", "atk_lost",
         "taken", "stun_time", "sup_lost", "pair", "fame_wits",
         "null_blocked", "null_names", "scut_saved",
@@ -2438,6 +2438,7 @@ class Unit:
         # 兵法被害の倍率（1=素通し・§7.51）。恒久項（孟徳新書・§7.138）込み。
         self.scut_mult = max(0.0, 1.0 - self.perm_scut)
         self.refl = 0.0         # 兵法反射の割合（§7.51）
+        self.nrefl = 0.0        # 通常攻撃の刃返しの割合（§7.262）
         self.ncut_mult = 1.0    # 通常攻撃被害の倍率（1=素通し・§7.51）
         self.nullify = False    # 兵法打消しの構え（§7.51 機構5）
         # 構えは「窓の秒数のあいだ、**その一度で** N発まで」（§7.152）。
@@ -2911,6 +2912,15 @@ class Skill:
     # 一騎討ち（§7.249）: 名指しした敵1体と二人だけの盤面を作る秒数（0 なら無し）。
     # **対象が敵1体の兵法にしか付けられない**（`_parse_skill` が断る）。
     duel: float = 0.0
+    # 上書き（§7.263）: **すでにその能力が上がっている敵**にだけ乗る追い討ちの量。
+    # 「攻撃力 -15%（40秒） + 上書き -10%」なら、素で -15%・強化されている相手には
+    # -25% になる。
+    #
+    # **「解除」にしないのが肝。** 解除は相手が強化を持っていなければ**ゼロ**、
+    # 持っていれば**大当たり**で、§7.53 の帯合わせ（平均でいくら返すか）に乗らない
+    # （孫尚香の一撃で同じ問題を踏んでいる・§7.168）。**上乗せ**にすれば下限が
+    # 0 にならないので、値段が付く。
+    overwrite: float = 0.0
     # 写し取り（§7.260）: **次に味方が放つ「その段」の兵法**を、この武将が
     # もう一度放つ。窓の秒数（0 なら無し）と、待ち構える段。
     #
@@ -2989,7 +2999,11 @@ def _skill_heal(effect: str) -> Tuple[float, float]:
 # 効果文の見出し → 盤面の器。**「命中率」は §7.211 で廃語**（攻撃力と同じ
 # atk へ写るので、プレイヤーには別の器に見えて実体が同じだった）。
 _MOD_KEY = {"攻撃力": "atk", "防御力": "def", "移動速度": "spd",
-            "気勢": "rate", "兵法防御": "scut", "兵法反射": "refl", "通常攻撃防御": "ncut"}
+            "気勢": "rate", "兵法防御": "scut", "兵法反射": "refl", "通常攻撃防御": "ncut",
+            # 【§7.262】通常攻撃の刃返し（賀斉〔山越討伐〕）。兵法反射（refl）が
+            # 兵法の被害を返すのに対し、こちらは**通常攻撃の被害**を返す。
+            # 待ち受けて反撃する札の器で、構えの仲間として同じ機構に乗せる。
+            "通常攻撃反射": "nrefl"}
 
 
 def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
@@ -3004,7 +3018,11 @@ def _skill_mods(effect: str) -> Tuple[Tuple[str, float, float], ...]:
     # 同じ弱体が敵にも飛ぶ二重取りになる（実際に踏んだ）。先に除いておく。
     effect = re.sub(r"反動\s*攻撃力\s*-\d+%（\d+秒）", "", effect)
     for m in re.finditer(
-            r"(攻撃力|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃防御)\s*([+-]\d+)%（(\d+)秒(・知力比)?）",
+            # **器を新設したら、`_MOD_KEY` だけでなくここへも足すこと。**
+            # 表に書いただけでは効果文が読まれない（新しい器を足すたびに
+            # 踏む所・落とし穴79 の仲間）。
+            r"(攻撃力|防御力|移動速度|気勢|兵法防御|兵法反射|通常攻撃反射|通常攻撃防御)"
+            r"\s*([+-]\d+)%（(\d+)秒(・知力比)?）",
             effect):
         if m.group(4):
             continue                    # 知力比の口（_skill_wits_mods）が読む
@@ -3126,7 +3144,7 @@ AFTER_SEP = "→ その後"
 # 「→ その後」の後半に置ける効果。**待ち行列（Unit.later）は「効果の山」へ
 # 移すだけ**なので、山の外に別の器を持つもの（混乱＝知力比で量が変わる、
 # 打消し＝発動ごとの入れ物）は置けない。器を足すまでは早い段階で断る。
-AFTER_OK = ("atk", "def", "spd", "rate", "scut", "refl", "ncut", "stun", "glock")
+AFTER_OK = ("atk", "def", "spd", "rate", "scut", "refl", "nrefl", "ncut", "stun", "glock")
 
 
 def _parse_skill(effect: str, target: str) -> Skill:
@@ -3171,6 +3189,19 @@ def _parse_skill(effect: str, target: str) -> Skill:
         raise SystemExit(
             "一騎討ちは**敵1体**の対象にだけ付けられる（いまの対象: {}）\n"
             "  効果文: {}".format(target, effect))
+    # 上書き（§7.263）。「上書き -10%」。**素の弱体の節と組でしか意味を持たない**
+    # ので、攻撃力の弱体が無ければ読み込みで断る。
+    mo = re.search(r"上書き\s*-(\d+)%", effect)
+    overwrite = skill_mag(float(mo.group(1)) / 100.0) if mo else 0.0
+    if overwrite > 0.0:
+        if "敵" not in target:
+            raise SystemExit(
+                "上書きは**敵**の対象にだけ付けられる（いまの対象: {}）\n"
+                "  効果文: {}".format(target, effect))
+        if not re.search(r"攻撃力\s*-\d+%（\d+秒）", effect):
+            raise SystemExit(
+                "上書きは**攻撃力の弱体**と組でしか書けない（素の節が無い）\n"
+                "  効果文: {}".format(effect))
     # 写し取り（§7.260）。「写し取り 決戦型（35秒）」。**段の呼び名で書く** ——
     # 内部の「大技」は画面に出ていない語なので、札の文面に使うとプレイヤーが
     # 自分の札が当たるのか確かめられない（呼び名の正は `rosterdata.TIER_JP`）。
@@ -3213,6 +3244,7 @@ def _parse_skill(effect: str, target: str) -> Skill:
                  drain_wits=drain > 0.0 and "知力比" in effect,
                  duel=duel, stretch=stretch,
                  mimic_secs=mimic_secs, mimic_tier=mimic_tier,
+                 overwrite=overwrite,
                  cleave=cleave, cleave_secs=cleave_secs,
                  mods=_skill_mods(effect),
                  sac=float(m.group(1)) / 100.0 if m else 0.0,
@@ -3440,6 +3472,7 @@ def _skill_line(u: Unit, name: str, tstr: str, tgts, kind: str,
                 who, name, where, mins(secs))
         what = {"def": "守り", "spd": "足", "rate": "気勢",
                 "scut": "兵法への備え", "refl": "刃返しの構え",
+                "nrefl": "返し討ちの構え",
                 "ncut": "矢弾への備え",
                 "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
         up = {"spd": "速まる", "scut": "固まる", "refl": "整う"}.get(stat, "上がる")
@@ -3506,6 +3539,7 @@ def _cast_open(u: Unit, name: str, kind_jp: str, tstr: str, tgts, t: float,
            "duel": None,          # 一騎討ち（§7.249）: {"with": 相手, "secs": 秒}
            "cleave": None,        # 薙ぎ払い（§7.252）: {"n": 体数, "secs": 秒}
            "stretch": None,       # 引き延ばし（§7.259）: {"mult": 倍率, "hit": 伸ばせた隊数}
+           "overwrite": None,     # 上書き（§7.263）: {"amt": 上乗せ, "hit": 深く入った相手}
            "decisive": False}
     _CASTS.append(rec)
     _CAST_BY_ID[rec["id"]] = rec
@@ -4085,6 +4119,7 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
             continue
         dst = (tgts if ally else [u]) if amt > 0.0 else ([] if ally else tgts)
         hit = [f for f in dst if f.men > 0.0]
+        over_hit = []           # 上書き（§7.263）が深く入った相手
         if key in ("perm_atk", "perm_def"):     # 恒久の強化（§7.235）
             # **蓄積器（_fx_add）へは入れない。** あれは秒で切れる山で、しかも
             # 「同じ名は強いほう一つだけ」なので積み上がらない。能力そのものへ足す。
@@ -4115,10 +4150,26 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
                 # 載った時点で「入れ物なし＝何発でも」になっていた（実戦では回数が
                 # 一度も効いていなかった。単体テストは蓄積器を通らないので見えず）。
                 _pool_set(f, pool)
-            _fx_add(f, (t + secs, key, amt, src, secs))
+            a = amt
+            if (sk.overwrite > 0.0 and key == "atk" and amt < 0.0
+                    and f.atk_mult > 1.0):
+                # 上書き（§7.263）。**すでに攻めが上がっている相手にだけ**深く入る。
+                # 見るのは倍率そのもの（`atk_mult > 1.0`）—— 誰が上げたか（兵法か
+                # 特性か宝物か）は問わない。「強化を剥がす」ではなく
+                # **「強化されているほど深く沈める」**なので、下限が 0 にならず
+                # 値段が付く（解除を却下した理由・§7.168 と同じ形）。
+                a -= sk.overwrite
+                over_hit.append(f)
+            _fx_add(f, (t + secs, key, a, src, secs))
         if hit:
             note("buff" if amt > 0.0 else "debuff", amt, secs,
                  abs(amt) * secs * len(hit), key, hit)
+            if over_hit:
+                note("overwrite", -sk.overwrite, secs,
+                     sk.overwrite * secs * len(over_hit), "atk", list(over_hit))
+                if rec is not None:
+                    rec["overwrite"] = {"amt": sk.overwrite,
+                                        "hit": [_who(f) for f in over_hit]}
             if rec is not None:
                 rec["mods"].append([_MOD_JP_KEY.get(key, key), amt, secs,
                                     [_who(f) for f in hit]])
@@ -4429,7 +4480,8 @@ def _apply_skill(u: Unit, sk: "Skill", tstr: str, own, foe, t: float,
 
 # 状態効果の内部キー → 表示語（記録・詳録用・§7.173）
 _MOD_JP_KEY = {"atk": "攻撃力", "def": "防御力", "spd": "移動速度", "rate": "気勢",
-               "scut": "兵法防御", "refl": "兵法反射", "ncut": "通常攻撃防御",
+               "scut": "兵法防御", "refl": "兵法反射", "nrefl": "通常攻撃反射",
+               "ncut": "通常攻撃防御",
                "null": "兵法打消し",
                # 恒久（§7.235）。秒を持たないので実況は「以後ずっと」の言い回しになる
                "perm_atk": "攻撃力", "perm_def": "防御力"}
@@ -4471,15 +4523,27 @@ def _skill_extra(item) -> str:
         return "{}が混乱（{:.0f}分）".format(where, mins(secs))
     if kind == "buff":
         what = {"def": "守り", "spd": "足", "rate": "気勢", "scut": "兵法への備え",
-                "refl": "刃返しの構え", "ncut": "矢弾への備え", "null": "打消しの構え",
+                "refl": "刃返しの構え", "nrefl": "返し討ちの構え",
+                "ncut": "矢弾への備え", "null": "打消しの構え",
                 "perm_def": "守り", "perm_atk": "攻撃"}.get(stat, "攻撃")
         if stat in ("perm_def", "perm_atk"):     # 恒久（§7.235）
             return "{}の{}が上がる（{:+.0%}・以後ずっと）".format(where, what, amount)
         return "{}の{}が上がる（{:+.0%}・{:.0f}分）".format(where, what, amount, mins(secs))
     if kind == "debuff":
         return "{}の{}（{:+.0%}・{:.0f}分）".format(where, _stat_down_jp(stat), amount, mins(secs))
+    if kind == "overwrite":
+        # 上書き（§7.263）。**「解除した」と語らない** —— 消しているのではなく、
+        # 上がっている相手ほど深く沈めている。ここを書かないと、盤面では
+        # 効いているのに実況では**何も言わない**成分になる（落とし穴79 の仲間）。
+        # **素の節と並ぶ順は保証されない**ので、この1行だけで「上乗せ」だと
+        # 読めるように書く（「追い討ち」）。素の -15% と足して読ませない。
+        return "勢いづいていた{}には追い討ちが入る（さらに{:+.0%}・{:.0f}分）".format(
+            where, amount, mins(secs))
     return ""
 
+# 【§7.262】**通常攻撃まわりの備え（`ncut`・`nrefl`）はここへ入れない。**
+# 先行段（§7.126）は「敵の兵法が飛んでくる前に構えが立っていないと意味が無い」
+# 器のためにある。通常攻撃はずっと続いているので、立つ順番で値打ちが変わらない。
 GUARD_KINDS = ("scut", "refl", "null")
 
 
@@ -4684,7 +4748,7 @@ def _recalc_mods(u: Unit) -> None:
         if abs(amt) > abs(best.get(k, 0.0)):
             best[k] = amt
     tot = {"atk": 0.0, "def": 0.0, "spd": 0.0, "rate": 0.0, "scut": 0.0,
-           "refl": 0.0, "ncut": 0.0, "null": 0.0}
+           "refl": 0.0, "nrefl": 0.0, "ncut": 0.0, "null": 0.0}
     for (kind, _), amt in best.items():
         tot[kind] += amt
     for k in tot:
@@ -4707,6 +4771,7 @@ def _recalc_mods(u: Unit) -> None:
     u.scut_mult = max(0.0, 1.0 - tot["scut"] - u.perm_scut)
     # 兵法反射（§7.51 機構2）。受けた兵法直撃の一部を撃ち手へ返す。
     u.refl = max(0.0, tot["refl"])
+    u.nrefl = max(0.0, tot["nrefl"])
     # 通常攻撃防御（§7.51 機構3）。通常攻撃の被害だけを減らす。
     u.ncut_mult = max(0.0, 1.0 - tot["ncut"])
     # 兵法打消し（§7.51 機構5・§7.152）。「窓のあいだ、その一度で N発まで」。
@@ -4750,7 +4815,7 @@ def _sight(u: Unit, f: Unit, foes: List[Unit]) -> float:
 
 
 def _credit_normal(kind: str, src: Unit, tgt: Unit, actual: float, over: float) -> None:
-    """通常攻撃の帳簿（§7.174）。kind は normal / cover / ff。"""
+    """通常攻撃の帳簿（§7.174）。kind は normal / cover / ff / nrefl。"""
     if kind == "ff":
         src.ff_dealt += actual         # 表示専用（§7.88）
         tgt.taken += actual            # 表示専用（§7.94・同士討ちの被害も被ダメ）
@@ -4762,6 +4827,10 @@ def _credit_normal(kind: str, src: Unit, tgt: Unit, actual: float, over: float) 
         return
     if kind == "cover":
         tgt.covered += actual          # 表示専用（§7.144）
+    if kind == "nrefl":
+        # 返し討ち（§7.262）。**兵法反射と同じ欄に積む** —— どちらも「受けた
+        # ぶんを撃ち手へ返した」量で、画面では1つの数字として読めたほうがよい。
+        src.refl_back += actual        # 表示専用（§7.88）
     src.dealt += actual
     tgt.taken += actual                # 表示専用（§7.94）
     _pair_add(src, tgt, actual)
@@ -5306,6 +5375,15 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     contrib_b.append(("normal", u, f, hit))   # 帳簿は精算で（§7.174）
                     db[j] += hit
+                    if f.nrefl > 0.0:
+                        # 返し討ち（§7.262）。**受けた通常攻撃の一部を撃ち手へ返す。**
+                        # 減らす先は同士討ち・馬前と同じ蓄積器（da/db）で、men は
+                        # ここで触らない —— 触ると左右の同時解決が壊れる。
+                        # 返す量は**素の一撃**に対する割合で、精算では受け手
+                        # （撃ち手）の生存で按分される（馬前と同じ流儀）。
+                        back = hit * f.nrefl
+                        contrib_a.append(("nrefl", f, u, back))
+                        da[i] += back
             if SEQUENTIAL_DAMAGE:      # 陽性対照。通常は通らない
                 _settle_normal(contrib_b, ub, db)
                 for u, d in zip(ub, db):
@@ -5380,6 +5458,10 @@ def simulate(a: Army, b: Army, dt: float = 0.25, t_max: float = T_MAX,
                         u.gauge += hit / f.men0 * GAUGE_PER_DEAL
                     contrib_a.append(("normal", u, f, hit))   # 帳簿は精算で（§7.174）
                     da[i] += hit
+                    if f.nrefl > 0.0:        # 返し討ち（§7.262）・逆向き
+                        back = hit * f.nrefl
+                        contrib_b.append(("nrefl", f, u, back))
+                        db[j] += back
             # 帳簿の精算（§7.174）: 反映の直前に、対象ごとの実損害を寄与へ比例配分
             _settle_normal(contrib_a, ua, da)
             _settle_normal(contrib_b, ub, db)
